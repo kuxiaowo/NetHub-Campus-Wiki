@@ -1,0 +1,151 @@
+/* 全局设计变量：颜色、阴影、圆角在这里集中维护，避免页面里到处写散值。 */
+:root {
+  --bg: #f5f7fb;
+  --card: #ffffff;
+  --text: #172033;
+  --muted: #667085;
+  --primary: #3867ff;
+  --primary-dark: #244bd6;
+  --line: #e6eaf2;
+  --shadow: 0 12px 28px rgba(28, 39, 76, 0.08);
+  --radius: 8px;
+}
+
+/* 基础排版和页面容器。 */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+a { color: inherit; text-decoration: none; }
+
+.container { width: min(1120px, calc(100% - 32px)); margin: 0 auto; }
+
+/* 顶部导航：品牌名在左侧，页面入口紧跟在品牌右侧。 */
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
+}
+
+.navbar { display: flex; align-items: center; justify-content: flex-start; gap: 28px; height: 68px; }
+.brand { flex: 0 0 auto; font-weight: 800; font-size: 22px; letter-spacing: 0; }
+.nav-links { display: flex; gap: 10px; }
+.nav-links a { padding: 9px 14px; border-radius: 8px; color: var(--muted); font-weight: 600; }
+.nav-links a.active, .nav-links a:hover { color: var(--primary); background: #eef3ff; }
+
+/* 通用面板。卡片圆角控制在 8px，保持工具型界面的克制感。 */
+.card {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 24px;
+}
+
+/* 首页布局。 */
+.page-grid { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 22px; padding: 34px 0; }
+.full-width { grid-column: 1 / -1; }
+.hero { min-height: 260px; display: flex; flex-direction: column; justify-content: center; }
+.eyebrow { color: var(--primary); font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; font-size: 12px; }
+h1, h2, h3, p { margin-top: 0; }
+h1 { font-size: clamp(34px, 6vw, 58px); line-height: 1; letter-spacing: 0; margin-bottom: 16px; }
+h2 { margin-bottom: 6px; }
+p { color: var(--muted); line-height: 1.8; }
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  padding: 12px 18px;
+  border-radius: 8px;
+  background: var(--primary);
+  color: white;
+  font-weight: 800;
+  box-shadow: 0 12px 24px rgba(56, 103, 255, 0.24);
+}
+.button:hover { background: var(--primary-dark); }
+
+/* 区块标题和表单控件。 */
+.section-title { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
+.section-title span { color: var(--muted); font-size: 14px; }
+.with-control { align-items: center; }
+
+.announcement-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.announcement-list li { padding: 14px; border-radius: 8px; background: #f7f9ff; border: 1px solid #edf1fb; color: #344054; }
+
+.input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 11px 13px;
+  background: white;
+  color: var(--text);
+  outline: none;
+}
+.input:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(56, 103, 255, 0.12); }
+.input.small { width: 130px; }
+
+/* 项目卡片和项目列表行。 */
+.project-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.project-card, .project-row {
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+}
+.project-card:hover, .project-row:hover { transform: translateY(-2px); box-shadow: var(--shadow); border-color: #cfd8ff; }
+.project-card { padding: 18px; }
+.project-icon { font-size: 34px; width: 54px; height: 54px; display: grid; place-items: center; border-radius: 8px; background: #f0f4ff; margin-bottom: 14px; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 13px; }
+.badge { padding: 5px 9px; border-radius: 8px; background: #eef3ff; color: #3154d4; font-weight: 700; }
+.cas-tags { display: flex; gap: 6px; margin-top: 12px; }
+.cas-tag { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; background: #eef2f7; color: #98a2b3; font-weight: 900; }
+.cas-tag.on { background: #e8fff3; color: #12915a; }
+
+/* 项目库页面：左侧筛选栏 + 右侧项目列表。 */
+.library-layout { display: grid; grid-template-columns: 280px 1fr; gap: 22px; padding: 34px 0; align-items: start; }
+.sidebar { position: sticky; top: 92px; display: grid; gap: 10px; }
+.sidebar label { font-size: 13px; color: var(--muted); font-weight: 700; margin-top: 6px; }
+.category-list { display: grid; gap: 8px; }
+.category-button { border: 0; padding: 10px 12px; text-align: left; border-radius: 8px; background: #f7f9ff; cursor: pointer; color: #344054; font-weight: 700; }
+.category-button.active, .category-button:hover { background: #eaf0ff; color: var(--primary); }
+
+.project-list { display: grid; gap: 14px; }
+.project-row { padding: 16px; display: grid; grid-template-columns: 64px 1fr; gap: 16px; align-items: start; }
+.project-row .project-icon { margin: 0; }
+.project-row h3, .project-card h3 { margin: 0 0 8px; }
+.project-row p, .project-card p { margin-bottom: 12px; }
+
+/* 项目详情页。 */
+.detail-container { padding: 34px 0; }
+.back-link { display: inline-block; margin-bottom: 16px; color: var(--primary); font-weight: 800; }
+.detail-card .detail-head { display: flex; gap: 18px; align-items: center; border-bottom: 1px solid var(--line); padding-bottom: 20px; margin-bottom: 20px; }
+.detail-card .project-icon { margin: 0; font-size: 44px; width: 72px; height: 72px; }
+.media-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 12px; }
+.media-grid img { width: 100%; border-radius: 8px; border: 1px solid var(--line); object-fit: cover; max-height: 280px; }
+.link-card { display: block; padding: 14px; border: 1px solid var(--line); border-radius: 8px; color: var(--primary); word-break: break-all; }
+.update-list { line-height: 1.9; color: #344054; }
+.footer { text-align: center; color: var(--muted); padding: 28px; }
+.empty { color: var(--muted); padding: 26px; text-align: center; border: 1px dashed #ccd4e5; border-radius: 8px; }
+.error { color: #b42318; background: #fff1f0; border-color: #ffd4d1; }
+
+/* 移动端布局：导航换行，筛选栏和内容改为单列。 */
+@media (max-width: 820px) {
+  .navbar { flex-wrap: wrap; gap: 10px 18px; height: auto; padding: 14px 0; }
+  .nav-links { width: 100%; overflow-x: auto; }
+  .page-grid, .library-layout { grid-template-columns: 1fr; }
+  .project-grid { grid-template-columns: 1fr; }
+  .sidebar { position: static; }
+  .project-row { grid-template-columns: 1fr; }
+  .media-grid { grid-template-columns: 1fr; }
+}

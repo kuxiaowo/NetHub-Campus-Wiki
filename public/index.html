@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>校园论坛 - 首页</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <nav class="navbar container">
+      <a class="brand" href="/index.html">校园论坛</a>
+      <div class="nav-links" aria-label="主导航">
+        <a class="active" href="/index.html">首页</a>
+        <a href="/projects.html">CAS 项目库</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="container page-grid">
+    <section class="hero card">
+      <p class="eyebrow">Campus Activity & Service</p>
+      <h1>校园论坛</h1>
+      <p>一个简洁的校园项目展示入口：查看公告、发现优秀 CAS 项目，并为后续论坛、账号、评论等功能预留扩展空间。</p>
+      <a class="button" href="/projects.html">浏览 CAS 项目库</a>
+    </section>
+
+    <section class="card">
+      <div class="section-title">
+        <h2>最新公告</h2>
+        <span>Announcements</span>
+      </div>
+      <ul id="announcementList" class="announcement-list skeleton-list"></ul>
+    </section>
+
+    <section class="card full-width">
+      <div class="section-title with-control">
+        <div>
+          <h2>推荐项目</h2>
+          <span>按最新或热门排序</span>
+        </div>
+        <select id="recommendSort" class="input small">
+          <option value="latest">最新</option>
+          <option value="popular">热门</option>
+        </select>
+      </div>
+      <div id="recommendProjects" class="project-grid"></div>
+    </section>
+  </main>
+
+  <footer class="footer">校园论坛原型 · 前端静态服务 + FastAPI API + MySQL</footer>
+  <script src="/js/config.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/index.js"></script>
+</body>
+</html>

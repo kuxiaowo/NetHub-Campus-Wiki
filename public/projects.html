@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CAS 项目库</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <nav class="navbar container">
+      <a class="brand" href="/index.html">校园论坛</a>
+      <div class="nav-links" aria-label="主导航">
+        <a href="/index.html">首页</a>
+        <a class="active" href="/projects.html">CAS 项目库</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="container library-layout">
+    <aside class="card sidebar">
+      <h2>筛选项目</h2>
+      <label>关键词</label>
+      <input id="searchInput" class="input" placeholder="搜索名称、负责人、简介" />
+
+      <label>年份</label>
+      <select id="yearSelect" class="input">
+        <option value="">全部年份</option>
+      </select>
+
+      <label>排序</label>
+      <select id="sortSelect" class="input">
+        <option value="latest">最新</option>
+        <option value="popular">热门</option>
+      </select>
+
+      <h3>分类</h3>
+      <div id="categoryList" class="category-list"></div>
+    </aside>
+
+    <section class="card content-panel">
+      <div class="section-title">
+        <div>
+          <h1>CAS 项目库</h1>
+          <span id="projectCount">加载中...</span>
+        </div>
+      </div>
+      <div id="projectList" class="project-list"></div>
+    </section>
+  </main>
+
+  <footer class="footer">点击项目卡片查看完整信息</footer>
+  <script src="/js/config.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/projects.js"></script>
+</body>
+</html>
