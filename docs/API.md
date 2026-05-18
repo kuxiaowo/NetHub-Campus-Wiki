@@ -239,3 +239,106 @@ curl http://127.0.0.1:3100/api/projects/1
   "detail": "项目不存在"
 }
 ```
+
+## GET /api/resources/meta
+
+获取资源中心筛选器需要的资源分类、资源年份和照片活动年份。
+
+### 请求示例
+
+```bash
+curl http://127.0.0.1:3100/api/resources/meta
+```
+
+### 响应字段
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `categories` | `ResourceCategory[]` | 可筛选资源分类 |
+| `categories[].value` | `string` | 查询参数使用的分类值 |
+| `categories[].label` | `string` | 页面展示名称 |
+| `years` | `number[]` | 资源年份 |
+| `photoYears` | `number[]` | 照片活动年份 |
+
+## GET /api/resources
+
+获取资源中心普通资源列表，支持分类、年份、关键词和排序。
+
+### 查询参数
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `category` | `string` | 否 | 无 | 按资源分类筛选，例如 `yearbook`、`photos`、`other` |
+| `year` | `number` | 否 | 无 | 按资源年份筛选 |
+| `search` | `string` | 否 | 无 | 搜索资源标题、简介、分类展示名和类型 |
+| `sort` | `string` | 否 | `hot` | `hot`、`new`、`old` 或 `download` |
+
+### 响应字段
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `data` | `Resource[]` | 符合筛选条件的资源列表 |
+
+### Resource 结构
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | `number` | 资源 ID |
+| `title` | `string` | 资源标题 |
+| `description` | `string` | 资源简介 |
+| `year` | `number` | 资源年份 |
+| `category` | `string` | 资源分类值 |
+| `label` | `string` | 资源分类展示名 |
+| `type` | `string` | 资源类型展示名 |
+| `hot` | `number` | 热度 |
+| `downloads` | `number` | 下载次数 |
+| `image` | `string` | 封面图 URL |
+| `resourceUrl` | `string` | 资源访问或下载 URL |
+| `createdAt` | `string | null` | 创建时间 |
+| `updatedAt` | `string | null` | 更新时间 |
+
+### 参数错误
+
+`sort` 只允许 `hot`、`new`、`old` 或 `download`。传入其他值会返回 `422 Unprocessable Entity`。
+
+## GET /api/photo-activities
+
+获取活动照片列表，每个活动包含自己的照片数组。
+
+### 查询参数
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `year` | `number` | 否 | 无 | 按活动年份筛选 |
+| `search` | `string` | 否 | 无 | 搜索活动名称 |
+| `sort` | `string` | 否 | `hot` | `hot`、`new`、`old` 或 `photoCount` |
+
+### 响应字段
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `data` | `PhotoActivity[]` | 符合筛选条件的活动照片集合 |
+
+### PhotoActivity 结构
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | `number` | 活动 ID |
+| `activity` | `string` | 活动名称 |
+| `year` | `number` | 活动年份 |
+| `hot` | `number` | 活动热度 |
+| `images` | `PhotoItem[]` | 活动照片 |
+| `createdAt` | `string | null` | 创建时间 |
+
+### PhotoItem 结构
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | `number` | 照片 ID |
+| `title` | `string` | 照片标题 |
+| `src` | `string` | 照片 URL |
+| `sortOrder` | `number` | 活动内排序 |
+
+### 参数错误
+
+`sort` 只允许 `hot`、`new`、`old` 或 `photoCount`。传入其他值会返回 `422 Unprocessable Entity`。

@@ -94,3 +94,68 @@ class ProjectDetailResponse(BaseModel):
     """项目详情响应。"""
 
     data: Project = Field(description="指定 ID 的项目。")
+
+
+class ResourceCategory(BaseModel):
+    """资源分类筛选项。"""
+
+    value: str = Field(description="分类值，用于查询参数。")
+    label: str = Field(description="分类展示名称。")
+
+
+class ResourceMetaResponse(BaseModel):
+    """资源中心筛选元数据响应。"""
+
+    categories: list[ResourceCategory] = Field(description="可筛选的资源分类。")
+    years: list[int] = Field(description="可筛选的资源年份。")
+    photoYears: list[int] = Field(description="可筛选的照片活动年份。")
+
+
+class Resource(BaseModel):
+    """资源中心普通资源对象。"""
+
+    id: int
+    title: str
+    description: str
+    year: int
+    category: str
+    label: str
+    type: str
+    hot: int
+    downloads: int
+    image: str
+    resourceUrl: str
+    createdAt: datetime | None = None
+    updatedAt: datetime | None = None
+
+
+class ResourceListResponse(BaseModel):
+    """资源列表响应。"""
+
+    data: list[Resource] = Field(description="符合查询条件的资源列表。")
+
+
+class PhotoItem(BaseModel):
+    """单张活动照片。"""
+
+    id: int
+    title: str
+    src: str
+    sortOrder: int
+
+
+class PhotoActivity(BaseModel):
+    """活动照片集合。"""
+
+    id: int
+    activity: str
+    year: int
+    hot: int
+    images: list[PhotoItem]
+    createdAt: datetime | None = None
+
+
+class PhotoActivityListResponse(BaseModel):
+    """活动照片列表响应。"""
+
+    data: list[PhotoActivity] = Field(description="符合查询条件的活动照片集合。")

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>资源中心</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <nav class="navbar container">
+      <a class="brand" href="/index.html">校园论坛</a>
+      <div class="nav-links" aria-label="主导航">
+        <a href="/index.html">首页</a>
+        <a href="/projects.html">CAS 项目库</a>
+        <a class="active" href="/resources.html">资源中心</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="container library-layout">
+    <aside class="card sidebar resource-sidebar">
+      <h2>资源筛选</h2>
+      <label>关键词</label>
+      <input id="resourceSearch" class="input" type="search" placeholder="搜索名称、内容、简介" />
+
+      <label>年份</label>
+      <select id="resourceYear" class="input">
+        <option value="">全部年份</option>
+      </select>
+
+      <label>排序</label>
+      <select id="resourceSort" class="input">
+        <option value="hot">最热</option>
+        <option value="new">最新</option>
+        <option value="download">下载最多</option>
+        <option value="old">最早</option>
+      </select>
+
+      <h3>资源类型</h3>
+      <div id="resourceCategoryList" class="category-list"></div>
+
+      <section id="photoFilters" class="photo-filters" aria-label="照片筛选">
+        <h2>照片筛选</h2>
+        <label>搜索</label>
+        <input id="photoSearch" class="input" type="search" placeholder="搜索活动名称" />
+
+        <label>年份</label>
+        <select id="photoYear" class="input">
+          <option value="">全部年份</option>
+        </select>
+
+        <label>排序</label>
+        <select id="photoSort" class="input">
+          <option value="hot">最热</option>
+          <option value="new">最新</option>
+          <option value="photoCount">照片最多</option>
+          <option value="old">最早</option>
+        </select>
+
+        <h3>选择活动</h3>
+        <div id="activityList" class="category-list"></div>
+      </section>
+    </aside>
+
+    <section class="card content-panel resource-panel">
+      <div id="resourceView">
+        <div class="section-title">
+          <div>
+            <h1>资源中心</h1>
+            <span id="resourceCount">加载中...</span>
+          </div>
+        </div>
+        <div id="resourceGrid" class="resource-grid"></div>
+      </div>
+
+      <div id="photoView" class="photo-view">
+        <div class="section-title with-control">
+          <div>
+            <h1 id="photoTitle">活动照片</h1>
+            <span id="photoMeta">选择活动查看照片</span>
+          </div>
+          <button id="downloadActivity" class="button secondary" type="button">下载活动照片</button>
+        </div>
+        <div id="photoGrid" class="photo-grid" aria-live="polite"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="photoModal" class="photo-modal" aria-hidden="true" role="dialog" aria-label="照片详情">
+    <div class="photo-modal-backdrop" data-close-modal></div>
+    <section class="photo-modal-panel">
+      <div class="photo-modal-head">
+        <div>
+          <h2 id="modalTitle">照片详情</h2>
+          <p id="modalMeta"></p>
+        </div>
+        <div class="modal-actions">
+          <a id="modalDownload" class="button secondary" href="#" download>下载</a>
+          <button class="icon-button" type="button" aria-label="关闭" data-close-modal>×</button>
+        </div>
+      </div>
+      <img id="modalImage" src="" alt="" />
+    </section>
+  </div>
+
+  <footer class="footer">资源中心支持年鉴、活动照片和常用资料筛选</footer>
+  <script src="/js/config.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/resources.js"></script>
+</body>
+</html>

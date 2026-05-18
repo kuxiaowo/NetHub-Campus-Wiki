@@ -14,12 +14,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.config import settings
 from backend.database import get_db_connection
 from backend.projects import get_project, list_meta, list_projects
+from backend.resources import list_photo_activities, list_resource_meta, list_resources
 from backend.schemas import (
     AnnouncementsResponse,
     HealthResponse,
     MetaResponse,
+    PhotoActivityListResponse,
     ProjectDetailResponse,
     ProjectListResponse,
+    ResourceListResponse,
+    ResourceMetaResponse,
 )
 
 ANNOUNCEMENTS = [
@@ -41,6 +45,7 @@ app = FastAPI(
         {"name": "system", "description": "服务状态与运行信息。"},
         {"name": "content", "description": "首页内容接口。"},
         {"name": "projects", "description": "CAS 项目库查询接口。"},
+        {"name": "resources", "description": "资源中心和活动照片查询接口。"},
     ],
 )
 
@@ -109,3 +114,33 @@ def project_detail(project_id: int):
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     return {"data": project}
+
+
+@app.get("/api/resources/meta", response_model=ResourceMetaResponse, tags=["resources"])
+def resources_meta():
+    """返回资源中心筛选器需要的分类和年份。"""
+
+    return list_resource_meta()
+
+
+@app.get("/api/resources", response_model=ResourceListResponse, tags=["resources"])
+def resources(
+    category: str | None = Query(default=None, description="按资源分类筛选。"),
+    year: int | None = Query(default=None, description="按资源年份筛选。"),
+    search: str | None = Query(default=None, description="搜索资源名称、简介和类型。"),
+    sort: str = Query(default="hot", pattern="^(hot|new|old|download)$", description="排序方式。"),
+):
+    """返回资源中心普通资源列表。"""
+
+    return {"data": list_resources(category=category, year=year, search=search, sort=sort)}
+
+
+@app.get("/api/photo-activities", response_model=PhotoActivityListResponse, tags=["resources"])
+def photo_activities(
+    year: int | None = Query(default=None, description="按活动年份筛选。"),
+    search: str | None = Query(default=None, description="搜索活动名称。"),
+    sort: str = Query(default="hot", pattern="^(hot|new|old|photoCount)$", description="排序方式。"),
+):
+    """返回活动照片列表，每个活动包含自己的照片数组。"""
+
+    return {"data": list_photo_activities(year=year, search=search, sort=sort)}
