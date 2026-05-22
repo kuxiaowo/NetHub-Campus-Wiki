@@ -82,14 +82,21 @@ def format_resource(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def list_resource_meta() -> dict[str, list[dict[str, str]] | list[int]]:
+def list_resource_meta() -> dict[str, list[dict[str, Any]] | list[int]]:
     """查询资源中心筛选器需要的分类和年份。"""
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT DISTINCT category, label FROM resources ORDER BY label ASC")
+            cursor.execute(
+                """
+                SELECT value, label, sort_order
+                FROM resource_categories
+                WHERE is_active = 1
+                ORDER BY sort_order ASC, id ASC
+                """
+            )
             categories = [
-                {"value": row["category"], "label": row["label"]}
+                {"value": row["value"], "label": row["label"], "sortOrder": row["sort_order"]}
                 for row in cursor.fetchall()
             ]
 
@@ -164,10 +171,10 @@ def list_photo_activities(
         params.extend([keyword, keyword])
 
     order_map = {
-        "hot": "pa.hot DESC, pa.created_at DESC",
-        "new": "pa.year DESC, pa.created_at DESC",
-        "old": "pa.year ASC, pa.created_at ASC",
-        "photoCount": "photo_count DESC, pa.created_at DESC",
+        "hot": "pa.sort_order ASC, pa.hot DESC, pa.created_at DESC",
+        "new": "pa.sort_order ASC, pa.year DESC, pa.created_at DESC",
+        "old": "pa.sort_order ASC, pa.year ASC, pa.created_at ASC",
+        "photoCount": "pa.sort_order ASC, photo_count DESC, pa.created_at DESC",
     }
     where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
     sql = f"""
@@ -177,13 +184,14 @@ def list_photo_activities(
           pa.description,
           pa.year,
           pa.hot,
+          pa.sort_order,
           pa.photo_dir,
           pa.created_at,
           COUNT(pi.id) AS photo_count
         FROM photo_activities pa
         LEFT JOIN photo_items pi ON pi.activity_id = pa.id
         {where_sql}
-        GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.photo_dir, pa.created_at
+        GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.sort_order, pa.photo_dir, pa.created_at
         ORDER BY {order_map[sort]}, pa.id DESC
     """
 
@@ -231,11 +239,18 @@ def list_photo_activities(
             "description": row.get("description") or "",
             "year": row["year"],
             "hot": row["hot"],
+            "sortOrder": row["sort_order"],
             "photoDir": row.get("photo_dir"),
             "images": images,
             "createdAt": row.get("created_at"),
             }
         )
     if sort == "photoCount":
-        result.sort(key=lambda item: (len(item["images"]), item["createdAt"] or ""), reverse=True)
+        result.sort(
+            key=lambda item: (
+                item["sortOrder"],
+                -len(item["images"]),
+                -(item["createdAt"].timestamp() if item["createdAt"] else 0),
+            )
+        )
     return result

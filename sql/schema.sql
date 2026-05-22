@@ -10,6 +10,7 @@ USE campus_cas_forum;
 
 DROP TABLE IF EXISTS photo_items;
 DROP TABLE IF EXISTS photo_activities;
+DROP TABLE IF EXISTS resource_categories;
 DROP TABLE IF EXISTS resources;
 DROP TABLE IF EXISTS projects;
 DROP TABLE IF EXISTS users;
@@ -27,6 +28,16 @@ CREATE TABLE users (
   INDEX idx_users_role (role),
   INDEX idx_users_active (is_active)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO users (username, password_hash, display_name, role, is_active)
+VALUES
+(
+  'kuxiaowo',
+  'pbkdf2_sha256$260000$a3V4aWFvd28tYWRtaW4tMDE$TdAF_ZJWEz0cqhL2I8sJo1_dxjYbOkGwNTNKdv-1PXM',
+  '庞正心',
+  'admin',
+  1
+);
 
 CREATE TABLE projects (
   id INT AUTO_INCREMENT PRIMARY KEY COMMENT '项目 ID',
@@ -70,17 +81,31 @@ CREATE TABLE resources (
   INDEX idx_resource_downloads (downloads)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE resource_categories (
+  id INT AUTO_INCREMENT PRIMARY KEY COMMENT '资源分类 ID',
+  value VARCHAR(40) NOT NULL COMMENT '资源分类值，例如 yearbook/photos/other',
+  label VARCHAR(60) NOT NULL COMMENT '资源分类展示名称',
+  sort_order INT NOT NULL DEFAULT 0 COMMENT '人工排序权重，数字越小越靠前',
+  is_active TINYINT(1) NOT NULL DEFAULT 1 COMMENT '分类是否启用',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_resource_categories_value (value),
+  INDEX idx_resource_categories_sort (is_active, sort_order, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE photo_activities (
   id INT AUTO_INCREMENT PRIMARY KEY COMMENT '活动 ID',
   activity VARCHAR(160) NOT NULL COMMENT '活动名称',
   description TEXT NOT NULL COMMENT '活动照片简介',
   year INT NOT NULL COMMENT '活动年份',
   hot INT NOT NULL DEFAULT 0 COMMENT '活动热度',
+  sort_order INT NOT NULL DEFAULT 0 COMMENT '人工排序权重，数字越小越靠前',
   photo_dir VARCHAR(600) DEFAULT NULL COMMENT '活动照片目录 URL，指向 public 下的文件夹',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_photo_activity_year (year),
-  INDEX idx_photo_activity_hot (hot)
+  INDEX idx_photo_activity_hot (hot),
+  INDEX idx_photo_activity_sort (sort_order, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE photo_items (
@@ -215,13 +240,19 @@ VALUES
   'https://images.unsplash.com/photo-1521587760476-6c12a4b040da?auto=format&fit=crop&w=1600&q=90'
 );
 
-INSERT INTO photo_activities (id, activity, description, year, hot)
+INSERT INTO resource_categories (value, label, sort_order, is_active)
 VALUES
-(1, '春季运动会', '记录开幕式、接力赛、领奖瞬间和操场看台等运动会现场照片。', 2026, 98),
-(2, '校园文化节', '收录舞台演出、社团展位、音乐现场和合影留念等文化节影像。', 2026, 92),
-(3, '毕业典礼', '整理拨穗仪式、毕业合照和校园告别等毕业季纪念照片。', 2026, 89),
-(4, '新生迎新会', '记录签到现场、志愿服务和校园导览等迎新活动片段。', 2025, 76),
-(5, '艺术展览', '展示展厅、作品墙和观展交流等艺术展览现场照片。', 2025, 72);
+('yearbook', 'Yearbook', 10, 1),
+('photos', '活动照片', 20, 1),
+('other', '其他资源', 999, 1);
+
+INSERT INTO photo_activities (id, activity, description, year, hot, sort_order)
+VALUES
+(1, '春季运动会', '记录开幕式、接力赛、领奖瞬间和操场看台等运动会现场照片。', 2026, 98, 10),
+(2, '校园文化节', '收录舞台演出、社团展位、音乐现场和合影留念等文化节影像。', 2026, 92, 20),
+(3, '毕业典礼', '整理拨穗仪式、毕业合照和校园告别等毕业季纪念照片。', 2026, 89, 30),
+(4, '新生迎新会', '记录签到现场、志愿服务和校园导览等迎新活动片段。', 2025, 76, 40),
+(5, '艺术展览', '展示展厅、作品墙和观展交流等艺术展览现场照片。', 2025, 72, 50);
 
 INSERT INTO photo_items (activity_id, title, image_url, sort_order)
 VALUES

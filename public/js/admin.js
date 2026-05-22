@@ -14,6 +14,8 @@ const adminState = {
   activePhotoItems: [],
   selectedActivity: null,
   currentActivity: null,
+  dragState: null,
+  dragJustEnded: false,
   dbTables: [],
   dbTable: null,
   dbSchema: [],
@@ -64,6 +66,103 @@ function buildQuery(params) {
   });
   const text = query.toString();
   return text ? `?${text}` : '';
+}
+
+function sortableButtons(type) {
+  return [...document.querySelectorAll(`[data-sortable="${type}"]`)];
+}
+
+function sortablePayload(type) {
+  return {
+    items: sortableButtons(type).map((button, index) => ({
+      id: adminNumber(button.dataset.sortableId),
+      sortOrder: (index + 1) * 10,
+    })),
+  };
+}
+
+async function persistSortableOrder(type) {
+  if (type === 'resource-category') {
+    await adminEndpoint('/admin/resource-categories/reorder', {
+      method: 'PATCH',
+      body: JSON.stringify(sortablePayload(type)),
+    });
+    adminState.resourceMetaLoaded = false;
+    await loadResourceAdminMeta();
+    return;
+  }
+  if (type === 'activity') {
+    await adminEndpoint('/admin/photo-activities/reorder', {
+      method: 'PATCH',
+      body: JSON.stringify(sortablePayload(type)),
+    });
+    await loadActivities();
+  }
+}
+
+function moveSortableItem(target) {
+  const source = adminState.dragState?.element;
+  if (!source || !target || source === target || source.dataset.sortable !== target.dataset.sortable) return;
+  const position = source.compareDocumentPosition(target);
+  if (position & Node.DOCUMENT_POSITION_FOLLOWING) {
+    target.after(source);
+  } else {
+    target.before(source);
+  }
+}
+
+function bindSortableLists() {
+  document.addEventListener('dragstart', (event) => {
+    const item = event.target.closest('[data-sortable]');
+    if (!item) return;
+    adminState.dragState = { element: item, type: item.dataset.sortable };
+    item.classList.add('is-dragging');
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', item.dataset.sortableId || '');
+  });
+
+  document.addEventListener('dragover', (event) => {
+    const item = event.target.closest('[data-sortable]');
+    if (!adminState.dragState || !item || item.dataset.sortable !== adminState.dragState.type) return;
+    event.preventDefault();
+    moveSortableItem(item);
+  });
+
+  document.addEventListener('drop', async (event) => {
+    const item = event.target.closest('[data-sortable]');
+    if (!adminState.dragState || !item || item.dataset.sortable !== adminState.dragState.type) return;
+    event.preventDefault();
+    const { type } = adminState.dragState;
+    adminState.dragState.dropped = true;
+    adminState.dragJustEnded = true;
+    try {
+      await persistSortableOrder(type);
+    } catch (error) {
+      window.alert(error.message);
+      if (type === 'resource-category') {
+        adminState.resourceMetaLoaded = false;
+        await loadResourceAdminMeta();
+      }
+      if (type === 'activity') await loadActivities();
+    } finally {
+      window.setTimeout(() => {
+        adminState.dragJustEnded = false;
+      }, 0);
+    }
+  });
+
+  document.addEventListener('dragend', async () => {
+    const state = adminState.dragState;
+    document.querySelectorAll('.is-dragging').forEach((item) => item.classList.remove('is-dragging'));
+    adminState.dragState = null;
+    if (state && !state.dropped) {
+      if (state.type === 'resource-category') {
+        adminState.resourceMetaLoaded = false;
+        await loadResourceAdminMeta();
+      }
+      if (state.type === 'activity') await loadActivities();
+    }
+  });
 }
 
 function renderAdminTable(columns, rows, actions) {
@@ -402,16 +501,25 @@ function openUserModal(user) {
 
 async function loadResourceAdminMeta() {
   if (adminState.resourceMetaLoaded) return;
-  const meta = await adminEndpoint('/resources/meta');
+  const [meta, adminCategories] = await Promise.all([
+    adminEndpoint('/resources/meta'),
+    adminEndpoint('/admin/resource-categories'),
+  ]);
+  meta.categories = adminCategories.data.filter((category) => category.isActive);
   if (!meta.categories.some((category) => category.value === 'photos')) {
-    meta.categories.push({ value: 'photos', label: '活动照片' });
+    meta.categories.push({ value: 'photos', label: '活动照片', sortOrder: 20 });
   }
   const categories = [
     { value: '', label: '全部资源' },
     ...meta.categories,
   ];
   adminEls.resourceCategoryList.innerHTML = categories.map((category) => `
-    <button class="category-button ${category.value === adminState.resourceCategory ? 'active' : ''}" type="button" data-admin-resource-category="${adminText(category.value)}">
+    <button
+      class="category-button ${category.value === adminState.resourceCategory ? 'active' : ''}"
+      type="button"
+      data-admin-resource-category="${adminText(category.value)}"
+      ${category.id ? `data-sortable="resource-category" data-sortable-id="${adminText(category.id)}" draggable="true"` : ''}
+    >
       ${adminText(category.label)}
     </button>
   `).join('');
@@ -579,7 +687,14 @@ function renderAdminActivityList(activities) {
       <span class="activity-count">${adminText(totalPhotoCount)} 张</span>
     </button>`,
     ...activities.map((activity) => `
-      <button class="category-button ${activity.id === adminState.selectedActivity ? 'active' : ''}" type="button" data-admin-activity-id="${adminText(activity.id)}">
+      <button
+        class="category-button ${activity.id === adminState.selectedActivity ? 'active' : ''}"
+        type="button"
+        data-admin-activity-id="${adminText(activity.id)}"
+        data-sortable="activity"
+        data-sortable-id="${adminText(activity.id)}"
+        draggable="true"
+      >
         ${adminText(activity.activity)}
         <span class="activity-count">${adminText(activity.images.length)} 张</span>
       </button>
@@ -672,6 +787,7 @@ function activityFields(activity = {}) {
     { name: 'description', label: '活动简介', value: activity.description, type: 'textarea', required: true },
     { name: 'year', label: '年份', value: activity.year || new Date().getFullYear(), type: 'number', required: true },
     { name: 'hot', label: '热度', value: activity.hot || 0, type: 'number' },
+    { name: 'sortOrder', label: 'sortOrder', value: activity.sortOrder || 0, type: 'number' },
     { name: 'photoDir', label: '照片目录', value: activity.photoDir || '', browse: 'folder' },
   ];
 }
@@ -844,6 +960,7 @@ async function deleteDbRow(id) {
 }
 
 function bindAdminEvents() {
+  bindSortableLists();
   document.querySelectorAll('[data-admin-view]').forEach((button) => {
     button.addEventListener('click', () => switchAdminView(button.dataset.adminView));
   });
@@ -911,6 +1028,7 @@ function bindAdminEvents() {
   document.addEventListener('click', (event) => {
     const target = event.target.closest('button');
     if (!target) return;
+    if (adminState.dragJustEnded) return;
 
     if (target.dataset.adminModalClose !== undefined) closeAdminModal();
     if (target.dataset.filePickerClose !== undefined) closeFilePicker();

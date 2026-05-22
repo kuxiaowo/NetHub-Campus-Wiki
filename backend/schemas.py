@@ -135,6 +135,7 @@ class ResourceCategory(BaseModel):
 
     value: str = Field(description="分类值，用于查询参数。")
     label: str = Field(description="分类展示名称。")
+    sortOrder: int = Field(description="人工排序权重，数字越小越靠前。")
 
 
 class ResourceMetaResponse(BaseModel):
@@ -186,6 +187,7 @@ class PhotoActivity(BaseModel):
     description: str
     year: int
     hot: int
+    sortOrder: int
     photoDir: str | None = None
     images: list[PhotoItem]
     createdAt: datetime | None = None

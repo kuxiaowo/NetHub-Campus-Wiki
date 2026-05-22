@@ -49,6 +49,7 @@ ALLOWED_UPLOAD_EXTENSIONS = {
 ALLOWED_DB_TABLES = {
     "users",
     "projects",
+    "resource_categories",
     "resources",
     "photo_activities",
     "photo_items",
@@ -226,6 +227,7 @@ def _format_activity(row: dict[str, Any]) -> dict[str, Any]:
         "description": row["description"],
         "year": row["year"],
         "hot": row["hot"],
+        "sortOrder": row.get("sort_order", 0),
         "photoDir": row.get("photo_dir"),
         "photoCount": directory_count or row.get("photo_count", 0),
         "createdAt": row.get("created_at"),
@@ -262,6 +264,84 @@ def _scan_public_photo_count(photo_dir: str | None) -> int:
         for item in target.iterdir()
         if item.is_file() and item.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".gif"}
     )
+
+
+def _format_resource_category(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "value": row["value"],
+        "label": row["label"],
+        "sortOrder": row["sort_order"],
+        "isActive": bool(row["is_active"]),
+        "createdAt": row.get("created_at"),
+        "updatedAt": row.get("updated_at"),
+    }
+
+
+def _next_activity_sort_order(cursor: Any) -> int:
+    cursor.execute("SELECT COALESCE(MAX(sort_order), 0) + 10 AS next_sort_order FROM photo_activities")
+    return cursor.fetchone()["next_sort_order"]
+
+
+def _normalize_reorder_items(payload: dict[str, Any]) -> list[dict[str, int]]:
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        raise HTTPException(status_code=422, detail="items 不能为空")
+    normalized = []
+    seen_ids = set()
+    for item in items:
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=422, detail="items 格式不正确")
+        item_id = _normalize_int(item.get("id"), "id")
+        sort_order = _normalize_int(item.get("sortOrder"), "sortOrder")
+        if item_id in seen_ids:
+            raise HTTPException(status_code=422, detail="items 不能包含重复 ID")
+        seen_ids.add(item_id)
+        normalized.append({"id": item_id, "sortOrder": sort_order})
+    return normalized
+
+
+def _apply_reorder(cursor: Any, table: str, items: list[dict[str, int]], missing_detail: str) -> None:
+    table = _ensure_identifier(table)
+    ids = [item["id"] for item in items]
+    placeholders = ", ".join(["%s"] * len(ids))
+    cursor.execute(f"SELECT id FROM `{table}` WHERE id IN ({placeholders})", ids)
+    found_ids = {row["id"] for row in cursor.fetchall()}
+    missing_ids = sorted(set(ids) - found_ids)
+    if missing_ids:
+        raise HTTPException(status_code=404, detail=f"{missing_detail}: {', '.join(map(str, missing_ids))}")
+    for item in items:
+        cursor.execute(
+            f"UPDATE `{table}` SET sort_order = %s WHERE id = %s",
+            (item["sortOrder"], item["id"]),
+        )
+
+
+@router.get("/resource-categories")
+def admin_list_resource_categories(_: dict[str, Any] = Depends(require_admin_user)):
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM resource_categories
+                ORDER BY sort_order ASC, id ASC
+                """
+            )
+            rows = cursor.fetchall()
+    return {"data": [_format_resource_category(row) for row in rows]}
+
+
+@router.patch("/resource-categories/reorder")
+def admin_reorder_resource_categories(
+    payload: dict[str, Any],
+    _: dict[str, Any] = Depends(require_admin_user),
+):
+    items = _normalize_reorder_items(payload)
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            _apply_reorder(cursor, "resource_categories", items, "资源分类不存在")
+    return {"ok": True}
 
 
 @router.get("/users")
@@ -492,8 +572,8 @@ def admin_list_photo_activities(
                 FROM photo_activities pa
                 LEFT JOIN photo_items pi ON pi.activity_id = pa.id
                 {where_sql}
-                GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.photo_dir, pa.created_at, pa.updated_at
-                ORDER BY pa.id DESC
+                GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.sort_order, pa.photo_dir, pa.created_at, pa.updated_at
+                ORDER BY pa.sort_order ASC, pa.id DESC
                 """,
                 params,
             )
@@ -514,14 +594,15 @@ def admin_create_photo_activity(
         with conn.cursor() as cursor:
             cursor.execute(
                 """
-                INSERT INTO photo_activities (activity, description, year, hot, photo_dir)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO photo_activities (activity, description, year, hot, sort_order, photo_dir)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 """,
                 (
                     payload["activity"],
                     payload["description"],
                     _normalize_int(payload["year"], "year"),
                     _normalize_int(payload.get("hot", 0), "hot"),
+                    _normalize_int(payload.get("sortOrder", _next_activity_sort_order(cursor)), "sortOrder"),
                     _normalize_public_url(payload.get("photoDir")),
                 ),
             )
@@ -529,6 +610,18 @@ def admin_create_photo_activity(
             cursor.execute("SELECT *, 0 AS photo_count FROM photo_activities WHERE id = %s", (activity_id,))
             row = cursor.fetchone()
     return _format_activity(row)
+
+
+@router.patch("/photo-activities/reorder")
+def admin_reorder_photo_activities(
+    payload: dict[str, Any],
+    _: dict[str, Any] = Depends(require_admin_user),
+):
+    items = _normalize_reorder_items(payload)
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            _apply_reorder(cursor, "photo_activities", items, "活动不存在")
+    return {"ok": True}
 
 
 @router.patch("/photo-activities/{activity_id}")
@@ -542,6 +635,7 @@ def admin_update_photo_activity(
         "description": "description",
         "year": "year",
         "hot": "hot",
+        "sortOrder": "sort_order",
         "photoDir": "photo_dir",
     }
     unknown = sorted(set(payload) - set(field_map))
@@ -552,7 +646,7 @@ def admin_update_photo_activity(
     for api_field, column in field_map.items():
         if api_field in payload:
             value = payload[api_field]
-            if api_field in {"year", "hot"}:
+            if api_field in {"year", "hot", "sortOrder"}:
                 value = _normalize_int(value, api_field)
             if api_field == "photoDir":
                 value = _normalize_public_url(value)
@@ -572,7 +666,7 @@ def admin_update_photo_activity(
                 FROM photo_activities pa
                 LEFT JOIN photo_items pi ON pi.activity_id = pa.id
                 WHERE pa.id = %s
-                GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.photo_dir, pa.created_at, pa.updated_at
+                GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.sort_order, pa.photo_dir, pa.created_at, pa.updated_at
                 """,
                 (activity_id,),
             )

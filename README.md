@@ -115,8 +115,9 @@ python frontend_server.py
 
 - `users`：用户账号。密码使用 PBKDF2-HMAC-SHA256 哈希保存，`role` 使用 `admin` / `user` 区分管理员和普通用户。
 - `projects`：CAS 项目。`icon` 保存项目图标图片 URL，`media` 和 `updates` 使用 MySQL JSON 字段保存链接数组和动态数组。
+- `resource_categories`：资源中心左侧分类。`sortOrder` 是人工排序权重，数字越小越靠前；默认 `other` 排在最下面。
 - `resources`：资源中心普通资源卡片。`category` 当前包括 `yearbook`、`photos`、`other`；资源中心不再使用 icon 字段，只使用 `image` 作为封面图。
-- `photo_activities`：活动照片分组。`description` 是必填活动简介，用于“全部活动”卡片展示和关键词搜索；活动卡片不再使用 icon 字段。
+- `photo_activities`：活动照片分组。`description` 是必填活动简介，用于“全部活动”卡片展示和关键词搜索；活动卡片不再使用 icon 字段；`sortOrder` 控制左侧活动列表顺序。
 - `photo_items`：单张活动照片。通过 `activity_id` 关联 `photo_activities.id`，删除活动时照片记录会级联删除。
 
 用户系统提供开放注册、登录和当前用户接口。注册账号默认是普通用户；如果需要初始化管理员，可以先通过页面或 `POST /api/auth/register` 注册账号，再执行：
@@ -156,6 +157,16 @@ http://127.0.0.1:3100/docs
 http://127.0.0.1:3200/admin.html
 ```
 
+示例数据内置管理员账号：
+
+```text
+用户名：kuxiaowo
+展示名：庞正心
+密码：123geufo
+```
+
+该账号用于本地示例和初始化验证，生产环境请修改密码或删除。
+
 后台只允许 `role = admin` 的用户访问。可以先注册普通用户，再在 MySQL 中执行：
 
 ```sql
@@ -167,6 +178,7 @@ UPDATE users SET role = 'admin' WHERE username = '你的用户名';
 - 查看、创建和编辑用户，并调整 `admin/user` 角色。
 - 在文件管理栏目浏览 `public/` 目录，并选择目标文件夹上传文件。
 - 新建、编辑和删除资源中心资源；后台资源管理直接采用前台资源中心的筛选条、左侧分类和右侧内容布局。
+- 拖拽资源中心左侧分类调整分类顺序，拖拽“活动照片”分类下的左侧活动列表调整活动顺序。
 - 在资源管理中选择“活动照片”分类后，会显示左侧活动筛选、右侧活动卡片和活动照片平铺页；进入某个活动后，可在活动标题/描述区域编辑活动。
 - 普通资源和活动照片都只手动填写 URL，或浏览 `public/` 选择已有文件/文件夹；活动照片通过 `photoDir` 绑定到 `public/` 下的文件夹，后台不再单张编辑照片。
 - 通过受控数据库查看器查看和编辑白名单表。
@@ -184,6 +196,14 @@ public/uploads/
 ```sql
 source D:/Python/programs/GitHub/NetHub-Campus-Wiki/sql/add_photo_dir.sql;
 ```
+
+如果是在已有数据库上升级资源分类和活动列表排序功能，需要执行：
+
+```sql
+source D:/Python/programs/GitHub/NetHub-Campus-Wiki/sql/add_resource_category_activity_sorting.sql;
+```
+
+`sortOrder` 表示人工排序权重，数字越小越靠前。后台拖拽会自动维护为 `10, 20, 30...`；本次只用于资源分类和活动列表，不用于普通资源卡片或单张照片卡片。
 
 后端上传接口依赖 `python-multipart`，安装依赖时请执行：
 

@@ -354,6 +354,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 | `categories` | `ResourceCategory[]` | 可筛选资源分类 |
 | `categories[].value` | `string` | 查询参数使用的分类值 |
 | `categories[].label` | `string` | 页面展示名称 |
+| `categories[].sortOrder` | `number` | 分类人工排序权重，数字越小越靠前 |
 | `years` | `number[]` | 资源年份 |
 | `photoYears` | `number[]` | 照片活动年份 |
 
@@ -429,6 +430,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 | `description` | `string` | 活动照片简介 |
 | `year` | `number` | 活动年份 |
 | `hot` | `number` | 活动热度 |
+| `sortOrder` | `number` | 活动列表人工排序权重，数字越小越靠前 |
 | `images` | `PhotoItem[]` | 活动照片 |
 | `createdAt` | `string | null` | 创建时间 |
 
@@ -453,6 +455,7 @@ GET /api/photo-activities/{activity_id}/download
       "description": "记录开幕式、接力赛、领奖瞬间和操场看台等运动会现场照片。",
       "year": 2026,
       "hot": 98,
+      "sortOrder": 10,
       "images": [
         {
           "id": 1,
@@ -496,6 +499,8 @@ GET /api/photo-activities/{activity_id}/download
 
 后台资源管理直接复用前台资源中心的信息架构：顶部筛选条、左侧资源类型/活动筛选、右侧资源卡片或活动照片内容区。普通资源走资源接口；选择 `photos` 活动照片分类时，后台在同一资源管理页面调用活动照片接口，不再提供独立的活动照片导航。
 
+- `GET /api/admin/resource-categories`：查询资源分类列表，按 `sortOrder` 升序返回。
+- `PATCH /api/admin/resource-categories/reorder`：批量更新资源分类顺序。请求体：`{"items":[{"id":1,"sortOrder":10}]}`。
 - `GET /api/admin/resources`：查询后台资源列表，支持 `search`、`category`、`year`。
 - `POST /api/admin/resources`：创建资源。
 - `PATCH /api/admin/resources/{resource_id}`：更新资源。
@@ -503,11 +508,14 @@ GET /api/photo-activities/{activity_id}/download
 
 资源字段包括：`title`、`description`、`year`、`category`、`label`、`type`、`hot`、`downloads`、`image`、`resourceUrl`。
 
+`sortOrder` 是人工排序权重，数字越小越靠前。当前只用于资源分类和活动列表；普通资源卡片和单张照片卡片不使用人工排序。
+
 ### 活动照片管理
 
 - `GET /api/admin/photo-activities`：查询活动列表，支持 `search`、`year`。该接口由后台资源管理中的 `photos` 分类使用。
-- `POST /api/admin/photo-activities`：创建活动。字段：`activity`、`description`、`year`、`hot`、`photoDir`。
+- `POST /api/admin/photo-activities`：创建活动。字段：`activity`、`description`、`year`、`hot`、`sortOrder`、`photoDir`。
 - `PATCH /api/admin/photo-activities/{activity_id}`：更新活动。
+- `PATCH /api/admin/photo-activities/reorder`：批量更新活动列表顺序。请求体：`{"items":[{"id":1,"sortOrder":10}]}`。
 - `DELETE /api/admin/photo-activities/{activity_id}`：删除活动，活动下照片记录会被外键级联删除。
 - `GET /api/admin/photo-activities/{activity_id}/photos`：查询活动下的照片。
 - `POST /api/admin/photo-activities/{activity_id}/photos`：新增照片。字段：`title`、`src`、`sortOrder`。
@@ -548,7 +556,7 @@ GET /api/photo-activities/{activity_id}/download
 
 ### 数据库查看器
 
-数据库查看器只允许访问白名单表：`users`、`projects`、`resources`、`photo_activities`、`photo_items`。不开放任意 SQL。
+数据库查看器只允许访问白名单表：`users`、`projects`、`resource_categories`、`resources`、`photo_activities`、`photo_items`。不开放任意 SQL。
 
 - `GET /api/admin/db/tables`：返回可访问表列表。
 - `GET /api/admin/db/tables/{table}/schema`：返回字段结构。
