@@ -6,6 +6,7 @@ routes. Every route in this file requires an authenticated admin user.
 
 from __future__ import annotations
 
+import json
 import re
 import secrets
 from pathlib import Path
@@ -23,6 +24,7 @@ from backend.auth import (
     validate_username,
 )
 from backend.database import get_db_connection
+from backend.projects import format_project
 from backend.resources import format_resource
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -49,6 +51,7 @@ ALLOWED_UPLOAD_EXTENSIONS = {
 ALLOWED_DB_TABLES = {
     "users",
     "projects",
+    "project_categories",
     "resource_categories",
     "resources",
     "photo_activities",
@@ -208,6 +211,16 @@ def _fetch_resource(resource_id: int) -> dict[str, Any]:
     return format_resource(row)
 
 
+def _fetch_project(project_id: int) -> dict[str, Any]:
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM projects WHERE id = %s LIMIT 1", (project_id,))
+            row = cursor.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    return format_project(row)
+
+
 def _format_photo_item(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": row["id"],
@@ -278,6 +291,45 @@ def _format_resource_category(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _format_project_category(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "sortOrder": row["sort_order"],
+        "isActive": bool(row["is_active"]),
+        "createdAt": row.get("created_at"),
+        "updatedAt": row.get("updated_at"),
+    }
+
+
+def _json_list(value: Any, field_name: str) -> str:
+    items = value if isinstance(value, list) else []
+    clean_items = [str(item).strip() for item in items if str(item).strip()]
+    return json.dumps(clean_items, ensure_ascii=False)
+
+
+def _normalize_bool(value: Any) -> int:
+    return 1 if value is True or str(value).lower() in {"1", "true", "yes", "on"} else 0
+
+
+def _ensure_project_category(cursor: Any, category: str) -> None:
+    clean_category = str(category or "").strip()
+    if not clean_category:
+        return
+    cursor.execute("SELECT id FROM project_categories WHERE name = %s LIMIT 1", (clean_category,))
+    if cursor.fetchone() is not None:
+        return
+    cursor.execute("SELECT COALESCE(MAX(sort_order), 0) + 10 AS next_sort_order FROM project_categories")
+    next_sort_order = cursor.fetchone()["next_sort_order"]
+    cursor.execute(
+        """
+        INSERT INTO project_categories (name, sort_order, is_active)
+        VALUES (%s, %s, 1)
+        """,
+        (clean_category, next_sort_order),
+    )
+
+
 def _next_activity_sort_order(cursor: Any) -> int:
     cursor.execute("SELECT COALESCE(MAX(sort_order), 0) + 10 AS next_sort_order FROM photo_activities")
     return cursor.fetchone()["next_sort_order"]
@@ -342,6 +394,151 @@ def admin_reorder_resource_categories(
         with conn.cursor() as cursor:
             _apply_reorder(cursor, "resource_categories", items, "资源分类不存在")
     return {"ok": True}
+
+
+@router.get("/project-categories")
+def admin_list_project_categories(_: dict[str, Any] = Depends(require_admin_user)):
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM project_categories
+                ORDER BY sort_order ASC, id ASC
+                """
+            )
+            rows = cursor.fetchall()
+    return {"data": [_format_project_category(row) for row in rows]}
+
+
+@router.patch("/project-categories/reorder")
+def admin_reorder_project_categories(
+    payload: dict[str, Any],
+    _: dict[str, Any] = Depends(require_admin_user),
+):
+    items = _normalize_reorder_items(payload)
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            _apply_reorder(cursor, "project_categories", items, "项目分类不存在")
+    return {"ok": True}
+
+
+@router.get("/projects")
+def admin_list_projects(
+    search: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+    year: int | None = Query(default=None),
+    sort: str = Query(default="latest", pattern="^(latest|popular)$"),
+    _: dict[str, Any] = Depends(require_admin_user),
+):
+    params: list[Any] = []
+    where_parts: list[str] = []
+    if category:
+        where_parts.append("category = %s")
+        params.append(category)
+    if year:
+        where_parts.append("year = %s")
+        params.append(year)
+    if search:
+        where_parts.append("(name LIKE %s OR leader LIKE %s OR description LIKE %s)")
+        keyword = f"%{search}%"
+        params.extend([keyword, keyword, keyword])
+    order_by = "popularity DESC, created_at DESC" if sort == "popular" else "created_at DESC, id DESC"
+    where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(f"SELECT * FROM projects {where_sql} ORDER BY {order_by}", params)
+            rows = cursor.fetchall()
+    return {"data": [format_project(row) for row in rows]}
+
+
+@router.post("/projects")
+def admin_create_project(payload: dict[str, Any], _: dict[str, Any] = Depends(require_admin_user)):
+    required = ["name", "leader", "members", "category", "year", "description"]
+    missing = [field for field in required if payload.get(field) in {None, ""}]
+    if missing:
+        raise HTTPException(status_code=422, detail=f"缺少字段：{', '.join(missing)}")
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            _ensure_project_category(cursor, payload["category"])
+            cursor.execute(
+                """
+                INSERT INTO projects
+                  (name, leader, members, category, year, icon, description, media,
+                   cas_creativity, cas_activity, cas_service, popularity, updates)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    payload["name"],
+                    payload["leader"],
+                    payload["members"],
+                    payload["category"],
+                    _normalize_int(payload["year"], "year"),
+                    payload.get("icon") or None,
+                    payload["description"],
+                    _json_list(payload.get("media"), "media"),
+                    _normalize_bool(payload.get("casCreativity")),
+                    _normalize_bool(payload.get("casActivity")),
+                    _normalize_bool(payload.get("casService")),
+                    _normalize_int(payload.get("popularity", 0), "popularity"),
+                    _json_list(payload.get("updates"), "updates"),
+                ),
+            )
+            project_id = cursor.lastrowid
+    return _fetch_project(project_id)
+
+
+@router.patch("/projects/{project_id}")
+def admin_update_project(
+    project_id: int,
+    payload: dict[str, Any],
+    _: dict[str, Any] = Depends(require_admin_user),
+):
+    field_map = {
+        "name": "name",
+        "leader": "leader",
+        "members": "members",
+        "category": "category",
+        "year": "year",
+        "icon": "icon",
+        "description": "description",
+        "media": "media",
+        "casCreativity": "cas_creativity",
+        "casActivity": "cas_activity",
+        "casService": "cas_service",
+        "popularity": "popularity",
+        "updates": "updates",
+    }
+    unknown = sorted(set(payload) - set(field_map))
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"字段不允许编辑：{', '.join(unknown)}")
+    updates = []
+    params: list[Any] = []
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            if "category" in payload:
+                _ensure_project_category(cursor, payload["category"])
+            for api_field, column in field_map.items():
+                if api_field not in payload:
+                    continue
+                value = payload[api_field]
+                if api_field in {"year", "popularity"}:
+                    value = _normalize_int(value, api_field)
+                if api_field in {"casCreativity", "casActivity", "casService"}:
+                    value = _normalize_bool(value)
+                if api_field in {"media", "updates"}:
+                    value = _json_list(value, api_field)
+                if api_field == "icon" and value == "":
+                    value = None
+                updates.append(f"{column} = %s")
+                params.append(value)
+            if not updates:
+                raise HTTPException(status_code=422, detail="请求体不能为空")
+            params.append(project_id)
+            cursor.execute(f"UPDATE projects SET {', '.join(updates)} WHERE id = %s", params)
+            if cursor.rowcount == 0:
+                _ensure_row_exists(cursor, "projects", project_id, "项目不存在")
+    return _fetch_project(project_id)
 
 
 @router.get("/users")

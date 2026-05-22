@@ -64,8 +64,15 @@ def list_meta() -> dict[str, list[str] | list[int]]:
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT DISTINCT category FROM projects ORDER BY category ASC")
-            categories = [row["category"] for row in cursor.fetchall()]
+            cursor.execute(
+                """
+                SELECT name
+                FROM project_categories
+                WHERE is_active = 1
+                ORDER BY sort_order ASC, id ASC
+                """
+            )
+            categories = [row["name"] for row in cursor.fetchall()]
 
             cursor.execute("SELECT DISTINCT year FROM projects ORDER BY year DESC")
             years = [row["year"] for row in cursor.fetchall()]

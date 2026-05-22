@@ -115,6 +115,7 @@ python frontend_server.py
 
 - `users`：用户账号。密码使用 PBKDF2-HMAC-SHA256 哈希保存，`role` 使用 `admin` / `user` 区分管理员和普通用户。
 - `projects`：CAS 项目。`icon` 保存项目图标图片 URL，`media` 和 `updates` 使用 MySQL JSON 字段保存链接数组和动态数组。
+- `project_categories`：CAS 项目库左侧分类。`sortOrder` 是人工排序权重，数字越小越靠前；分类排序不影响项目本身排序。
 - `resource_categories`：资源中心左侧分类。`sortOrder` 是人工排序权重，数字越小越靠前；默认 `other` 排在最下面。
 - `resources`：资源中心普通资源卡片。`category` 当前包括 `yearbook`、`photos`、`other`；资源中心不再使用 icon 字段，只使用 `image` 作为封面图。
 - `photo_activities`：活动照片分组。`description` 是必填活动简介，用于“全部活动”卡片展示和关键词搜索；活动卡片不再使用 icon 字段；`sortOrder` 控制左侧活动列表顺序。
@@ -177,6 +178,7 @@ UPDATE users SET role = 'admin' WHERE username = '你的用户名';
 
 - 查看、创建和编辑用户，并调整 `admin/user` 角色。
 - 在文件管理栏目浏览 `public/` 目录，并选择目标文件夹上传文件。
+- 新建和编辑 CAS 项目；项目行点击进入后台内部详情视图，详情视图提供编辑按钮和 `media` 拖拽排序，媒体拖动结束后自动保存；正式前台详情页只负责展示。拖拽 CAS 项目库左侧分类调整分类顺序，分类顺序会同步影响前台项目库。
 - 新建、编辑和删除资源中心资源；后台资源管理直接采用前台资源中心的筛选条、左侧分类和右侧内容布局。
 - 拖拽资源中心左侧分类调整分类顺序，拖拽“活动照片”分类下的左侧活动列表调整活动顺序。
 - 在资源管理中选择“活动照片”分类后，会显示左侧活动筛选、右侧活动卡片和活动照片平铺页；进入某个活动后，可在活动标题/描述区域编辑活动。
@@ -203,7 +205,13 @@ source D:/Python/programs/GitHub/NetHub-Campus-Wiki/sql/add_photo_dir.sql;
 source D:/Python/programs/GitHub/NetHub-Campus-Wiki/sql/add_resource_category_activity_sorting.sql;
 ```
 
-`sortOrder` 表示人工排序权重，数字越小越靠前。后台拖拽会自动维护为 `10, 20, 30...`；本次只用于资源分类和活动列表，不用于普通资源卡片或单张照片卡片。
+如果是在已有数据库上升级 CAS 项目分类排序功能，需要执行：
+
+```sql
+source D:/Python/programs/GitHub/NetHub-Campus-Wiki/sql/add_project_category_sorting.sql;
+```
+
+`sortOrder` 表示人工排序权重，数字越小越靠前。后台拖拽会自动维护为 `10, 20, 30...`；当前用于 CAS 项目分类、资源分类和活动列表，不用于普通项目、普通资源卡片或单张照片卡片。
 
 后端上传接口依赖 `python-multipart`，安装依赖时请执行：
 

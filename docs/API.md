@@ -495,6 +495,20 @@ GET /api/photo-activities/{activity_id}/download
 
 `POST /api/admin/users` 允许管理员创建普通用户或管理员；`role` 只能是 `admin` 或 `user`。
 
+### CAS 项目管理
+
+后台 CAS 项目管理复用前台项目库的信息架构：左侧筛选和分类、右侧项目列表。项目列表支持新建和编辑，不提供删除。项目分类可拖拽排序，排序会同时影响前台 `GET /api/meta` 的分类顺序。
+
+- `GET /api/admin/project-categories`：查询 CAS 项目分类列表，按 `sortOrder` 升序返回。
+- `PATCH /api/admin/project-categories/reorder`：批量更新 CAS 项目分类顺序。请求体：`{"items":[{"id":1,"sortOrder":10}]}`。
+- `GET /api/admin/projects`：查询后台 CAS 项目列表，支持 `search`、`category`、`year`、`sort`。
+- `POST /api/admin/projects`：创建 CAS 项目。
+- `PATCH /api/admin/projects/{project_id}`：更新 CAS 项目。
+
+CAS 项目写接口字段包括：`name`、`leader`、`members`、`category`、`year`、`icon`、`description`、`media`、`casCreativity`、`casActivity`、`casService`、`popularity`、`updates`。其中 `media` 和 `updates` 是字符串数组，后端保存为 MySQL JSON；管理员在后台项目详情视图中直接拖拽 `media` 排序，拖动结束后自动保存，保存后的数组顺序就是正式详情页媒体展示顺序。编辑弹窗只修改项目基础信息和动态，正式前台详情页不提供编辑或排序能力。
+
+`sortOrder` 是分类人工排序权重，数字越小越靠前。当前只用于 CAS 项目分类，不控制项目本身排序；项目仍按 `latest` 或 `popular` 排序。
+
 ### 资源管理
 
 后台资源管理直接复用前台资源中心的信息架构：顶部筛选条、左侧资源类型/活动筛选、右侧资源卡片或活动照片内容区。普通资源走资源接口；选择 `photos` 活动照片分类时，后台在同一资源管理页面调用活动照片接口，不再提供独立的活动照片导航。
@@ -556,7 +570,7 @@ GET /api/photo-activities/{activity_id}/download
 
 ### 数据库查看器
 
-数据库查看器只允许访问白名单表：`users`、`projects`、`resource_categories`、`resources`、`photo_activities`、`photo_items`。不开放任意 SQL。
+数据库查看器只允许访问白名单表：`users`、`projects`、`project_categories`、`resource_categories`、`resources`、`photo_activities`、`photo_items`。不开放任意 SQL。
 
 - `GET /api/admin/db/tables`：返回可访问表列表。
 - `GET /api/admin/db/tables/{table}/schema`：返回字段结构。

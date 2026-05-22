@@ -180,6 +180,25 @@ p { color: var(--muted); line-height: 1.8; }
 .project-row .project-icon { margin: 0; }
 .project-row h3, .project-card h3 { margin: 0 0 8px; }
 .project-row p, .project-card p { margin-bottom: 12px; }
+.admin-project-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+.admin-project-main {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 16px;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  text-align: left;
+}
+.admin-project-main:hover h3 { color: var(--primary); }
 
 /* 资源中心页面：顶部通用筛选 + 左侧分类 + 右侧内容结构。 */
 .resource-filter-bar { padding-top: 18px; }
@@ -599,6 +618,58 @@ p { color: var(--muted); line-height: 1.8; }
 .admin-table tr:last-child td { border-bottom: 0; }
 .admin-table td:last-child { white-space: nowrap; }
 .admin-table tbody tr:hover { background: #fbfcff; }
+.admin-sortable-list {
+  display: grid;
+  gap: 8px;
+}
+.admin-sortable-list-items {
+  display: grid;
+  gap: 8px;
+}
+.admin-sortable-list-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.admin-sortable-list-item.is-dragging { opacity: 0.55; }
+.admin-sortable-list-handle {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: grab;
+  white-space: nowrap;
+}
+.admin-media-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.admin-media-toolbar h2 {
+  margin: 0;
+  margin-right: auto;
+}
+.admin-media-note {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+.admin-project-media-item {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+.admin-project-media-item.is-dragging {
+  opacity: 0.55;
+}
+.admin-project-media-item img,
+.admin-project-media-item .link-card {
+  width: 100%;
+}
 .admin-card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -719,8 +790,8 @@ p { color: var(--muted); line-height: 1.8; }
 }
 .admin-db-table th,
 .admin-db-table td {
-  width: 180px;
-  max-width: 180px;
+  width: 120px;
+  max-width: 120px;
   border-right: 1px solid #edf0f7;
 }
 .admin-db-table th {
@@ -732,13 +803,13 @@ p { color: var(--muted); line-height: 1.8; }
 }
 .admin-db-table th:first-child,
 .admin-db-table td:first-child {
-  width: 88px;
-  max-width: 88px;
+  width: 60px;
+  max-width: 60px;
 }
 .admin-db-table th:last-child,
 .admin-db-table td:last-child {
-  width: 150px;
-  max-width: 150px;
+  width: 100px;
+  max-width: 100px;
   border-right: 0;
 }
 .admin-db-cell {
@@ -902,7 +973,9 @@ p { color: var(--muted); line-height: 1.8; }
   .page-grid, .library-layout { grid-template-columns: 1fr; }
   .project-grid, .resource-grid, .photo-grid.photo-activity-cards { grid-template-columns: 1fr; }
   .sidebar { position: static; }
-  .project-row { grid-template-columns: 1fr; }
+  .project-row,
+  .admin-project-row,
+  .admin-project-main { grid-template-columns: 1fr; }
   .media-grid { grid-template-columns: 1fr; }
   .photo-modal { padding: 16px; }
   .photo-modal-head { align-items: flex-start; flex-direction: column; }

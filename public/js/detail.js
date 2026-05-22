@@ -4,7 +4,6 @@ const id = params.get('id');
 
 /**
  * 渲染项目媒体资源。
- *
  * 图片直接展示，其他链接作为外部资源打开。URL 也需要转义后再进入 HTML。
  */
 function renderMedia(media) {

@@ -5,6 +5,16 @@ const adminState = {
   fileItems: [],
   picker: null,
   users: [],
+  projectMetaLoaded: false,
+  projectCategory: '',
+  projectYear: '',
+  projectSort: 'latest',
+  projectCategories: [],
+  projectYears: [],
+  projects: [],
+  currentProject: null,
+  projectMediaDragItem: null,
+  projectMediaOrderChanged: false,
   resourceMetaLoaded: false,
   resourceCategory: '',
   resourceYear: '',
@@ -15,6 +25,7 @@ const adminState = {
   selectedActivity: null,
   currentActivity: null,
   dragState: null,
+  modalDragItem: null,
   dragJustEnded: false,
   dbTables: [],
   dbTable: null,
@@ -82,6 +93,15 @@ function sortablePayload(type) {
 }
 
 async function persistSortableOrder(type) {
+  if (type === 'project-category') {
+    await adminEndpoint('/admin/project-categories/reorder', {
+      method: 'PATCH',
+      body: JSON.stringify(sortablePayload(type)),
+    });
+    adminState.projectMetaLoaded = false;
+    await loadProjectAdminMeta();
+    return;
+  }
   if (type === 'resource-category') {
     await adminEndpoint('/admin/resource-categories/reorder', {
       method: 'PATCH',
@@ -111,7 +131,88 @@ function moveSortableItem(target) {
   }
 }
 
+function moveModalSortableItem(target) {
+  const source = adminState.modalDragItem;
+  if (!source || !target || source === target) return;
+  const position = source.compareDocumentPosition(target);
+  if (position & Node.DOCUMENT_POSITION_FOLLOWING) {
+    target.after(source);
+  } else {
+    target.before(source);
+  }
+}
+
+function moveProjectMediaItem(target) {
+  const source = adminState.projectMediaDragItem;
+  if (!source || !target || source === target) return;
+  const position = source.compareDocumentPosition(target);
+  if (position & Node.DOCUMENT_POSITION_FOLLOWING) {
+    target.after(source);
+  } else {
+    target.before(source);
+  }
+  adminState.projectMediaOrderChanged = true;
+}
+
 function bindSortableLists() {
+  document.addEventListener('dragstart', (event) => {
+    const item = event.target.closest('[data-project-media-item]');
+    if (!item) return;
+    adminState.projectMediaDragItem = item;
+    adminState.projectMediaOrderChanged = false;
+    item.classList.add('is-dragging');
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', item.dataset.projectMediaUrl || '');
+  });
+
+  document.addEventListener('dragover', (event) => {
+    const item = event.target.closest('[data-project-media-item]');
+    if (!adminState.projectMediaDragItem || !item) return;
+    event.preventDefault();
+    moveProjectMediaItem(item);
+  });
+
+  document.addEventListener('drop', (event) => {
+    const item = event.target.closest('[data-project-media-item]');
+    if (!adminState.projectMediaDragItem || !item) return;
+    event.preventDefault();
+  });
+
+  document.addEventListener('dragend', () => {
+    if (!adminState.projectMediaDragItem) return;
+    adminState.projectMediaDragItem.classList.remove('is-dragging');
+    adminState.projectMediaDragItem = null;
+    if (adminState.projectMediaOrderChanged) saveProjectMediaOrder();
+  });
+
+  document.addEventListener('dragstart', (event) => {
+    const item = event.target.closest('[data-sortable-list-item]');
+    if (!item) return;
+    adminState.modalDragItem = item;
+    item.classList.add('is-dragging');
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', 'media');
+  });
+
+  document.addEventListener('dragover', (event) => {
+    const item = event.target.closest('[data-sortable-list-item]');
+    if (!adminState.modalDragItem || !item) return;
+    event.preventDefault();
+    moveModalSortableItem(item);
+  });
+
+  document.addEventListener('drop', (event) => {
+    const item = event.target.closest('[data-sortable-list-item]');
+    if (!adminState.modalDragItem || !item) return;
+    event.preventDefault();
+  });
+
+  document.addEventListener('dragend', () => {
+    if (!adminState.modalDragItem) return;
+    adminState.modalDragItem.classList.remove('is-dragging');
+    adminState.modalDragItem = null;
+  });
+
   document.addEventListener('dragstart', (event) => {
     const item = event.target.closest('[data-sortable]');
     if (!item) return;
@@ -139,6 +240,10 @@ function bindSortableLists() {
       await persistSortableOrder(type);
     } catch (error) {
       window.alert(error.message);
+      if (type === 'project-category') {
+        adminState.projectMetaLoaded = false;
+        await loadProjectAdminMeta();
+      }
       if (type === 'resource-category') {
         adminState.resourceMetaLoaded = false;
         await loadResourceAdminMeta();
@@ -156,6 +261,10 @@ function bindSortableLists() {
     document.querySelectorAll('.is-dragging').forEach((item) => item.classList.remove('is-dragging'));
     adminState.dragState = null;
     if (state && !state.dropped) {
+      if (state.type === 'project-category') {
+        adminState.projectMetaLoaded = false;
+        await loadProjectAdminMeta();
+      }
       if (state.type === 'resource-category') {
         adminState.resourceMetaLoaded = false;
         await loadResourceAdminMeta();
@@ -184,6 +293,16 @@ function renderAdminTable(columns, rows, actions) {
         `).join('')}
       </tbody>
     </table>
+  `;
+}
+
+function sortableListItem(fieldName, value = '') {
+  return `
+    <div class="admin-sortable-list-item" draggable="true" data-sortable-list-item>
+      <span class="admin-sortable-list-handle">拖动</span>
+      <input class="input" type="text" value="${adminText(value)}" data-sortable-list-input>
+      <button class="button secondary compact danger" type="button" data-sortable-list-remove>删除</button>
+    </div>
   `;
 }
 
@@ -225,6 +344,20 @@ function openAdminModal(title, fields, onSubmit) {
           </label>
         `;
       }
+      if (field.type === 'sortableList') {
+        const items = Array.isArray(value) ? value : linesToList(value);
+        return `
+          <label>
+            <span>${adminText(field.label)}</span>
+            <div class="admin-sortable-list" data-sortable-list-field="${adminText(field.name)}">
+              <div class="admin-sortable-list-items">
+                ${items.length ? items.map((item) => sortableListItem(field.name, item)).join('') : sortableListItem(field.name)}
+              </div>
+              <button class="button secondary compact" type="button" data-sortable-list-add="${adminText(field.name)}">新增</button>
+            </div>
+          </label>
+        `;
+      }
       const browseButton = field.browse
         ? `<button class="button secondary compact" type="button" data-browse-target="${adminText(field.name)}" data-browse-mode="${adminText(field.browse)}">浏览</button>`
         : '';
@@ -263,6 +396,12 @@ function openAdminModal(title, fields, onSubmit) {
           payload[field.name] = adminNumber(formData.get(field.name), 0);
           return;
         }
+        if (field.type === 'sortableList') {
+          payload[field.name] = [...adminEls.modalForm.querySelectorAll(`[data-sortable-list-field="${field.name}"] [data-sortable-list-input]`)]
+            .map((input) => input.value.trim())
+            .filter(Boolean);
+          return;
+        }
         if (field.type !== 'hidden' || field.includeHidden) {
           payload[field.name] = String(formData.get(field.name) ?? '').trim();
         }
@@ -281,6 +420,17 @@ function closeAdminModal() {
   adminEls.modal.setAttribute('aria-hidden', 'true');
   adminEls.modalForm.innerHTML = '';
   adminEls.modalForm.onsubmit = null;
+}
+
+function moveSortableListItem(button, direction) {
+  const item = button.closest('.admin-sortable-list-item');
+  if (!item) return;
+  if (direction < 0 && item.previousElementSibling) {
+    item.previousElementSibling.before(item);
+  }
+  if (direction > 0 && item.nextElementSibling) {
+    item.nextElementSibling.after(item);
+  }
 }
 
 function parentPublicPath(path) {
@@ -432,6 +582,7 @@ function switchAdminView(view) {
   });
   if (view === 'users') loadUsers();
   if (view === 'files') loadFiles();
+  if (view === 'projects') loadProjectManagementView();
   if (view === 'resources') loadResourceManagementView();
   if (view === 'database') loadDbTables();
 }
@@ -496,6 +647,238 @@ function openUserModal(user) {
       });
     }
     await loadUsers();
+  });
+}
+
+function linesToList(value) {
+  return String(value || '')
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+async function loadProjectAdminMeta() {
+  if (adminState.projectMetaLoaded) return;
+  const [meta, categories] = await Promise.all([
+    adminEndpoint('/meta'),
+    adminEndpoint('/admin/project-categories'),
+  ]);
+  adminState.projectCategories = categories.data.filter((category) => category.isActive);
+  adminState.projectYears = meta.years;
+  adminEls.projectCategoryList.innerHTML = [
+    `<button class="category-button ${adminState.projectCategory ? '' : 'active'}" type="button" data-admin-project-category="">全部分类</button>`,
+    ...adminState.projectCategories.map((category) => `
+      <button
+        class="category-button ${category.name === adminState.projectCategory ? 'active' : ''}"
+        type="button"
+        data-admin-project-category="${adminText(category.name)}"
+        data-sortable="project-category"
+        data-sortable-id="${adminText(category.id)}"
+        draggable="true"
+      >
+        ${adminText(category.name)}
+      </button>
+    `),
+  ].join('');
+  adminEls.projectYear.innerHTML = '<option value="">全部年份</option>' +
+    adminState.projectYears.map((year) => `<option value="${adminText(year)}">${adminText(year)}</option>`).join('');
+  adminEls.projectYear.value = adminState.projectYear;
+  adminState.projectMetaLoaded = true;
+}
+
+async function loadProjectManagementView() {
+  await loadProjectAdminMeta();
+  showProjectListView();
+  await loadAdminProjects();
+}
+
+function showProjectListView() {
+  adminState.currentProject = null;
+  adminEls.projectListView.classList.remove('is-hidden');
+  adminEls.projectDetailView.classList.add('is-hidden');
+  adminEls.projectDetailView.innerHTML = '';
+}
+
+function showProjectDetailView(project) {
+  adminState.currentProject = project;
+  adminEls.projectListView.classList.add('is-hidden');
+  adminEls.projectDetailView.classList.remove('is-hidden');
+  adminEls.projectDetailView.innerHTML = adminProjectDetail(project);
+}
+
+async function loadAdminProjects() {
+  adminEls.projectList.innerHTML = '<div class="empty">正在加载项目...</div>';
+  const query = buildQuery({
+    search: adminEls.projectSearch.value.trim(),
+    category: adminState.projectCategory,
+    year: adminState.projectYear,
+    sort: adminState.projectSort,
+  });
+  const result = await adminEndpoint(`/admin/projects${query}`);
+  adminState.projects = result.data;
+  adminEls.projectCount.textContent = `共 ${result.data.length} 个项目`;
+  adminEls.projectList.innerHTML = result.data.length
+    ? result.data.map(adminProjectRow).join('')
+    : '<div class="empty">暂无项目</div>';
+}
+
+function adminProjectRow(project) {
+  return `
+    <article class="project-row admin-project-row">
+      <button class="admin-project-main" type="button" data-open-project-detail="${adminText(project.id)}">
+        ${projectIconImage(project)}
+        <div>
+          <h3>${adminText(project.name)}</h3>
+          <div class="meta">
+            <span class="badge">${adminText(project.category)}</span>
+            <span>${adminText(project.year)}</span>
+            <span>负责人：${adminText(project.leader)}</span>
+            <span>成员：${adminText(project.members)}</span>
+          </div>
+          <p>${adminText(project.description)}</p>
+          ${casTags(project.cas)}
+        </div>
+      </button>
+      <button class="button compact" type="button" data-edit-project="${adminText(project.id)}">编辑</button>
+    </article>
+  `;
+}
+
+function adminProjectMediaItem(url) {
+  const safeUrl = safeExternalUrl(url);
+  const escapedUrl = adminText(url);
+  const isImage = /\.(png|jpe?g|webp|gif)$/i.test(url) || url.includes('picsum.photos');
+  const media = isImage
+    ? `<img src="${adminText(safeUrl)}" alt="项目媒体" loading="lazy">`
+    : `<a class="link-card" href="${adminText(safeUrl)}" target="_blank" rel="noreferrer">打开媒体链接：${escapedUrl}</a>`;
+  return `
+    <div class="admin-project-media-item" draggable="true" data-project-media-item data-project-media-url="${escapedUrl}">
+      <span class="admin-sortable-list-handle">拖动</span>
+      ${media}
+    </div>
+  `;
+}
+
+function adminProjectDetail(project) {
+  return `
+    <div class="admin-detail-head">
+      <div>
+        <h2>${adminText(project.name)}</h2>
+        <p>${adminText(project.category)} · ${adminText(project.year)} · 热度 ${adminText(project.popularity)}</p>
+      </div>
+      <div class="admin-detail-actions">
+        <button class="button secondary compact" type="button" data-back-project-list>返回列表</button>
+        <button class="button compact" type="button" data-edit-project="${adminText(project.id)}">编辑项目</button>
+      </div>
+    </div>
+    <div class="detail-head">
+      ${projectIconImage(project)}
+      <div>
+        <h1>${adminText(project.name)}</h1>
+        <div class="meta">
+          <span class="badge">${adminText(project.category)}</span>
+          <span>${adminText(project.year)}</span>
+          <span>负责人：${adminText(project.leader)}</span>
+          <span>成员：${adminText(project.members)}</span>
+        </div>
+        ${casTags(project.cas)}
+      </div>
+    </div>
+    <section>
+      <h2>项目简介</h2>
+      <p>${adminText(project.description)}</p>
+    </section>
+    <section>
+      <div class="admin-media-toolbar">
+        <h2>照片 / 视频</h2>
+        <span class="admin-media-note">拖动后自动保存</span>
+      </div>
+      <div id="adminProjectMediaList" class="media-grid admin-project-media-grid">
+        ${(project.media || []).length ? project.media.map(adminProjectMediaItem).join('') : '<div class="empty">暂无媒体资料</div>'}
+      </div>
+      <div id="adminProjectMediaMessage" class="auth-message" aria-live="polite"></div>
+    </section>
+    <section>
+      <h2>项目动态</h2>
+      <ul class="update-list">
+        ${(project.updates || []).map((item) => `<li>${adminText(item)}</li>`).join('') || '<li>暂无动态</li>'}
+      </ul>
+    </section>
+  `;
+}
+
+function findAdminProject(projectId) {
+  return adminState.projects.find((item) => String(item.id) === String(projectId))
+    || (String(adminState.currentProject?.id) === String(projectId) ? adminState.currentProject : null);
+}
+
+async function saveProjectMediaOrder() {
+  if (!adminState.currentProject) return;
+  const media = [...adminEls.projectDetailView.querySelectorAll('[data-project-media-item]')]
+    .map((item) => item.dataset.projectMediaUrl)
+    .filter(Boolean);
+  const message = adminQuery('#adminProjectMediaMessage');
+  if (message) {
+    message.textContent = '正在保存媒体顺序...';
+    message.classList.remove('error');
+  }
+  try {
+    const updated = await adminEndpoint(`/admin/projects/${adminState.currentProject.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ media }),
+    });
+    adminState.projectMediaOrderChanged = false;
+    adminState.currentProject = updated;
+    adminState.projects = adminState.projects.map((item) => item.id === updated.id ? updated : item);
+    showProjectDetailView(updated);
+    const nextMessage = adminQuery('#adminProjectMediaMessage');
+    if (nextMessage) nextMessage.textContent = '媒体顺序已自动保存';
+  } catch (error) {
+    if (message) {
+      message.textContent = error.message;
+      message.classList.add('error');
+    }
+  }
+}
+
+function projectFields(project = {}) {
+  const mediaFields = project.id
+    ? []
+    : [{ name: 'media', label: '媒体 URL（拖动排序）', value: project.media || [], type: 'sortableList' }];
+  return [
+    { name: 'name', label: '项目名称', value: project.name, required: true },
+    { name: 'leader', label: '负责人', value: project.leader, required: true },
+    { name: 'members', label: '成员', value: project.members, required: true },
+    { name: 'category', label: '分类', value: project.category, required: true },
+    { name: 'year', label: '年份', value: project.year || new Date().getFullYear(), type: 'number', required: true },
+    { name: 'icon', label: '图标 URL', value: project.icon || '', browse: 'file' },
+    { name: 'description', label: '简介', value: project.description, type: 'textarea', required: true },
+    ...mediaFields,
+    { name: 'casCreativity', label: 'CAS Creativity', value: project.cas?.creativity, type: 'checkbox' },
+    { name: 'casActivity', label: 'CAS Activity', value: project.cas?.activity, type: 'checkbox' },
+    { name: 'casService', label: 'CAS Service', value: project.cas?.service, type: 'checkbox' },
+    { name: 'popularity', label: '热度', value: project.popularity || 0, type: 'number' },
+    { name: 'updates', label: '动态（一行一个）', value: (project.updates || []).join('\n'), type: 'textarea' },
+  ];
+}
+
+function openProjectModal(project = {}) {
+  const isEdit = Boolean(project?.id);
+  openAdminModal(isEdit ? '编辑 CAS 项目' : '新建 CAS 项目', projectFields(project), async (payload) => {
+    if (!isEdit) payload.media = Array.isArray(payload.media) ? payload.media : linesToList(payload.media);
+    payload.updates = linesToList(payload.updates);
+    const saved = await adminEndpoint(isEdit ? `/admin/projects/${project.id}` : '/admin/projects', {
+      method: isEdit ? 'PATCH' : 'POST',
+      body: JSON.stringify(payload),
+    });
+    adminState.projectMetaLoaded = false;
+    await loadProjectAdminMeta();
+    await loadAdminProjects();
+    if (isEdit) {
+      showProjectDetailView(saved);
+    } else {
+      showProjectListView();
+    }
   });
 }
 
@@ -870,7 +1253,7 @@ async function loadDbRows() {
   const table = adminEls.dbRowsTable.querySelector('.admin-table');
   if (table) {
     table.classList.add('admin-db-table');
-    table.style.minWidth = `${adminState.dbSchema.length * 180 + 150}px`;
+    table.style.minWidth = `${adminState.dbSchema.length * 120 + 100}px`;
   }
 }
 
@@ -985,6 +1368,19 @@ function bindAdminEvents() {
   adminEls.userRoleFilter.addEventListener('change', loadUsers);
   adminEls.userActiveFilter.addEventListener('change', loadUsers);
 
+  adminEls.createProjectButton.addEventListener('click', () => openProjectModal({}));
+  adminEls.projectSearch.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') loadProjectManagementView();
+  });
+  adminEls.projectYear.addEventListener('change', () => {
+    adminState.projectYear = adminEls.projectYear.value;
+    loadProjectManagementView();
+  });
+  adminEls.projectSort.addEventListener('change', () => {
+    adminState.projectSort = adminEls.projectSort.value;
+    loadProjectManagementView();
+  });
+
   adminEls.createResourceButton.addEventListener('click', () => {
     openResourceModal({ category: adminState.resourceCategory || 'other' });
   });
@@ -1047,8 +1443,44 @@ function bindAdminEvents() {
       chooseFileUrl(publicFolderUrl(adminState.picker.path));
     }
     if (target.dataset.pickFileUrl) chooseFileUrl(target.dataset.pickFileUrl);
+    if (target.dataset.sortableListAdd) {
+      const list = target.closest('[data-sortable-list-field]')?.querySelector('.admin-sortable-list-items');
+      if (list) list.insertAdjacentHTML('beforeend', sortableListItem(target.dataset.sortableListAdd));
+    }
+    if (target.dataset.sortableListRemove !== undefined) {
+      const item = target.closest('.admin-sortable-list-item');
+      const list = item?.parentElement;
+      if (item && list && list.children.length > 1) {
+        item.remove();
+      } else if (item) {
+        const input = item.querySelector('[data-sortable-list-input]');
+        if (input) input.value = '';
+      }
+    }
     if (target.dataset.editUser) {
       openUserModal(adminState.users.find((item) => String(item.id) === target.dataset.editUser));
+    }
+    if (target.dataset.adminProjectCategory !== undefined) {
+      adminState.projectCategory = target.dataset.adminProjectCategory;
+      adminState.projectYear = '';
+      adminEls.projectCategoryList.querySelectorAll('.category-button').forEach((item) => item.classList.remove('active'));
+      target.classList.add('active');
+      adminEls.projectYear.value = '';
+      loadProjectManagementView();
+    }
+    if (target.dataset.openProjectDetail) {
+      const project = findAdminProject(target.dataset.openProjectDetail);
+      if (project) showProjectDetailView(project);
+    }
+    if (target.dataset.backProjectList !== undefined) {
+      showProjectListView();
+    }
+    if (target.dataset.saveProjectMediaOrder !== undefined) {
+      saveProjectMediaOrder();
+    }
+    if (target.dataset.editProject) {
+      const project = findAdminProject(target.dataset.editProject);
+      if (project) openProjectModal(project);
     }
     if (target.dataset.adminResourceCategory !== undefined) {
       adminState.resourceCategory = target.dataset.adminResourceCategory;
@@ -1114,6 +1546,15 @@ async function initAdmin() {
     userRoleFilter: adminQuery('#userRoleFilter'),
     userActiveFilter: adminQuery('#userActiveFilter'),
     usersTable: adminQuery('#usersTable'),
+    createProjectButton: adminQuery('#createProjectButton'),
+    projectSearch: adminQuery('#projectAdminSearch'),
+    projectYear: adminQuery('#adminProjectYear'),
+    projectSort: adminQuery('#adminProjectSort'),
+    projectCategoryList: adminQuery('#adminProjectCategoryList'),
+    projectCount: adminQuery('#adminProjectCount'),
+    projectListView: adminQuery('#adminProjectListView'),
+    projectDetailView: adminQuery('#adminProjectDetailView'),
+    projectList: adminQuery('#adminProjectList'),
     createResourceButton: adminQuery('#createResourceButton'),
     refreshResources: adminQuery('#refreshResources'),
     resourceSearch: adminQuery('#resourceAdminSearch'),

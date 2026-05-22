@@ -13,6 +13,7 @@
       <nav class="admin-nav" aria-label="管理后台导航">
         <button class="admin-nav-item active" type="button" data-admin-view="users">用户管理</button>
         <button class="admin-nav-item" type="button" data-admin-view="files">文件管理</button>
+        <button class="admin-nav-item" type="button" data-admin-view="projects">CAS 项目管理</button>
         <button class="admin-nav-item" type="button" data-admin-view="resources">资源管理</button>
         <button class="admin-nav-item" type="button" data-admin-view="database">数据库查看器</button>
       </nav>
@@ -82,6 +83,54 @@
               <button id="adminUploadButton" class="button compact" type="button">上传文件</button>
               <div id="adminUploadMessage" class="auth-message" aria-live="polite"></div>
             </aside>
+          </div>
+        </section>
+
+        <section class="admin-view" data-admin-panel="projects">
+          <div class="admin-section-head">
+            <div>
+              <h2>CAS 项目管理</h2>
+              <p>按前台 CAS 项目库界面管理项目内容，并调整项目分类顺序。</p>
+            </div>
+            <button id="createProjectButton" class="button compact" type="button">新建项目</button>
+          </div>
+
+          <div class="library-layout admin-project-layout">
+            <aside class="card sidebar">
+              <h2>筛选项目</h2>
+              <label>关键词</label>
+              <input id="projectAdminSearch" class="input" type="search" placeholder="搜索名称、负责人、简介" />
+
+              <label>年份</label>
+              <select id="adminProjectYear" class="input">
+                <option value="">全部年份</option>
+              </select>
+
+              <label>排序</label>
+              <select id="adminProjectSort" class="input">
+                <option value="latest">最新</option>
+                <option value="popular">热门</option>
+              </select>
+
+              <div class="admin-sidebar-title">
+                <h3>分类</h3>
+                <span>拖动排序</span>
+              </div>
+              <div id="adminProjectCategoryList" class="category-list"></div>
+            </aside>
+
+            <section class="card content-panel">
+              <div id="adminProjectListView">
+                <div class="section-title">
+                  <div>
+                    <h1>CAS 项目库</h1>
+                    <span id="adminProjectCount">加载中...</span>
+                  </div>
+                </div>
+                <div id="adminProjectList" class="project-list"></div>
+              </div>
+              <div id="adminProjectDetailView" class="admin-detail-panel is-hidden"></div>
+            </section>
           </div>
         </section>
 

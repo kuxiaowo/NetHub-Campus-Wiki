@@ -12,6 +12,7 @@ DROP TABLE IF EXISTS photo_items;
 DROP TABLE IF EXISTS photo_activities;
 DROP TABLE IF EXISTS resource_categories;
 DROP TABLE IF EXISTS resources;
+DROP TABLE IF EXISTS project_categories;
 DROP TABLE IF EXISTS projects;
 DROP TABLE IF EXISTS users;
 
@@ -59,6 +60,17 @@ CREATE TABLE projects (
   INDEX idx_category (category),
   INDEX idx_year (year),
   INDEX idx_popularity (popularity)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE project_categories (
+  id INT AUTO_INCREMENT PRIMARY KEY COMMENT 'CAS 项目分类 ID',
+  name VARCHAR(60) NOT NULL COMMENT 'CAS 项目分类名称',
+  sort_order INT NOT NULL DEFAULT 0 COMMENT '人工排序权重，数字越小越靠前',
+  is_active TINYINT(1) NOT NULL DEFAULT 1 COMMENT '分类是否启用',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_project_categories_name (name),
+  INDEX idx_project_categories_sort (is_active, sort_order, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE resources (
@@ -163,6 +175,12 @@ VALUES
   74,
   JSON_ARRAY('每周三、周五 12:30 集合', '新增 3km 新手路线')
 );
+
+INSERT INTO project_categories (name, sort_order, is_active)
+VALUES
+('科技创新', 10, 1),
+('公益服务', 20, 1),
+('运动健康', 30, 1);
 
 INSERT INTO resources
 (title, description, year, category, label, type, hot, downloads, image, resource_url)
