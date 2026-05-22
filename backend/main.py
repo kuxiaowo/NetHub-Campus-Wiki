@@ -8,22 +8,35 @@
 后端不再托管前端页面；前端由 frontend_server.py 单独提供静态服务。
 """
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
+import sys
+from pathlib import Path
 
+from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+
+if __package__ in {None, ""}:
+    sys.path.append(str(Path(__file__).resolve().parents[1]))
+
+from backend.admin import router as admin_router
 from backend.config import settings
+from backend.auth import authenticate_user, create_access_token, create_user, get_current_user
 from backend.database import get_db_connection
 from backend.projects import get_project, list_meta, list_projects
 from backend.resources import list_photo_activities, list_resource_meta, list_resources
 from backend.schemas import (
     AnnouncementsResponse,
     HealthResponse,
+    LoginRequest,
+    LoginResponse,
     MetaResponse,
     PhotoActivityListResponse,
     ProjectDetailResponse,
     ProjectListResponse,
     ResourceListResponse,
     ResourceMetaResponse,
+    RegisterRequest,
+    User,
 )
 
 ANNOUNCEMENTS = [
@@ -43,6 +56,7 @@ app = FastAPI(
     contact={"name": "Campus Wiki Team"},
     openapi_tags=[
         {"name": "system", "description": "服务状态与运行信息。"},
+        {"name": "auth", "description": "用户注册、登录和当前用户接口。"},
         {"name": "content", "description": "首页内容接口。"},
         {"name": "projects", "description": "CAS 项目库查询接口。"},
         {"name": "resources", "description": "资源中心和活动照片查询接口。"},
@@ -54,9 +68,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),
     allow_credentials=False,
-    allow_methods=["GET"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+app.include_router(admin_router)
 
 
 @app.get("/api/health", response_model=HealthResponse, tags=["system"])
@@ -82,6 +98,32 @@ def announcements():
     """
 
     return {"data": ANNOUNCEMENTS}
+
+
+@app.post("/api/auth/register", response_model=User, tags=["auth"])
+def register(payload: RegisterRequest):
+    """开放注册普通用户，注册后的默认角色为 user。"""
+
+    return create_user(
+        username=payload.username,
+        password=payload.password,
+        display_name=payload.displayName,
+    )
+
+
+@app.post("/api/auth/login", response_model=LoginResponse, tags=["auth"])
+def login(payload: LoginRequest):
+    """使用用户名和密码登录，返回 Bearer Token。"""
+
+    user = authenticate_user(payload.username, payload.password)
+    return {"accessToken": create_access_token(user), "tokenType": "bearer", "user": user}
+
+
+@app.get("/api/auth/me", response_model=User, tags=["auth"])
+def current_user(user: dict = Depends(get_current_user)):
+    """返回当前 Bearer Token 对应的用户。"""
+
+    return user
 
 
 @app.get("/api/meta", response_model=MetaResponse, tags=["projects"])
@@ -144,3 +186,12 @@ def photo_activities(
     """返回活动照片列表，每个活动包含自己的照片数组。"""
 
     return {"data": list_photo_activities(year=year, search=search, sort=sort)}
+
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "backend.main:app",
+        host="0.0.0.0",
+        port=settings.api_port,
+        reload=True,
+    )

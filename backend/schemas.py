@@ -26,6 +26,40 @@ class AnnouncementsResponse(BaseModel):
     data: list[str] = Field(description="公告文本列表。")
 
 
+class User(BaseModel):
+    """登录用户信息。"""
+
+    id: int
+    username: str
+    displayName: str | None = None
+    role: str = Field(pattern="^(admin|user)$")
+    isActive: bool
+    createdAt: datetime | None = None
+
+
+class RegisterRequest(BaseModel):
+    """用户注册请求。"""
+
+    username: str = Field(min_length=3, max_length=32)
+    password: str = Field(min_length=8)
+    displayName: str | None = Field(default=None, max_length=80)
+
+
+class LoginRequest(BaseModel):
+    """用户登录请求。"""
+
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    """登录成功响应。"""
+
+    accessToken: str
+    tokenType: str = "bearer"
+    user: User
+
+
 class MetaResponse(BaseModel):
     """项目筛选元数据响应。"""
 
@@ -56,7 +90,7 @@ class Project(BaseModel):
                 "members": "李明, 王小雨, Chen Alex",
                 "category": "科技创新",
                 "year": 2026,
-                "icon": "🗺️",
+                "icon": "https://picsum.photos/seed/noise-map-icon/300/300",
                 "description": "使用传感器采集校园不同地点的噪音数据。",
                 "media": ["https://picsum.photos/seed/noise-map/900/520"],
                 "cas": {"creativity": True, "activity": True, "service": True},
@@ -149,8 +183,10 @@ class PhotoActivity(BaseModel):
 
     id: int
     activity: str
+    description: str
     year: int
     hot: int
+    photoDir: str | None = None
     images: list[PhotoItem]
     createdAt: datetime | None = None
 

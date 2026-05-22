@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>管理后台</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <main class="admin-shell">
+    <aside class="admin-sidebar">
+      <a class="brand admin-brand" href="/index.html">校园论坛</a>
+      <nav class="admin-nav" aria-label="管理后台导航">
+        <button class="admin-nav-item active" type="button" data-admin-view="users">用户管理</button>
+        <button class="admin-nav-item" type="button" data-admin-view="files">文件管理</button>
+        <button class="admin-nav-item" type="button" data-admin-view="resources">资源管理</button>
+        <button class="admin-nav-item" type="button" data-admin-view="database">数据库查看器</button>
+      </nav>
+      <a class="button secondary admin-home-link" href="/index.html">返回前台</a>
+    </aside>
+
+    <section class="admin-main">
+      <header class="admin-topbar">
+        <div>
+          <h1>管理后台</h1>
+          <p id="adminStatus">正在校验管理员身份...</p>
+        </div>
+        <button id="adminLogout" class="button secondary compact" type="button">退出登录</button>
+      </header>
+
+      <section id="adminGate" class="card admin-gate">
+        <h2>需要管理员权限</h2>
+        <p>请使用管理员账号登录后访问后台。</p>
+        <a class="button" href="/index.html">返回首页登录</a>
+      </section>
+
+      <div id="adminWorkspace" class="admin-workspace is-hidden">
+        <section class="admin-view active" data-admin-panel="users">
+          <div class="admin-section-head">
+            <div>
+              <h2>用户管理</h2>
+              <p>查看用户列表，创建账号，调整角色和启用状态。</p>
+            </div>
+            <button id="createUserButton" class="button compact" type="button">新建用户</button>
+          </div>
+          <div class="admin-toolbar">
+            <input id="userSearch" class="input" type="search" placeholder="搜索用户名或展示名" />
+            <select id="userRoleFilter" class="input small">
+              <option value="">全部角色</option>
+              <option value="admin">管理员</option>
+              <option value="user">普通用户</option>
+            </select>
+            <select id="userActiveFilter" class="input small">
+              <option value="">全部状态</option>
+              <option value="true">启用</option>
+              <option value="false">禁用</option>
+            </select>
+            <button id="refreshUsers" class="button secondary compact" type="button">刷新</button>
+          </div>
+          <div id="usersTable" class="admin-table-wrap"></div>
+        </section>
+
+        <section class="admin-view" data-admin-panel="files">
+          <div class="admin-section-head">
+            <div>
+              <h2>文件管理</h2>
+              <p>浏览 public 目录，选择目标文件夹并上传文件。</p>
+            </div>
+          </div>
+          <div class="admin-file-layout">
+            <section class="card admin-file-panel">
+              <div class="admin-toolbar">
+                <button id="fileUpButton" class="button secondary compact" type="button">上一级</button>
+                <span id="filePathLabel" class="admin-muted">/</span>
+              </div>
+              <div id="fileTable" class="admin-table-wrap"></div>
+            </section>
+            <aside class="card admin-upload-panel">
+              <h3>上传到当前目录</h3>
+              <p id="uploadTargetLabel">/</p>
+              <input id="adminUploadInput" class="input" type="file" />
+              <button id="adminUploadButton" class="button compact" type="button">上传文件</button>
+              <div id="adminUploadMessage" class="auth-message" aria-live="polite"></div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="admin-view" data-admin-panel="resources">
+          <div class="admin-section-head">
+            <div>
+              <h2>资源管理</h2>
+              <p>按正式资源中心界面管理资源、活动照片和照片目录。</p>
+            </div>
+            <div class="admin-detail-actions">
+              <button id="createResourceButton" class="button compact" type="button">新建资源</button>
+              <button id="createActivityButton" class="button compact is-hidden" type="button">新建活动</button>
+            </div>
+          </div>
+
+          <div class="card resource-filter-card admin-resource-filter">
+            <h1>资源筛选</h1>
+            <div class="resource-filter-grid">
+              <label>
+                <span>关键词</span>
+                <input id="resourceAdminSearch" class="input" type="search" placeholder="搜索名称、内容、简介" />
+              </label>
+              <button id="refreshResources" class="button secondary compact" type="button">搜索</button>
+
+              <label>
+                <span>年份</span>
+                <select id="adminResourceYear" class="input">
+                  <option value="">全部年份</option>
+                </select>
+              </label>
+
+              <label>
+                <span>排序</span>
+                <select id="adminResourceSort" class="input">
+                  <option value="hot">最热</option>
+                  <option value="new">最新</option>
+                  <option value="download">下载最多</option>
+                  <option value="old">最早</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div class="library-layout admin-resource-layout">
+            <aside class="card sidebar resource-sidebar">
+              <h2>资源类型</h2>
+              <div id="adminResourceCategoryList" class="category-list"></div>
+
+              <section id="adminPhotoFilters" class="photo-filters" aria-label="照片筛选">
+                <h3>选择活动</h3>
+                <div id="adminActivityList" class="category-list"></div>
+              </section>
+            </aside>
+
+            <section class="card content-panel resource-panel">
+              <div id="adminResourceView">
+                <div class="section-title">
+                  <div>
+                    <h1>资源中心</h1>
+                    <span id="adminResourceCount">加载中...</span>
+                  </div>
+                </div>
+                <div id="resourcesTable" class="resource-grid"></div>
+              </div>
+
+              <div id="adminPhotoView" class="photo-view">
+                <div class="section-title with-control">
+                  <div>
+                    <h1 id="adminPhotoTitle">活动照片</h1>
+                    <span id="adminPhotoMeta">选择活动查看照片</span>
+                  </div>
+                  <div class="admin-detail-actions">
+                    <button id="editCurrentActivityButton" class="button compact is-hidden" type="button">编辑活动</button>
+                    <button id="downloadActivity" class="button secondary" type="button">下载活动 ZIP</button>
+                  </div>
+                </div>
+                <div id="activitiesTable" class="photo-grid" aria-live="polite"></div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="admin-view" data-admin-panel="database">
+          <div class="admin-section-head">
+            <div>
+              <h2>数据库查看器</h2>
+              <p>受控查看和编辑白名单表，不开放任意 SQL。</p>
+            </div>
+            <button id="createDbRowButton" class="button compact" type="button" disabled>新增记录</button>
+          </div>
+          <div class="admin-db-layout">
+            <aside class="card admin-db-sidebar">
+              <h3>数据表</h3>
+              <div id="dbTableList" class="category-list"></div>
+            </aside>
+            <section class="admin-db-content">
+              <div class="admin-toolbar">
+                <span id="dbTableMeta" class="admin-muted">请选择数据表</span>
+                <button id="dbPrevPage" class="button secondary compact" type="button">上一页</button>
+                <button id="dbNextPage" class="button secondary compact" type="button">下一页</button>
+              </div>
+              <div id="dbRowsTable" class="admin-table-wrap"></div>
+            </section>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <div id="adminModal" class="admin-modal" aria-hidden="true" role="dialog" aria-label="管理表单">
+    <div class="admin-modal-backdrop" data-admin-modal-close></div>
+    <section class="admin-modal-panel">
+      <div class="admin-modal-head">
+        <h2 id="adminModalTitle">编辑</h2>
+        <button class="icon-button" type="button" aria-label="关闭" data-admin-modal-close>×</button>
+      </div>
+      <form id="adminModalForm" class="admin-form"></form>
+    </section>
+  </div>
+
+  <div id="filePickerModal" class="admin-modal" aria-hidden="true" role="dialog" aria-label="选择文件">
+    <div class="admin-modal-backdrop" data-file-picker-close></div>
+    <section class="admin-modal-panel admin-file-picker-panel">
+      <div class="admin-modal-head">
+        <h2 id="filePickerTitle">选择文件</h2>
+        <button class="icon-button" type="button" aria-label="关闭" data-file-picker-close>×</button>
+      </div>
+      <div class="admin-form">
+        <div class="admin-toolbar">
+          <button class="button secondary compact" type="button" data-picker-up>上一级</button>
+          <span id="pickerPathLabel" class="admin-muted">/</span>
+          <button id="pickCurrentFolder" class="button secondary compact" type="button" data-pick-current-folder>选择当前文件夹</button>
+        </div>
+        <div id="pickerFileTable" class="admin-table-wrap"></div>
+        <div class="admin-modal-actions">
+          <button class="button secondary" type="button" data-file-picker-close>取消</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="/js/config.js"></script>
+  <script src="/js/api.js?v=admin"></script>
+  <script src="/js/admin.js"></script>
+</body>
+</html>

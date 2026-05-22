@@ -27,7 +27,7 @@ async function loadDetail() {
 
   projectDetail.innerHTML = `
     <div class="detail-head">
-      <div class="project-icon">${escapeHtml(project.icon)}</div>
+      ${projectIconImage(project)}
       <div>
         <h1>${escapeHtml(project.name)}</h1>
         <div class="meta">

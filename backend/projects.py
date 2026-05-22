@@ -44,7 +44,7 @@ def format_project(row: dict[str, Any]) -> dict[str, Any]:
         "members": row["members"],
         "category": row["category"],
         "year": row["year"],
-        "icon": row.get("icon") or "🧩",
+        "icon": row.get("icon") or "https://picsum.photos/seed/cas-project/300/300",
         "description": row["description"],
         "media": parse_json_field(row.get("media")),
         "cas": {

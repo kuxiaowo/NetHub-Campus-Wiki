@@ -4,12 +4,62 @@
 字段整理成前端使用的 camelCase JSON，路由层只处理 HTTP 参数和响应模型。
 """
 
+import re
+from pathlib import Path
 from typing import Any, Literal
 
 from backend.database import get_db_connection
 
 ResourceSort = Literal["hot", "new", "old", "download"]
 PhotoSort = Literal["hot", "new", "old", "photoCount"]
+BASE_DIR = Path(__file__).resolve().parents[1]
+PUBLIC_DIR = BASE_DIR / "public"
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:/")
+
+
+def _public_url_to_path(value: str | None) -> tuple[Path, str] | None:
+    """Resolve a public URL or public-relative path to a safe local directory."""
+
+    raw_value = (value or "").strip().replace("\\", "/")
+    if not raw_value:
+        return None
+    if "://" in raw_value or WINDOWS_DRIVE_PATTERN.match(raw_value):
+        return None
+    relative = raw_value.strip("/")
+    raw_path = Path(relative)
+    if raw_path.is_absolute() or raw_path.drive or ".." in raw_path.parts:
+        return None
+
+    public_root = PUBLIC_DIR.resolve()
+    target = (public_root / relative).resolve()
+    if target != public_root and public_root not in target.parents:
+        return None
+    return target, relative
+
+
+def _scan_photo_dir(photo_dir: str | None) -> list[dict[str, Any]]:
+    resolved = _public_url_to_path(photo_dir)
+    if resolved is None:
+        return []
+    target, relative = resolved
+    if not target.exists() or not target.is_dir():
+        return []
+
+    photos = []
+    for index, item in enumerate(sorted(target.iterdir(), key=lambda path: path.name.lower()), start=1):
+        if not item.is_file() or item.suffix.lower() not in IMAGE_EXTENSIONS:
+            continue
+        item_relative = item.relative_to(PUBLIC_DIR.resolve()).as_posix()
+        photos.append(
+            {
+                "id": index,
+                "title": item.stem,
+                "src": f"/{item_relative}",
+                "sortOrder": index,
+            }
+        )
+    return photos
 
 
 def format_resource(row: dict[str, Any]) -> dict[str, Any]:
@@ -109,8 +159,9 @@ def list_photo_activities(
         where_parts.append("pa.year = %s")
         params.append(year)
     if search:
-        where_parts.append("pa.activity LIKE %s")
-        params.append(f"%{search}%")
+        where_parts.append("(pa.activity LIKE %s OR pa.description LIKE %s)")
+        keyword = f"%{search}%"
+        params.extend([keyword, keyword])
 
     order_map = {
         "hot": "pa.hot DESC, pa.created_at DESC",
@@ -123,14 +174,16 @@ def list_photo_activities(
         SELECT
           pa.id,
           pa.activity,
+          pa.description,
           pa.year,
           pa.hot,
+          pa.photo_dir,
           pa.created_at,
           COUNT(pi.id) AS photo_count
         FROM photo_activities pa
         LEFT JOIN photo_items pi ON pi.activity_id = pa.id
         {where_sql}
-        GROUP BY pa.id, pa.activity, pa.year, pa.hot, pa.created_at
+        GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.photo_dir, pa.created_at
         ORDER BY {order_map[sort]}, pa.id DESC
     """
 
@@ -166,14 +219,23 @@ def list_photo_activities(
             }
         )
 
-    return [
-        {
+    result = []
+    for row in activities:
+        scanned_photos = _scan_photo_dir(row.get("photo_dir"))
+        legacy_photos = photos_by_activity[row["id"]]
+        images = scanned_photos or legacy_photos
+        result.append(
+            {
             "id": row["id"],
             "activity": row["activity"],
+            "description": row.get("description") or "",
             "year": row["year"],
             "hot": row["hot"],
-            "images": photos_by_activity[row["id"]],
+            "photoDir": row.get("photo_dir"),
+            "images": images,
             "createdAt": row.get("created_at"),
-        }
-        for row in activities
-    ]
+            }
+        )
+    if sort == "photoCount":
+        result.sort(key=lambda item: (len(item["images"]), item["createdAt"] or ""), reverse=True)
+    return result

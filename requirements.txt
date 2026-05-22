@@ -2,3 +2,5 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 PyMySQL==1.1.1
 python-dotenv==1.0.1
+cryptography==43.0.3
+python-multipart==0.0.20

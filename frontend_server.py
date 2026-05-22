@@ -31,6 +31,11 @@ class FrontendHandler(SimpleHTTPRequestHandler):
             self.path = "/index.html"
         return super().do_GET()
 
+    def end_headers(self):  # noqa: N802 - inherited method name from stdlib.
+        # 开发阶段避免浏览器缓存旧 HTML/JS/CSS，方便前端改动立即生效。
+        self.send_header("Cache-Control", "no-store, max-age=0")
+        super().end_headers()
+
 
 if __name__ == "__main__":
     port = int(os.getenv("FRONTEND_PORT", "3200"))

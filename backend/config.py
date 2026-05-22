@@ -19,11 +19,14 @@ class Settings:
     frozen=True 表示配置对象创建后不允许修改，避免运行过程中被意外改写。
     """
 
+    api_port: int = int(os.getenv("API_PORT", os.getenv("PORT", "3100")))
     db_host: str = os.getenv("DB_HOST", "127.0.0.1")
     db_port: int = int(os.getenv("DB_PORT", "3306"))
     db_user: str = os.getenv("DB_USER", "root")
     db_password: str = os.getenv("DB_PASSWORD", "")
     db_name: str = os.getenv("DB_NAME", "campus_cas_forum")
+    auth_secret_key: str = os.getenv("AUTH_SECRET_KEY", "dev-only-change-me")
+    auth_token_expire_minutes: int = int(os.getenv("AUTH_TOKEN_EXPIRE_MINUTES", "120"))
     cors_origins: tuple[str, ...] = tuple(
         # CORS_ORIGINS 使用逗号分隔，便于同时允许 localhost 和 127.0.0.1。
         origin.strip()

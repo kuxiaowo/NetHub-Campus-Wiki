@@ -18,46 +18,42 @@
     </nav>
   </header>
 
+  <section class="container resource-filter-bar">
+    <div class="card resource-filter-card">
+      <h1>资源筛选</h1>
+      <div class="resource-filter-grid">
+        <label>
+          <span>关键词</span>
+          <input id="resourceSearch" class="input" type="search" placeholder="搜索名称、内容、简介" />
+        </label>
+        <button id="resourceSearchButton" class="button secondary compact" type="button">搜索</button>
+
+        <label>
+          <span>年份</span>
+          <select id="resourceYear" class="input">
+            <option value="">全部年份</option>
+          </select>
+        </label>
+
+        <label>
+          <span>排序</span>
+          <select id="resourceSort" class="input">
+            <option value="hot">最热</option>
+            <option value="new">最新</option>
+            <option value="download">下载最多</option>
+            <option value="old">最早</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </section>
+
   <main class="container library-layout">
     <aside class="card sidebar resource-sidebar">
-      <h2>资源筛选</h2>
-      <label>关键词</label>
-      <input id="resourceSearch" class="input" type="search" placeholder="搜索名称、内容、简介" />
-
-      <label>年份</label>
-      <select id="resourceYear" class="input">
-        <option value="">全部年份</option>
-      </select>
-
-      <label>排序</label>
-      <select id="resourceSort" class="input">
-        <option value="hot">最热</option>
-        <option value="new">最新</option>
-        <option value="download">下载最多</option>
-        <option value="old">最早</option>
-      </select>
-
-      <h3>资源类型</h3>
+      <h2>资源类型</h2>
       <div id="resourceCategoryList" class="category-list"></div>
 
       <section id="photoFilters" class="photo-filters" aria-label="照片筛选">
-        <h2>照片筛选</h2>
-        <label>搜索</label>
-        <input id="photoSearch" class="input" type="search" placeholder="搜索活动名称" />
-
-        <label>年份</label>
-        <select id="photoYear" class="input">
-          <option value="">全部年份</option>
-        </select>
-
-        <label>排序</label>
-        <select id="photoSort" class="input">
-          <option value="hot">最热</option>
-          <option value="new">最新</option>
-          <option value="photoCount">照片最多</option>
-          <option value="old">最早</option>
-        </select>
-
         <h3>选择活动</h3>
         <div id="activityList" class="category-list"></div>
       </section>
@@ -80,7 +76,7 @@
             <h1 id="photoTitle">活动照片</h1>
             <span id="photoMeta">选择活动查看照片</span>
           </div>
-          <button id="downloadActivity" class="button secondary" type="button">下载活动照片</button>
+          <button id="downloadActivity" class="button secondary" type="button">下载活动 ZIP</button>
         </div>
         <div id="photoGrid" class="photo-grid" aria-live="polite"></div>
       </div>
@@ -96,7 +92,7 @@
           <p id="modalMeta"></p>
         </div>
         <div class="modal-actions">
-          <a id="modalDownload" class="button secondary" href="#" download>下载</a>
+          <button id="modalDownload" class="button secondary" type="button">下载</button>
           <button class="icon-button" type="button" aria-label="关闭" data-close-modal>×</button>
         </div>
       </div>
@@ -106,7 +102,7 @@
 
   <footer class="footer">资源中心支持年鉴、活动照片和常用资料筛选</footer>
   <script src="/js/config.js"></script>
-  <script src="/js/api.js"></script>
+  <script src="/js/api.js?v=auth-ui6"></script>
   <script src="/js/resources.js"></script>
 </body>
 </html>

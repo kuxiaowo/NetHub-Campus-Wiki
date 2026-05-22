@@ -16,7 +16,7 @@ function projectRow(project) {
 
   return `
     <a class="project-row" href="/detail.html?id=${projectId}">
-      <div class="project-icon">${escapeHtml(project.icon)}</div>
+      ${projectIconImage(project)}
       <div>
         <h3>${escapeHtml(project.name)}</h3>
         <div class="meta">

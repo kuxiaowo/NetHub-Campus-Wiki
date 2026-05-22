@@ -7,13 +7,85 @@ const API_BASE = window.CAMPUS_WIKI_CONFIG?.apiBaseUrl || 'http://127.0.0.1:3100
  * path 只传 /api 后面的路径，例如 /projects。真实服务地址由 config.js 提供，
  * 这样前端服务和后端服务可以独立部署。
  */
-async function request(path) {
-  const response = await fetch(`${API_BASE}${path}`);
+const AUTH_TOKEN_KEY = 'campusWikiAuthToken';
+const AUTH_USER_KEY = 'campusWikiAuthUser';
+
+async function request(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  const token = getAuthToken();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  if (options.body && !(options.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || `请求失败：${response.status}`);
+    const detail = Array.isArray(error.detail)
+      ? error.detail.map((item) => item.msg).filter(Boolean).join('；')
+      : error.detail;
+    throw new Error(detail || error.message || `请求失败：${response.status}`);
   }
   return response.json();
+}
+
+function getAuthToken() {
+  return window.localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+function getStoredUser() {
+  try {
+    return JSON.parse(window.localStorage.getItem(AUTH_USER_KEY) || 'null');
+  } catch {
+    return null;
+  }
+}
+
+function saveAuthSession(token, user) {
+  window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+  window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+}
+
+function clearAuthSession() {
+  window.localStorage.removeItem(AUTH_TOKEN_KEY);
+  window.localStorage.removeItem(AUTH_USER_KEY);
+}
+
+function roleLabel(role) {
+  return role === 'admin' ? '管理员' : '普通用户';
+}
+
+function userInitial(user) {
+  const name = String(user?.username || user?.displayName || '登').trim();
+  return (name[0] || '登').toUpperCase();
+}
+
+async function loginUser(username, password) {
+  const result = await request('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  });
+  saveAuthSession(result.accessToken, result.user);
+  return result.user;
+}
+
+async function registerUser(username, password, displayName) {
+  return request('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ username, password, displayName: displayName || null }),
+  });
+}
+
+async function refreshCurrentUser() {
+  if (!getAuthToken()) return null;
+  try {
+    const user = await request('/auth/me');
+    window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+    return user;
+  } catch (error) {
+    clearAuthSession();
+    return null;
+  }
 }
 
 /**
@@ -71,6 +143,220 @@ function casTags(cas) {
   ).join('')}</div>`;
 }
 
+function authDialogTemplate() {
+  return `
+    <div class="auth-modal" id="authModal" aria-hidden="true" role="dialog" aria-label="账号">
+      <div class="auth-backdrop" data-auth-close></div>
+      <section class="auth-panel">
+        <div class="auth-head">
+          <h2>账号</h2>
+          <p id="authHint">未登录：可浏览内容，登录后可参与更多校园互动。</p>
+        </div>
+        <div id="authAccountState"></div>
+        <div class="auth-tabs" role="tablist" aria-label="账号操作">
+          <button id="authLoginTab" class="auth-tab active" type="button">登录</button>
+          <button id="authRegisterTab" class="auth-tab" type="button">注册</button>
+        </div>
+        <form id="authLoginForm" class="auth-form">
+          <label>
+            <span class="sr-only">昵称</span>
+            <input class="input" name="username" autocomplete="username" placeholder="昵称" required minlength="3" maxlength="32" />
+          </label>
+          <label>
+            <span class="sr-only">密码</span>
+            <input class="input" name="password" type="password" autocomplete="current-password" placeholder="密码" required minlength="8" />
+          </label>
+          <button class="button auth-submit" type="submit">登录</button>
+        </form>
+        <form id="authRegisterForm" class="auth-form is-hidden">
+          <label>
+            <span class="sr-only">姓名</span>
+            <input class="input" name="displayName" autocomplete="name" placeholder="姓名" maxlength="80" />
+          </label>
+          <label>
+            <span class="sr-only">昵称</span>
+            <input class="input" name="username" autocomplete="username" placeholder="昵称" required minlength="3" maxlength="32" />
+          </label>
+          <label>
+            <span class="sr-only">密码</span>
+            <input class="input" name="password" type="password" autocomplete="new-password" placeholder="密码（至少 8 位）" required minlength="8" />
+          </label>
+          <button class="button auth-submit" type="submit">注册并登录</button>
+        </form>
+        <div id="authMessage" class="auth-message" aria-live="polite"></div>
+      </section>
+    </div>
+  `;
+}
+
+function initAuthNav() {
+  const navbar = document.querySelector('.navbar');
+  if (!navbar || document.querySelector('.auth-area')) return;
+
+  const authArea = document.createElement('div');
+  authArea.className = 'auth-area';
+  navbar.appendChild(authArea);
+  document.body.insertAdjacentHTML('beforeend', authDialogTemplate());
+
+  const modal = document.querySelector('#authModal');
+  const loginForm = document.querySelector('#authLoginForm');
+  const registerForm = document.querySelector('#authRegisterForm');
+  const hint = document.querySelector('#authHint');
+  const accountState = document.querySelector('#authAccountState');
+  const message = document.querySelector('#authMessage');
+  const loginTab = document.querySelector('#authLoginTab');
+  const registerTab = document.querySelector('#authRegisterTab');
+  let mode = 'login';
+  let currentUser = getStoredUser();
+
+  function renderUser(user) {
+    currentUser = user;
+    if (!user) {
+      authArea.innerHTML = `
+        <button class="auth-avatar logged-out" type="button" data-open-auth aria-label="打开账号面板">登</button>
+      `;
+      authArea.querySelector('[data-open-auth]').addEventListener('click', () => openAuthModal('login'));
+      return;
+    }
+
+    authArea.innerHTML = `
+      <button class="auth-avatar" type="button" data-open-auth aria-label="打开账号面板">
+        ${escapeHtml(userInitial(user))}
+      </button>
+    `;
+    authArea.querySelector('[data-open-auth]').addEventListener('click', () => openAuthModal('login'));
+  }
+
+  function renderAccountState() {
+    if (!currentUser) {
+      accountState.innerHTML = '';
+      hint.textContent = '未登录：可浏览内容，登录后可参与更多校园互动。';
+      loginForm.classList.toggle('is-hidden', mode !== 'login');
+      registerForm.classList.toggle('is-hidden', mode !== 'register');
+      loginTab.classList.remove('is-hidden');
+      registerTab.classList.remove('is-hidden');
+      return;
+    }
+
+    hint.innerHTML = `已登录：${escapeHtml(currentUser.displayName || currentUser.username)}
+      <span>(${escapeHtml(currentUser.username)})</span>`;
+    loginForm.classList.add('is-hidden');
+    registerForm.classList.add('is-hidden');
+    loginTab.classList.add('is-hidden');
+    registerTab.classList.add('is-hidden');
+    accountState.innerHTML = `
+      ${currentUser.role === 'admin'
+        ? '<button class="button auth-admin-button" type="button" data-admin-entry>进入管理员后台</button>'
+        : ''}
+      <button class="button secondary auth-logout-button" type="button" data-logout>退出账号，重新登录</button>
+    `;
+    accountState.querySelector('[data-logout]')?.addEventListener('click', () => {
+      clearAuthSession();
+      renderUser(null);
+      setMode('login');
+    });
+    accountState.querySelector('[data-admin-entry]')?.addEventListener('click', () => {
+      window.location.href = '/admin.html';
+    });
+  }
+
+  function setMode(nextMode) {
+    mode = nextMode;
+    const isRegister = mode === 'register';
+    renderAccountState();
+    loginTab.classList.toggle('active', !isRegister);
+    registerTab.classList.toggle('active', isRegister);
+    message.textContent = '登录后可保存你的项目资料与校园互动状态。';
+    message.classList.remove('error');
+  }
+
+  function openAuthModal(nextMode) {
+    setMode(nextMode);
+    modal.classList.add('is-open');
+    modal.setAttribute('aria-hidden', 'false');
+    const activeForm = mode === 'register' ? registerForm : loginForm;
+    activeForm.username.focus();
+  }
+
+  function closeAuthModal() {
+    modal.classList.remove('is-open');
+    modal.setAttribute('aria-hidden', 'true');
+    loginForm.reset();
+    registerForm.reset();
+    message.textContent = '登录后可保存你的项目资料与校园互动状态。';
+    message.classList.remove('error');
+  }
+
+  loginTab.addEventListener('click', () => setMode('login'));
+  registerTab.addEventListener('click', () => setMode('register'));
+  document.querySelectorAll('[data-auth-close]').forEach((item) => item.addEventListener('click', closeAuthModal));
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && modal.classList.contains('is-open')) closeAuthModal();
+  });
+
+  loginForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    message.textContent = '正在登录...';
+    message.classList.remove('error');
+    const submit = loginForm.querySelector('[type="submit"]');
+    submit.disabled = true;
+
+    try {
+      const formData = new FormData(loginForm);
+      const username = String(formData.get('username') || '');
+      const password = String(formData.get('password') || '');
+
+      const user = await loginUser(username, password);
+      renderUser(user);
+      closeAuthModal();
+    } catch (error) {
+      message.textContent = error.message;
+      message.classList.add('error');
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
+  registerForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    message.textContent = '正在注册...';
+    message.classList.remove('error');
+    const submit = registerForm.querySelector('[type="submit"]');
+    submit.disabled = true;
+
+    try {
+      const formData = new FormData(registerForm);
+      const username = String(formData.get('username') || '');
+      const password = String(formData.get('password') || '');
+      const displayName = String(formData.get('displayName') || '').trim();
+
+      await registerUser(username, password, displayName);
+      const user = await loginUser(username, password);
+      renderUser(user);
+      closeAuthModal();
+    } catch (error) {
+      message.textContent = error.message;
+      message.classList.add('error');
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
+  renderUser(getStoredUser());
+  refreshCurrentUser().then(renderUser);
+}
+
+function projectIconImage(project) {
+  const rawIcon = String(project.icon || '');
+  const iconSource = /^(https?:|\/)/i.test(rawIcon) ? rawIcon : project.media?.[0];
+  const iconUrl = safeExternalUrl(iconSource);
+  return `
+    <div class="project-icon">
+      <img src="${iconUrl}" alt="${escapeHtml(project.name)}" loading="lazy">
+    </div>
+  `;
+}
+
 /**
  * 首页推荐项目卡片。
  */
@@ -80,7 +366,7 @@ function projectCard(project) {
 
   return `
     <a class="project-card" href="/detail.html?id=${projectId}">
-      <div class="project-icon">${escapeHtml(project.icon)}</div>
+      ${projectIconImage(project)}
       <h3>${escapeHtml(project.name)}</h3>
       <div class="meta">
         <span class="badge">${escapeHtml(project.category)}</span>
@@ -91,4 +377,10 @@ function projectCard(project) {
       ${casTags(project.cas)}
     </a>
   `;
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initAuthNav);
+} else {
+  initAuthNav();
 }
