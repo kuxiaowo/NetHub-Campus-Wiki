@@ -45,7 +45,7 @@ Campus Wiki/
 ### 1. 安装依赖
 
 ```bash
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 ```
 
 ### 2. 配置环境变量
@@ -67,21 +67,25 @@ AUTH_TOKEN_EXPIRE_MINUTES=120
 
 ### 3. 初始化数据库
 
-确保 MySQL 已启动，然后导入示例数据。
-
-Windows PowerShell 不要使用 `Get-Content sql/schema.sql | mysql`，也不要直接用 `<` 重定向；这两种方式容易遇到 PowerShell 语法限制或中文编码问题。推荐进入 MySQL 后用 `source` 导入：
+确保 MySQL 已启动，然后在项目根目录导入示例数据：
 
 ```bash
-mysql -u root -p -P 3307 --default-character-set=utf8mb4
+mysql -u root -p --default-character-set=utf8mb4 < sql/schema.sql
+```
+
+也可以先进入 MySQL，再使用 Linux 绝对路径导入：
+
+```bash
+mysql -u root -p --default-character-set=utf8mb4
 ```
 
 进入 `mysql>` 后执行：
 
 ```sql
-source D:/Python/programs/GitHub/NetHub-Campus-Wiki/sql/schema.sql;
+source /opt/campus-wiki/sql/schema.sql;
 ```
 
-如果你的 MySQL 使用默认端口 `3306`，可以去掉 `-P 3307` 或改成自己的端口。
+如果你的 MySQL 不使用默认端口 `3306`，在 `mysql` 命令中追加 `-P 你的端口`。
 
 `schema.sql` 会创建网站里的默认管理员账号，但不会创建 MySQL 数据库登录账号。后端连接 MySQL 使用的是 `.env` 里的 `DB_USER` 和 `DB_PASSWORD`，需要使用已有 MySQL 账号，或自行创建并授权：
 
@@ -109,7 +113,7 @@ uvicorn backend.main:app --host 0.0.0.0 --port 3100 --reload
 另开一个终端：
 
 ```bash
-python frontend_server.py
+python3 frontend_server.py
 ```
 
 前端地址：
@@ -206,5 +210,5 @@ public/uploads/
 后端上传接口依赖 `python-multipart`，安装依赖时请执行：
 
 ```bash
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 ```

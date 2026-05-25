@@ -10,10 +10,16 @@
 - 默认排序规则：`utf8mb4_unicode_ci`
 - 初始化脚本：`sql/schema.sql`
 
-Windows PowerShell 不建议用 `Get-Content sql/schema.sql | mysql` 导入，容易造成中文乱码。推荐进入 MySQL 后执行：
+在 Linux 服务器上推荐从项目根目录直接导入：
+
+```bash
+mysql -u root -p --default-character-set=utf8mb4 < sql/schema.sql
+```
+
+也可以进入 MySQL 后使用 Linux 绝对路径执行：
 
 ```sql
-source D:/Python/programs/GitHub/NetHub-Campus-Wiki/sql/schema.sql;
+source /opt/campus-wiki/sql/schema.sql;
 ```
 
 ## 表关系概览
