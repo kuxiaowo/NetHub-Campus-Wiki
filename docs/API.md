@@ -431,18 +431,14 @@ curl http://127.0.0.1:3100/api/resources/meta
 | `year` | `number` | 活动年份 |
 | `hot` | `number` | 活动热度 |
 | `sortOrder` | `number` | 活动列表人工排序权重，数字越小越靠前 |
+| `photoDir` | `string \| null` | 活动照片目录 |
+| `archiveUrl` | `string \| null` | 活动压缩文件 URL，存在同名 `.rar` 时返回 |
 | `images` | `PhotoItem[]` | 活动照片 |
 | `createdAt` | `string | null` | 创建时间 |
 
 活动卡片不使用 icon 字段；“全部活动”视图使用活动第一张照片作为封面。
 
-活动级下载应由后端生成并返回整个活动照片的 ZIP 文件，不能由前端逐张触发下载。当前接口暂未提供 ZIP 下载地址；后续推荐增加：
-
-```text
-GET /api/photo-activities/{activity_id}/download
-```
-
-该接口应返回 `application/zip`，文件名建议使用活动名称，例如 `春季运动会.zip`。
+活动级下载使用照片目录下的同名压缩文件，不能由前端逐张触发下载。例如 `photoDir` 是 `/uploads/photos/春季运动会/` 时，压缩文件应放在 `/uploads/photos/春季运动会/春季运动会.rar`。只有该文件实际存在时，接口才返回 `archiveUrl`。
 
 ### 响应示例
 
@@ -551,7 +547,7 @@ CAS 项目写接口字段包括：`name`、`leader`、`members`、`category`、`
 | `file` | `file` | 是 | 上传文件 |
 | `targetPath` | `string` | 否 | 相对 `public/` 的目标目录，例如 `uploads/yearbook` |
 
-允许扩展名：`jpg`、`jpeg`、`png`、`webp`、`gif`、`pdf`、`doc`、`docx`、`ppt`、`pptx`、`xls`、`xlsx`、`zip`。单文件最大 50MB。
+允许扩展名：`jpg`、`jpeg`、`png`、`webp`、`gif`、`pdf`、`doc`、`docx`、`ppt`、`pptx`、`xls`、`xlsx`、`zip`、`rar`。单文件最大 50MB。普通文件上传后使用随机文件名保存；`.rar` 压缩文件保留原文件名，方便活动照片目录使用同名压缩文件。
 
 成功响应：
 

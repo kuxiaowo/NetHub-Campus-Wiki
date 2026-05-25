@@ -333,16 +333,17 @@ function downloadModalPhoto() {
   });
 }
 
-function downloadCurrentActivityZip() {
+function downloadCurrentActivityArchive() {
   if (!currentActivity) return;
-  if (!currentActivity.zipUrl) {
-    window.alert('当前活动还没有配置 ZIP 下载文件。');
+  const archiveUrl = currentActivity.archiveUrl;
+  if (!archiveUrl) {
+    window.alert('当前活动还没有配置压缩文件。');
     return;
   }
 
   const link = document.createElement('a');
-  link.href = safeExternalUrl(currentActivity.zipUrl);
-  link.download = `${currentActivity.activity}.zip`;
+  link.href = safeExternalUrl(archiveUrl);
+  link.download = `${currentActivity.activity}.rar`;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -357,7 +358,7 @@ resourceSearch.addEventListener('keydown', (event) => {
   }
 });
 
-downloadActivity.addEventListener('click', downloadCurrentActivityZip);
+downloadActivity.addEventListener('click', downloadCurrentActivityArchive);
 modalDownload.addEventListener('click', downloadModalPhoto);
 document.querySelectorAll('[data-close-modal]').forEach((item) => item.addEventListener('click', closePhotoModal));
 document.addEventListener('keydown', (event) => {

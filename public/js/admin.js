@@ -1401,11 +1401,12 @@ function bindAdminEvents() {
     if (adminState.currentActivity) openActivityModal(adminState.currentActivity);
   });
   adminEls.downloadActivity.addEventListener('click', () => {
-    if (!adminState.currentActivity?.zipUrl) {
-      window.alert('当前活动还没有配置 ZIP 下载文件。');
+    const archiveUrl = adminState.currentActivity?.archiveUrl;
+    if (!archiveUrl) {
+      window.alert('当前活动还没有配置压缩文件。');
       return;
     }
-    window.open(safeExternalUrl(adminState.currentActivity.zipUrl), '_blank', 'noopener,noreferrer');
+    window.open(safeExternalUrl(archiveUrl), '_blank', 'noopener,noreferrer');
   });
   adminEls.createDbRowButton.addEventListener('click', () => openDbRowModal({}));
   adminEls.dbPrevPage.addEventListener('click', () => {

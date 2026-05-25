@@ -62,6 +62,22 @@ def _scan_photo_dir(photo_dir: str | None) -> list[dict[str, Any]]:
     return photos
 
 
+def photo_archive_url(photo_dir: str | None) -> str | None:
+    """Return the same-name RAR URL when it exists inside a public photo directory."""
+
+    resolved = _public_url_to_path(photo_dir)
+    if resolved is None:
+        return None
+    target, relative = resolved
+    folder_name = Path(relative.rstrip("/")).name
+    if not folder_name:
+        return None
+    archive_file = target / f"{folder_name}.rar"
+    if not archive_file.is_file():
+        return None
+    return f"/{relative.rstrip('/')}/{folder_name}.rar"
+
+
 def format_resource(row: dict[str, Any]) -> dict[str, Any]:
     """把 resources 表行转换为前端资源卡片需要的数据结构。"""
 
@@ -232,17 +248,19 @@ def list_photo_activities(
         scanned_photos = _scan_photo_dir(row.get("photo_dir"))
         legacy_photos = photos_by_activity[row["id"]]
         images = scanned_photos or legacy_photos
+        archive_url = photo_archive_url(row.get("photo_dir"))
         result.append(
             {
-            "id": row["id"],
-            "activity": row["activity"],
-            "description": row.get("description") or "",
-            "year": row["year"],
-            "hot": row["hot"],
-            "sortOrder": row["sort_order"],
-            "photoDir": row.get("photo_dir"),
-            "images": images,
-            "createdAt": row.get("created_at"),
+                "id": row["id"],
+                "activity": row["activity"],
+                "description": row.get("description") or "",
+                "year": row["year"],
+                "hot": row["hot"],
+                "sortOrder": row["sort_order"],
+                "photoDir": row.get("photo_dir"),
+                "archiveUrl": archive_url,
+                "images": images,
+                "createdAt": row.get("created_at"),
             }
         )
     if sort == "photoCount":

@@ -272,28 +272,9 @@ ON DELETE CASCADE
 
 ## 活动照片下载设计
 
-当前前端只保留“下载活动 ZIP”入口，不再逐张触发下载。
+当前前端只保留“下载压缩文件”入口，不再逐张触发下载。
 
-后续正确做法是后端提供活动级 ZIP 下载接口：
-
-```text
-GET /api/photo-activities/{activity_id}/download
-```
-
-建议行为：
-
-- 后端读取该活动下所有照片。
-- 打包成 ZIP。
-- 返回 `Content-Type: application/zip`。
-- 返回 `Content-Disposition`，文件名使用活动名称，例如 `春季运动会.zip`。
-
-当前数据库还没有保存 ZIP 文件路径。如果以后想预生成 ZIP，可以给 `photo_activities` 增加：
-
-```sql
-zip_url VARCHAR(600) DEFAULT NULL
-```
-
-但如果 ZIP 是后端实时生成，则不需要新增字段。
+活动压缩文件不单独写入数据库，由 `photo_dir` 自动推导：如果 `photo_dir` 是 `/uploads/photos/春季运动会/`，压缩文件应放在 `public/uploads/photos/春季运动会/春季运动会.rar`。只有同名 `.rar` 文件实际存在时，接口才返回 `archiveUrl`。
 
 ## 字段命名约定
 
@@ -310,12 +291,14 @@ image_url -> src
 photo_dir -> photoDir
 ```
 
+`archiveUrl` 是由 `photo_dir` 推导出来的接口字段，不对应数据库字段。
+
 ## 当前不做的设计
 
 - 不把图片二进制存入 MySQL。
 - 不在资源中心或活动照片表中保存 icon 字段。
 - 不做旧数据库结构兼容；开发阶段以 `sql/schema.sql` 为准。
-- 不在前端逐张下载整个活动照片；活动整包下载应由后端 ZIP 接口负责。
+- 不在前端逐张下载整个活动照片；活动整包下载使用照片目录下的同名压缩文件。
 
 ## 管理后台数据约定
 
@@ -326,8 +309,8 @@ photo_dir -> photoDir
 - 上传目录：`public/uploads/`
 - 数据库存储：资源封面写入 `resources.image`，资源文件或目录 URL 写入 `resources.resource_url`，活动照片目录写入 `photo_activities.photo_dir`。
 - 上传过程不写入数据库；后台“文件管理”直接读取 `public/` 目录，资源管理中的普通资源和活动照片都只保存 URL 引用。
-- 文件名由后端生成随机安全文件名，不直接使用用户上传的原始文件名。
-- 允许类型：`jpg`、`jpeg`、`png`、`webp`、`gif`、`pdf`、`doc`、`docx`、`ppt`、`pptx`、`xls`、`xlsx`、`zip`。
+- 普通文件名由后端生成随机安全文件名；`.rar` 压缩文件保留原文件名，用于活动照片目录同名下载。
+- 允许类型：`jpg`、`jpeg`、`png`、`webp`、`gif`、`pdf`、`doc`、`docx`、`ppt`、`pptx`、`xls`、`xlsx`、`zip`、`rar`。
 
 ### 数据库查看器
 

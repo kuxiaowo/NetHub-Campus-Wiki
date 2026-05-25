@@ -127,7 +127,7 @@ python frontend_server.py
 UPDATE users SET role = 'admin' WHERE username = '你的用户名';
 ```
 
-活动照片整包下载后续应由后端提供 ZIP 下载接口，例如 `GET /api/photo-activities/{activity_id}/download`；前端不逐张触发下载。
+活动照片整包下载使用照片目录下的同名压缩文件。比如 `photoDir` 为 `/uploads/photos/春季运动会/` 时，请把压缩文件放在 `/uploads/photos/春季运动会/春季运动会.rar`，接口会通过 `archiveUrl` 返回下载地址；前端不逐张触发下载。
 
 ## 代码规范
 

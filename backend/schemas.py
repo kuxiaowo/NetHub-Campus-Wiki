@@ -189,6 +189,7 @@ class PhotoActivity(BaseModel):
     hot: int
     sortOrder: int
     photoDir: str | None = None
+    archiveUrl: str | None = None
     images: list[PhotoItem]
     createdAt: datetime | None = None
 

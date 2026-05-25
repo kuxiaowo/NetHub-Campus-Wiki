@@ -25,7 +25,7 @@ from backend.auth import (
 )
 from backend.database import get_db_connection
 from backend.projects import format_project
-from backend.resources import format_resource
+from backend.resources import format_resource, photo_archive_url
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -46,6 +46,7 @@ ALLOWED_UPLOAD_EXTENSIONS = {
     "xls",
     "xlsx",
     "zip",
+    "rar",
 }
 
 ALLOWED_DB_TABLES = {
@@ -61,6 +62,7 @@ HIDDEN_FIELDS = {"users": {"password_hash"}}
 READONLY_FIELDS = {"id", "created_at", "updated_at"}
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
 WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:/")
+WINDOWS_FILENAME_RESERVED_CHARS = re.compile(r'[\x00-\x1f<>:"|?*]')
 
 
 def require_admin_user(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
@@ -116,6 +118,11 @@ def _file_url(relative_path: str, is_dir: bool = False) -> str:
         return "/"
     suffix = "/" if is_dir and not relative_path.endswith("/") else ""
     return f"/{relative_path}{suffix}"
+
+
+def _safe_upload_filename(filename: str | None) -> str:
+    original_name = Path((filename or "").replace("\\", "/")).name
+    return WINDOWS_FILENAME_RESERVED_CHARS.sub("_", original_name).strip(" .")
 
 
 def _format_file_item(path: Path, root: Path) -> dict[str, Any]:
@@ -234,6 +241,7 @@ def _format_photo_item(row: dict[str, Any]) -> dict[str, Any]:
 
 def _format_activity(row: dict[str, Any]) -> dict[str, Any]:
     directory_count = _scan_public_photo_count(row.get("photo_dir"))
+    archive_url = photo_archive_url(row.get("photo_dir"))
     return {
         "id": row["id"],
         "activity": row["activity"],
@@ -242,6 +250,7 @@ def _format_activity(row: dict[str, Any]) -> dict[str, Any]:
         "hot": row["hot"],
         "sortOrder": row.get("sort_order", 0),
         "photoDir": row.get("photo_dir"),
+        "archiveUrl": archive_url,
         "photoCount": directory_count or row.get("photo_count", 0),
         "createdAt": row.get("created_at"),
         "updatedAt": row.get("updated_at"),
@@ -991,7 +1000,8 @@ async def admin_upload_file(
     if not target_dir.is_dir():
         raise HTTPException(status_code=422, detail="上传目标必须是目录")
 
-    target_name = f"{secrets.token_urlsafe(18)}.{suffix}"
+    original_name = _safe_upload_filename(file.filename)
+    target_name = original_name if suffix == "rar" and original_name else f"{secrets.token_urlsafe(18)}.{suffix}"
     target_file = target_dir / target_name
     size = 0
     with target_file.open("wb") as output:
