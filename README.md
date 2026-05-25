@@ -36,7 +36,7 @@ Campus Wiki/
 │       └── detail.js
 ├── docs/API.md            # 详细接口文档
 ├── docs/DATABASE.md       # 数据库结构文档
-├── sql/schema.sql         # MySQL 建表和示例数据
+├── sql/schema.sql         # MySQL 初始化脚本、示例数据和默认管理员
 └── requirements.txt
 ```
 
@@ -81,7 +81,17 @@ mysql -u root -p -P 3307 --default-character-set=utf8mb4
 source D:/Python/programs/GitHub/NetHub-Campus-Wiki/sql/schema.sql;
 ```
 
-如果你的 MySQL 使用默认端口 `3306`，可以去掉 `-P 3307` 或改成自己的端口。导入后确认 `.env` 中的 `DB_PORT`、`DB_USER`、`DB_PASSWORD` 和实际 MySQL 配置一致。
+如果你的 MySQL 使用默认端口 `3306`，可以去掉 `-P 3307` 或改成自己的端口。
+
+`schema.sql` 会创建网站里的默认管理员账号，但不会创建 MySQL 数据库登录账号。后端连接 MySQL 使用的是 `.env` 里的 `DB_USER` 和 `DB_PASSWORD`，需要使用已有 MySQL 账号，或自行创建并授权：
+
+```sql
+CREATE USER 'campus_user'@'localhost' IDENTIFIED BY 'campus_pass_123';
+GRANT ALL PRIVILEGES ON campus_cas_forum.* TO 'campus_user'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+然后确认 `.env` 中的 `DB_PORT`、`DB_USER`、`DB_PASSWORD` 和实际 MySQL 配置一致。如果直接使用 `root` 连接，也可以把 `.env` 改成 root 账号和密码。
 
 ### 4. 启动后端 API 服务
 
@@ -111,7 +121,7 @@ python frontend_server.py
 
 ## 数据库结构
 
-当前 `sql/schema.sql` 会重建并写入示例数据，包含 5 张业务表：
+当前只保留一个数据库初始化脚本：`sql/schema.sql`。该脚本会重建数据库结构、写入示例数据，并创建默认管理员。初始化后包含这些表：
 
 - `users`：用户账号。密码使用 PBKDF2-HMAC-SHA256 哈希保存，`role` 使用 `admin` / `user` 区分管理员和普通用户。
 - `projects`：CAS 项目。`icon` 保存项目图标图片 URL，`media` 和 `updates` 使用 MySQL JSON 字段保存链接数组和动态数组。
@@ -121,11 +131,7 @@ python frontend_server.py
 - `photo_activities`：活动照片分组。`description` 是必填活动简介，用于“全部活动”卡片展示和关键词搜索；活动卡片不再使用 icon 字段；`sortOrder` 控制左侧活动列表顺序。
 - `photo_items`：单张活动照片。通过 `activity_id` 关联 `photo_activities.id`，删除活动时照片记录会级联删除。
 
-用户系统提供开放注册、登录和当前用户接口。注册账号默认是普通用户；如果需要初始化管理员，可以先通过页面或 `POST /api/auth/register` 注册账号，再执行：
-
-```sql
-UPDATE users SET role = 'admin' WHERE username = '你的用户名';
-```
+用户系统提供开放注册、登录和当前用户接口。注册账号默认是普通用户；默认管理员由 `sql/schema.sql` 初始化创建。
 
 活动照片整包下载使用照片目录下的同名压缩文件。比如 `photoDir` 为 `/uploads/photos/春季运动会/` 时，请把压缩文件放在 `/uploads/photos/春季运动会/春季运动会.rar`，接口会通过 `archiveUrl` 返回下载地址；前端不逐张触发下载。
 
@@ -168,7 +174,7 @@ http://127.0.0.1:3200/admin.html
 
 该账号用于本地示例和初始化验证，生产环境请修改密码或删除。
 
-后台只允许 `role = admin` 的用户访问。可以先注册普通用户，再在 MySQL 中执行：
+后台只允许 `role = admin` 的用户访问。默认管理员由初始化脚本创建；如果需要把其他用户提升为管理员，可以在 MySQL 中执行：
 
 ```sql
 UPDATE users SET role = 'admin' WHERE username = '你的用户名';
@@ -193,23 +199,7 @@ public/uploads/
 
 也可以在后台文件管理中选择 `public/` 下其他子目录作为上传目标。资源地址可以引用具体文件 URL，也可以引用目录 URL，例如 `/uploads/activity-2026/`。
 
-如果是在已有数据库上升级后台活动照片目录功能，需要执行：
-
-```sql
-source D:/Python/programs/GitHub/NetHub-Campus-Wiki/sql/add_photo_dir.sql;
-```
-
-如果是在已有数据库上升级资源分类和活动列表排序功能，需要执行：
-
-```sql
-source D:/Python/programs/GitHub/NetHub-Campus-Wiki/sql/add_resource_category_activity_sorting.sql;
-```
-
-如果是在已有数据库上升级 CAS 项目分类排序功能，需要执行：
-
-```sql
-source D:/Python/programs/GitHub/NetHub-Campus-Wiki/sql/add_project_category_sorting.sql;
-```
+本项目当前不维护增量升级 SQL；初始化和重建数据库统一执行 `sql/schema.sql`。
 
 `sortOrder` 表示人工排序权重，数字越小越靠前。后台拖拽会自动维护为 `10, 20, 30...`；当前用于 CAS 项目分类、资源分类和活动列表，不用于普通项目、普通资源卡片或单张照片卡片。
 
