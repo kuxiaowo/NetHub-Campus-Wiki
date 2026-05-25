@@ -198,30 +198,6 @@ VALUES
   'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&w=1600&q=90'
 ),
 (
-  '春季运动会照片集',
-  '开幕式、接力赛、领奖瞬间等活动照片，支持按活动继续查看。',
-  2026,
-  'photos',
-  '活动照片',
-  '照片',
-  91,
-  642,
-  'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=900&q=80',
-  'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1600&q=90'
-),
-(
-  '校园文化节影像资源',
-  '舞台演出、社团展位和合影留念等精选照片资源。',
-  2026,
-  'photos',
-  '活动照片',
-  '照片',
-  88,
-  591,
-  'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=900&q=80',
-  'https://images.unsplash.com/photo-1501281668745-f7f57925c3b4?auto=format&fit=crop&w=1600&q=90'
-),
-(
   'CAS 使用指南',
   '统一身份认证、常见问题、账号找回和校内系统访问说明。',
   2026,

@@ -176,11 +176,12 @@ class PhotoItem(BaseModel):
     id: int
     title: str
     src: str
+    thumbSrc: str | None = None
     sortOrder: int
 
 
 class PhotoActivity(BaseModel):
-    """活动照片集合。"""
+    """活动照片活动摘要。"""
 
     id: int
     activity: str
@@ -190,7 +191,9 @@ class PhotoActivity(BaseModel):
     sortOrder: int
     photoDir: str | None = None
     archiveUrl: str | None = None
-    images: list[PhotoItem]
+    coverSrc: str | None = None
+    coverThumbSrc: str | None = None
+    photoCount: int
     createdAt: datetime | None = None
 
 
@@ -198,3 +201,9 @@ class PhotoActivityListResponse(BaseModel):
     """活动照片列表响应。"""
 
     data: list[PhotoActivity] = Field(description="符合查询条件的活动照片集合。")
+
+
+class PhotoActivityPhotosResponse(BaseModel):
+    """单个活动照片响应。"""
+
+    data: list[PhotoItem] = Field(description="指定活动下的照片集合。")

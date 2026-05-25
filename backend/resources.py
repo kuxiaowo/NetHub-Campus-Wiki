@@ -5,9 +5,11 @@
 """
 
 import re
+import time
 from pathlib import Path
 from typing import Any, Literal
 
+from backend.config import settings
 from backend.database import get_db_connection
 
 ResourceSort = Literal["hot", "new", "old", "download"]
@@ -16,6 +18,9 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 PUBLIC_DIR = BASE_DIR / "public"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:/")
+THUMB_DIR_NAME = ".thumbs"
+THUMB_MAX_SIZE = (640, 640)
+_PHOTO_DIR_CACHE: dict[str, dict[str, Any]] = {}
 
 
 def _public_url_to_path(value: str | None) -> tuple[Path, str] | None:
@@ -38,28 +43,106 @@ def _public_url_to_path(value: str | None) -> tuple[Path, str] | None:
     return target, relative
 
 
-def _scan_photo_dir(photo_dir: str | None) -> list[dict[str, Any]]:
+def _photo_files(target: Path) -> list[Path]:
+    return [
+        item
+        for item in sorted(target.iterdir(), key=lambda path: path.name.lower())
+        if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS
+    ]
+
+
+def _scan_photo_dir(
+    photo_dir: str | None,
+    *,
+    cover_only: bool = False,
+    count_only: bool = False,
+) -> list[dict[str, Any]]:
     resolved = _public_url_to_path(photo_dir)
     if resolved is None:
         return []
     target, relative = resolved
+
     if not target.exists() or not target.is_dir():
         return []
 
+    if count_only:
+        return [{} for _ in _photo_files(target)]
+    if cover_only:
+        files = _photo_files(target)
+        if not files:
+            return []
+        return [_format_photo_file(files[0], 1)]
+
+    cached_photos = _get_cached_photo_dir(relative)
+    if cached_photos is not None:
+        return cached_photos
+
     photos = []
-    for index, item in enumerate(sorted(target.iterdir(), key=lambda path: path.name.lower()), start=1):
-        if not item.is_file() or item.suffix.lower() not in IMAGE_EXTENSIONS:
-            continue
-        item_relative = item.relative_to(PUBLIC_DIR.resolve()).as_posix()
-        photos.append(
-            {
-                "id": index,
-                "title": item.stem,
-                "src": f"/{item_relative}",
-                "sortOrder": index,
-            }
-        )
+    for index, item in enumerate(_photo_files(target), start=1):
+        photos.append(_format_photo_file(item, index))
+    _set_cached_photo_dir(relative, photos)
     return photos
+
+
+def _format_photo_file(item: Path, index: int) -> dict[str, Any]:
+    item_relative = item.relative_to(PUBLIC_DIR.resolve()).as_posix()
+    thumb_url = _ensure_thumbnail(item)
+    return {
+        "id": index,
+        "title": item.stem,
+        "src": f"/{item_relative}",
+        "thumbSrc": thumb_url,
+        "sortOrder": index,
+    }
+
+
+def _get_cached_photo_dir(relative: str) -> list[dict[str, Any]] | None:
+    cache_minutes = settings.photo_dir_cache_minutes
+    if cache_minutes <= 0:
+        return None
+
+    cache_entry = _PHOTO_DIR_CACHE.get(relative)
+    if not cache_entry or cache_entry["expires_at"] <= time.monotonic():
+        return None
+    return [photo.copy() for photo in cache_entry["photos"]]
+
+
+def _set_cached_photo_dir(relative: str, photos: list[dict[str, Any]]) -> None:
+    cache_minutes = settings.photo_dir_cache_minutes
+    if cache_minutes <= 0:
+        _PHOTO_DIR_CACHE.pop(relative, None)
+        return
+
+    _PHOTO_DIR_CACHE[relative] = {
+        "expires_at": time.monotonic() + cache_minutes * 60,
+        "photos": [photo.copy() for photo in photos],
+    }
+
+
+def _ensure_thumbnail(source: Path) -> str | None:
+    """Create a WebP thumbnail beside the source image when possible."""
+
+    thumb_dir = source.parent / THUMB_DIR_NAME
+    thumb_path = thumb_dir / f"{source.stem}.webp"
+    try:
+        from PIL import Image, ImageOps, UnidentifiedImageError
+    except ImportError:
+        return None
+
+    try:
+        if thumb_path.is_file() and thumb_path.stat().st_mtime >= source.stat().st_mtime:
+            return f"/{thumb_path.relative_to(PUBLIC_DIR.resolve()).as_posix()}"
+
+        thumb_dir.mkdir(exist_ok=True)
+        with Image.open(source) as image:
+            image = ImageOps.exif_transpose(image)
+            image.thumbnail(THUMB_MAX_SIZE)
+            if image.mode not in {"RGB", "RGBA"}:
+                image = image.convert("RGB")
+            image.save(thumb_path, "WEBP", quality=82, method=6)
+        return f"/{thumb_path.relative_to(PUBLIC_DIR.resolve()).as_posix()}"
+    except (OSError, UnidentifiedImageError):
+        return None
 
 
 def photo_archive_url(photo_dir: str | None) -> str | None:
@@ -173,7 +256,7 @@ def list_photo_activities(
     search: str | None = None,
     sort: PhotoSort = "hot",
 ) -> list[dict[str, Any]]:
-    """查询活动照片，并把每个活动下的照片聚合成 images 数组。"""
+    """查询活动照片活动列表，不加载完整照片数组。"""
 
     where_parts = []
     params = []
@@ -239,15 +322,17 @@ def list_photo_activities(
                 "id": row["id"],
                 "title": row["title"],
                 "src": row["image_url"],
+                "thumbSrc": None,
                 "sortOrder": row["sort_order"],
             }
         )
 
     result = []
     for row in activities:
-        scanned_photos = _scan_photo_dir(row.get("photo_dir"))
+        scanned_photos = _scan_photo_dir(row.get("photo_dir"), cover_only=True)
         legacy_photos = photos_by_activity[row["id"]]
-        images = scanned_photos or legacy_photos
+        cover_images = scanned_photos or legacy_photos[:1]
+        directory_photo_count = len(_scan_photo_dir(row.get("photo_dir"), count_only=True)) if row.get("photo_dir") else 0
         archive_url = photo_archive_url(row.get("photo_dir"))
         result.append(
             {
@@ -259,7 +344,9 @@ def list_photo_activities(
                 "sortOrder": row["sort_order"],
                 "photoDir": row.get("photo_dir"),
                 "archiveUrl": archive_url,
-                "images": images,
+                "coverSrc": cover_images[0]["src"] if cover_images else None,
+                "coverThumbSrc": cover_images[0].get("thumbSrc") if cover_images else None,
+                "photoCount": directory_photo_count or row["photo_count"],
                 "createdAt": row.get("created_at"),
             }
         )
@@ -267,8 +354,44 @@ def list_photo_activities(
         result.sort(
             key=lambda item: (
                 item["sortOrder"],
-                -len(item["images"]),
+                -item["photoCount"],
                 -(item["createdAt"].timestamp() if item["createdAt"] else 0),
             )
         )
     return result
+
+
+def list_activity_photos(activity_id: int) -> list[dict[str, Any]] | None:
+    """Return photos for one activity, using the per-directory cache when configured."""
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT photo_dir FROM photo_activities WHERE id = %s", (activity_id,))
+            activity = cursor.fetchone()
+            if activity is None:
+                return None
+
+            cursor.execute(
+                """
+                SELECT id, title, image_url, sort_order
+                FROM photo_items
+                WHERE activity_id = %s
+                ORDER BY sort_order ASC, id ASC
+                """,
+                (activity_id,),
+            )
+            photo_rows = cursor.fetchall()
+
+    scanned_photos = _scan_photo_dir(activity.get("photo_dir"))
+    if scanned_photos:
+        return scanned_photos
+    return [
+        {
+            "id": row["id"],
+            "title": row["title"],
+            "src": row["image_url"],
+            "thumbSrc": None,
+            "sortOrder": row["sort_order"],
+        }
+        for row in photo_rows
+    ]

@@ -81,6 +81,46 @@ function loadCurrentView() {
   return loadResources();
 }
 
+function itemTimestamp(item) {
+  const timestamp = Date.parse(item.createdAt || item.updatedAt || '');
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function resourceParams(sort = resourceSort.value) {
+  const params = new URLSearchParams();
+  if (selectedResourceCategory) params.set('category', selectedResourceCategory);
+  if (resourceYear.value) params.set('year', resourceYear.value);
+  if (resourceSearch.value.trim()) params.set('search', resourceSearch.value.trim());
+  params.set('sort', sort);
+  return params;
+}
+
+function photoActivityParams(sort = resourceSort.value) {
+  const params = new URLSearchParams();
+  if (resourceYear.value) params.set('year', resourceYear.value);
+  if (resourceSearch.value.trim()) params.set('search', resourceSearch.value.trim());
+  params.set('sort', sort === 'download' ? 'hot' : sort);
+  return params;
+}
+
+function sortCombinedResources(items) {
+  const sort = resourceSort.value;
+  return [...items].sort((left, right) => {
+    if (sort === 'download') {
+      if (left.kind !== right.kind) return left.kind === 'resource' ? -1 : 1;
+      if (left.kind === 'resource') return right.data.downloads - left.data.downloads;
+      return right.data.hot - left.data.hot;
+    }
+    if (sort === 'new') {
+      return (right.data.year - left.data.year) || (itemTimestamp(right.data) - itemTimestamp(left.data));
+    }
+    if (sort === 'old') {
+      return (left.data.year - right.data.year) || (itemTimestamp(left.data) - itemTimestamp(right.data));
+    }
+    return (right.data.hot - left.data.hot) || (itemTimestamp(right.data) - itemTimestamp(left.data));
+  });
+}
+
 function resourceCard(resource) {
   const image = safeExternalUrl(resource.image);
   const resourceUrl = safeExternalUrl(resource.resourceUrl);
@@ -103,6 +143,57 @@ function resourceCard(resource) {
       </div>
     </article>
   `;
+}
+
+function activityResourceCard(activity) {
+  const cover = activity.coverThumbSrc || activity.coverSrc || '';
+  const image = cover ? `<img src="${safeExternalUrl(cover)}" alt="${escapeHtml(activity.activity)}" loading="lazy">` : '';
+
+  return `
+    <button class="resource-card photo-activity-card" type="button" data-resource-activity-id="${escapeHtml(activity.id)}">
+      <span class="resource-thumb">
+        ${image}
+        <span class="badge">活动照片</span>
+      </span>
+      <span class="resource-body">
+        <h2>${escapeHtml(activity.activity)}</h2>
+        <p>${escapeHtml(activity.description)}</p>
+        <span class="meta">
+          <span>${escapeHtml(activity.year)}</span>
+          <span>${escapeHtml(activity.photoCount)} 张照片</span>
+          <span>热度 ${escapeHtml(activity.hot)}</span>
+        </span>
+      </span>
+    </button>
+  `;
+}
+
+function renderCombinedResources(resources, activities) {
+  const ordinaryResources = resources.filter((item) => item.category !== 'photos');
+  const combined = sortCombinedResources([
+    ...ordinaryResources.map((item) => ({ kind: 'resource', data: item })),
+    ...activities.map((item) => ({ kind: 'photoActivity', data: item })),
+  ]);
+
+  resourceCount.textContent = `共 ${combined.length} 个资源`;
+  resourceGrid.innerHTML = combined.length
+    ? combined.map((item) => item.kind === 'resource' ? resourceCard(item.data) : activityResourceCard(item.data)).join('')
+    : '<div class="empty">没有找到匹配的资源，换个筛选条件试试。</div>';
+
+  resourceGrid.querySelectorAll('[data-resource-activity-id]').forEach((button) => {
+    button.addEventListener('click', () => openActivityFromResourceCard(activities, Number(button.dataset.resourceActivityId)));
+  });
+}
+
+function openActivityFromResourceCard(activities, activityId) {
+  selectedResourceCategory = 'photos';
+  selectedActivityId = activityId;
+  resourceCategoryList.querySelectorAll('.category-button').forEach((item) => {
+    item.classList.toggle('active', item.dataset.resourceCategory === 'photos');
+  });
+  setPhotoMode(true);
+  updateFilterScope();
+  renderPhotos(activities);
 }
 
 async function loadResourceMeta() {
@@ -138,12 +229,16 @@ async function loadResourceMeta() {
 async function loadResources() {
   resourceGrid.innerHTML = '<div class="empty">正在加载资源...</div>';
 
-  const params = new URLSearchParams();
-  if (selectedResourceCategory) params.set('category', selectedResourceCategory);
-  if (resourceYear.value) params.set('year', resourceYear.value);
-  if (resourceSearch.value.trim()) params.set('search', resourceSearch.value.trim());
-  params.set('sort', resourceSort.value);
+  if (!selectedResourceCategory) {
+    const [resourceResult, photoResult] = await Promise.all([
+      request(`/resources?${resourceParams().toString()}`),
+      request(`/photo-activities?${photoActivityParams().toString()}`),
+    ]);
+    renderCombinedResources(resourceResult.data, photoResult.data);
+    return;
+  }
 
+  const params = resourceParams();
   const result = await request(`/resources?${params.toString()}`);
   resourceCount.textContent = `共 ${result.data.length} 个资源`;
   resourceGrid.innerHTML = result.data.length
@@ -162,7 +257,7 @@ function renderActivityList(activities) {
     selectedActivityId = null;
   }
 
-  const totalPhotoCount = activities.reduce((sum, activity) => sum + activity.images.length, 0);
+  const totalPhotoCount = activities.reduce((sum, activity) => sum + activity.photoCount, 0);
   activityList.innerHTML = [
     `<button class="category-button ${selectedActivityId === null ? 'active' : ''}" type="button" data-activity-id="">
       全部活动
@@ -171,7 +266,7 @@ function renderActivityList(activities) {
     ...activities.map((activity) => `
       <button class="category-button ${activity.id === selectedActivityId ? 'active' : ''}" type="button" data-activity-id="${escapeHtml(activity.id)}">
         ${escapeHtml(activity.activity)}
-        <span class="activity-count">${escapeHtml(activity.images.length)} 张</span>
+        <span class="activity-count">${escapeHtml(activity.photoCount)} 张</span>
       </button>
     `),
   ].join('');
@@ -185,15 +280,16 @@ function renderActivityList(activities) {
 }
 
 function photoButton(item) {
+  const image = safeExternalUrl(item.thumbSrc || item.src);
   return `
     <button class="photo-item" type="button" data-photo-index="${escapeHtml(item.index)}" aria-label="查看 ${escapeHtml(item.title)}">
-      <img src="${safeExternalUrl(item.src)}" alt="${escapeHtml(item.title)}" loading="lazy">
+      <img src="${image}" alt="${escapeHtml(item.title)}" loading="lazy" decoding="async">
     </button>
   `;
 }
 
 function photoActivityCard(activity) {
-  const cover = activity.images[0]?.src || '';
+  const cover = activity.coverThumbSrc || activity.coverSrc || '';
   const image = cover ? `<img src="${safeExternalUrl(cover)}" alt="${escapeHtml(activity.activity)}" loading="lazy">` : '';
 
   return `
@@ -206,7 +302,7 @@ function photoActivityCard(activity) {
         <h2>${escapeHtml(activity.activity)}</h2>
         <p>${escapeHtml(activity.description)}</p>
         <span class="meta">
-          <span>${escapeHtml(activity.images.length)} 张照片</span>
+          <span>${escapeHtml(activity.photoCount)} 张照片</span>
           <span>热度 ${escapeHtml(activity.hot)}</span>
         </span>
       </span>
@@ -219,7 +315,7 @@ function renderPhotos(activities) {
   if (selectedActivityId === null) {
     photoGrid.classList.remove('photo-groups');
     photoGrid.classList.add('photo-activity-cards');
-    const totalPhotoCount = activities.reduce((sum, activity) => sum + activity.images.length, 0);
+    const totalPhotoCount = activities.reduce((sum, activity) => sum + activity.photoCount, 0);
     photoTitle.textContent = '全部活动';
     photoMeta.textContent = `${activities.length} 个活动 · ${totalPhotoCount} 张照片`;
     downloadActivity.classList.add('is-hidden');
@@ -255,13 +351,24 @@ function renderPhotos(activities) {
 
   currentActivity = current;
   photoTitle.textContent = current.activity;
-  photoMeta.textContent = `${current.year} · ${current.images.length} 张照片 · 热度 ${current.hot}`;
-  activePhotoItems = current.images.map((item, index) => ({ ...item, activity: current.activity, year: current.year, index }));
+  photoMeta.textContent = `${current.year} · ${current.photoCount} 张照片 · 热度 ${current.hot}`;
+  activePhotoItems = [];
+  photoGrid.innerHTML = '<div class="empty">正在加载活动照片...</div>';
+  loadActivityPhotos(current).catch((error) => {
+    photoGrid.innerHTML = `<div class="empty error">${escapeHtml(error.message)}</div>`;
+  });
+}
 
+async function loadActivityPhotos(activity) {
+  if (!activity.loadedImages) {
+    const result = await request(`/photo-activities/${activity.id}/photos`);
+    activity.loadedImages = result.data;
+  }
+  activePhotoItems = activity.loadedImages.map((item, index) => ({ ...item, activity: activity.activity, year: activity.year, index }));
+  photoMeta.textContent = `${activity.year} · ${activePhotoItems.length} 张照片 · 热度 ${activity.hot}`;
   photoGrid.innerHTML = activePhotoItems.length
     ? activePhotoItems.map(photoButton).join('')
     : '<div class="empty">这个活动还没有照片。</div>';
-
   photoGrid.querySelectorAll('[data-photo-index]').forEach((button) => {
     button.addEventListener('click', () => openPhotoModal(Number(button.dataset.photoIndex)));
   });
@@ -270,11 +377,7 @@ function renderPhotos(activities) {
 async function loadPhotoActivities() {
   photoGrid.innerHTML = '<div class="empty">正在加载活动照片...</div>';
 
-  const params = new URLSearchParams();
-  if (resourceYear.value) params.set('year', resourceYear.value);
-  if (resourceSearch.value.trim()) params.set('search', resourceSearch.value.trim());
-  params.set('sort', resourceSort.value);
-
+  const params = photoActivityParams();
   const result = await request(`/photo-activities?${params.toString()}`);
   renderPhotos(result.data);
 }

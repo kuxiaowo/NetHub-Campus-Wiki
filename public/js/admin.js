@@ -1035,12 +1035,22 @@ function openResourceModal(resource) {
     adminState.resourceMetaLoaded = false;
     await loadResourceManagementView();
   });
+  if (isEdit) {
+    const actions = adminEls.modalForm.querySelector('.admin-modal-actions');
+    if (actions) {
+      actions.insertAdjacentHTML(
+        'afterbegin',
+        `<button class="button secondary danger" type="button" data-delete-resource-from-modal="${adminText(resource.id)}">删除资源</button>`,
+      );
+    }
+  }
 }
 
 async function deleteResource(id) {
-  if (!window.confirm('确认删除这个资源？')) return;
+  if (!window.confirm('确认删除这个资源？只会删除数据库记录，不会删除已上传或已引用的文件。')) return false;
   await adminEndpoint(`/admin/resources/${id}`, { method: 'DELETE' });
   await loadResourceManagementView();
+  return true;
 }
 
 async function loadActivities() {
@@ -1086,15 +1096,16 @@ function renderAdminActivityList(activities) {
 }
 
 function photoButton(item) {
+  const image = safeExternalUrl(item.thumbSrc || item.src);
   return `
     <button class="photo-item" type="button" data-photo-index="${adminText(item.index)}" aria-label="查看 ${adminText(item.title)}">
-      <img src="${safeExternalUrl(item.src)}" alt="${adminText(item.title)}" loading="lazy">
+      <img src="${image}" alt="${adminText(item.title)}" loading="lazy" decoding="async">
     </button>
   `;
 }
 
 function photoActivityCard(activity) {
-  const cover = activity.images[0]?.src || '';
+  const cover = activity.images[0] ? (activity.images[0].thumbSrc || activity.images[0].src) : '';
   const image = cover ? `<img src="${safeExternalUrl(cover)}" alt="${adminText(activity.activity)}" loading="lazy">` : '';
   return `
     <article class="resource-card photo-activity-card admin-photo-activity-card">
@@ -1493,6 +1504,13 @@ function bindAdminEvents() {
     }
     if (target.dataset.editResource) {
       openResourceModal(adminState.resources.find((item) => String(item.id) === target.dataset.editResource));
+    }
+    if (target.dataset.deleteResourceFromModal) {
+      deleteResource(target.dataset.deleteResourceFromModal)
+        .then((deleted) => {
+          if (deleted) closeAdminModal();
+        })
+        .catch((error) => window.alert(error.message));
     }
     if (target.dataset.deleteResource) deleteResource(target.dataset.deleteResource);
     if (target.dataset.adminActivityId !== undefined) {

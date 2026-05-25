@@ -63,6 +63,7 @@ DB_PASSWORD=campus_pass_123
 DB_NAME=campus_cas_forum
 AUTH_SECRET_KEY=change-this-to-a-long-random-secret
 AUTH_TOKEN_EXPIRE_MINUTES=120
+PHOTO_DIR_CACHE_MINUTES=5
 ```
 
 ### 3. 初始化数据库
@@ -131,13 +132,15 @@ python3 frontend_server.py
 - `projects`：CAS 项目。`icon` 保存项目图标图片 URL，`media` 和 `updates` 使用 MySQL JSON 字段保存链接数组和动态数组。
 - `project_categories`：CAS 项目库左侧分类。`sortOrder` 是人工排序权重，数字越小越靠前；分类排序不影响项目本身排序。
 - `resource_categories`：资源中心左侧分类。`sortOrder` 是人工排序权重，数字越小越靠前；默认 `other` 排在最下面。
-- `resources`：资源中心普通资源卡片。`category` 当前包括 `yearbook`、`photos`、`other`；资源中心不再使用 icon 字段，只使用 `image` 作为封面图。
+- `resources`：资源中心普通资源卡片。`category` 当前包括 `yearbook`、`other`；活动照片不写入该表，统一来自 `photo_activities`。资源中心不再使用 icon 字段，只使用 `image` 作为封面图。
 - `photo_activities`：活动照片分组。`description` 是必填活动简介，用于“全部活动”卡片展示和关键词搜索；活动卡片不再使用 icon 字段；`sortOrder` 控制左侧活动列表顺序。
 - `photo_items`：单张活动照片。通过 `activity_id` 关联 `photo_activities.id`，删除活动时照片记录会级联删除。
 
 用户系统提供开放注册、登录和当前用户接口。注册账号默认是普通用户；默认管理员由 `sql/schema.sql` 初始化创建。
 
 活动照片整包下载使用照片目录下的同名压缩文件。比如 `photoDir` 为 `/uploads/photos/春季运动会/` 时，请把压缩文件放在 `/uploads/photos/春季运动会/春季运动会.rar`，接口会通过 `archiveUrl` 返回下载地址；前端不逐张触发下载。
+
+活动照片前台接口分为活动列表和单活动照片列表：`/api/photo-activities` 只返回活动摘要、封面和照片数量，进入某个活动后再请求 `/api/photo-activities/{activity_id}/photos` 获取照片。照片目录扫描使用后端进程内缓存，`PHOTO_DIR_CACHE_MINUTES` 控制缓存有效期，单位是分钟。默认 5 分钟内每个活动目录复用同一份照片列表，不重复扫描目录；缓存过期后的下一次访问会重新扫描目录并为新增照片生成缩略图。设置为 `0` 可关闭缓存，方便开发调试。
 
 ## 代码规范
 

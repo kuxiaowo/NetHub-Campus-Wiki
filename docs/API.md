@@ -358,7 +358,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 | `years` | `number[]` | 资源年份 |
 | `photoYears` | `number[]` | 照片活动年份 |
 
-资源中心前端使用同一组顶部筛选控件服务不同分类：选择普通资源分类时，请求 `/api/resources`；选择 `photos` 活动照片分类时，请求 `/api/photo-activities`。
+资源中心前端使用同一组顶部筛选控件服务不同分类：选择“全部资源”时会同时请求 `/api/resources` 和 `/api/photo-activities`，把普通资源和所有活动照片活动混合展示，并过滤旧的 `resources.category = "photos"` 入口；选择普通资源分类时只请求 `/api/resources`；选择 `photos` 活动照片分类时请求 `/api/photo-activities` 获取活动列表，进入某个活动后再请求 `/api/photo-activities/{activity_id}/photos` 获取照片。
 
 ## GET /api/resources
 
@@ -368,7 +368,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
-| `category` | `string` | 否 | 无 | 按资源分类筛选，例如 `yearbook`、`photos`、`other` |
+| `category` | `string` | 否 | 无 | 按资源分类筛选，例如 `yearbook`、`other`；活动照片使用 `/api/photo-activities` |
 | `year` | `number` | 否 | 无 | 按资源年份筛选 |
 | `search` | `string` | 否 | 无 | 搜索资源标题、简介、分类展示名和类型 |
 | `sort` | `string` | 否 | `hot` | `hot`、`new`、`old` 或 `download` |
@@ -405,7 +405,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 ## GET /api/photo-activities
 
-获取活动照片列表，每个活动包含自己的照片数组。资源中心选择“活动照片”分类时使用此接口；“全部活动”视图会把每条 `PhotoActivity` 渲染成活动卡片，进入某个活动后再展示该活动下的照片。
+获取活动照片活动列表。资源中心选择“活动照片”分类时使用此接口；“全部活动”视图会把每条 `PhotoActivity` 渲染成活动卡片，进入某个活动后再请求单活动照片接口。
 
 ### 查询参数
 
@@ -433,10 +433,12 @@ curl http://127.0.0.1:3100/api/resources/meta
 | `sortOrder` | `number` | 活动列表人工排序权重，数字越小越靠前 |
 | `photoDir` | `string \| null` | 活动照片目录 |
 | `archiveUrl` | `string \| null` | 活动压缩文件 URL，存在同名 `.rar` 时返回 |
-| `images` | `PhotoItem[]` | 活动照片 |
+| `coverSrc` | `string \| null` | 活动封面原图 URL |
+| `coverThumbSrc` | `string \| null` | 活动封面缩略图 URL |
+| `photoCount` | `number` | 活动照片数量 |
 | `createdAt` | `string | null` | 创建时间 |
 
-活动卡片不使用 icon 字段；“全部活动”视图使用活动第一张照片作为封面。
+活动卡片不使用 icon 字段；“全部活动”视图使用活动第一张照片作为封面。活动列表接口只返回封面和数量，不返回完整照片数组。
 
 活动级下载使用照片目录下的同名压缩文件，不能由前端逐张触发下载。例如 `photoDir` 是 `/uploads/photos/春季运动会/` 时，压缩文件应放在 `/uploads/photos/春季运动会/春季运动会.rar`。只有该文件实际存在时，接口才返回 `archiveUrl`。
 
@@ -452,19 +454,24 @@ curl http://127.0.0.1:3100/api/resources/meta
       "year": 2026,
       "hot": 98,
       "sortOrder": 10,
-      "images": [
-        {
-          "id": 1,
-          "title": "开幕式",
-          "src": "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1200&q=85",
-          "sortOrder": 1
-        }
-      ],
+      "coverSrc": "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1200&q=85",
+      "coverThumbSrc": null,
+      "photoCount": 4,
       "createdAt": "2026-05-10T10:00:00"
     }
   ]
 }
 ```
+
+## GET /api/photo-activities/{activity_id}/photos
+
+获取单个活动下的照片。前端进入某个活动详情时调用该接口。
+
+### 响应字段
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `data` | `PhotoItem[]` | 指定活动下的照片 |
 
 ### PhotoItem 结构
 
@@ -473,6 +480,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 | `id` | `number` | 照片 ID |
 | `title` | `string` | 照片标题 |
 | `src` | `string` | 照片 URL |
+| `thumbSrc` | `string \| null` | 缩略图 URL；本地 `photoDir` 图片会懒生成 WebP 缩略图，旧数据或生成失败时为空 |
 | `sortOrder` | `number` | 活动内排序 |
 
 ### 参数错误
@@ -535,6 +543,8 @@ CAS 项目写接口字段包括：`name`、`leader`、`members`、`category`、`
 后台活动照片 v1 推荐使用目录模型：`photoDir` 保存 `public/` 下的目录 URL，例如 `/uploads/sports-2026/`。后台资源管理只编辑活动记录和照片目录，不再提供单张照片编辑入口；旧的单张照片接口保留兼容，不作为主要管理方式。
 
 公开接口 `GET /api/photo-activities` 会优先扫描 `photoDir` 指向的目录生成照片列表；未配置目录时继续读取旧 `photo_items` 数据。目录扫描支持 `jpg`、`jpeg`、`png`、`webp`、`gif`，标题使用文件名，按文件名升序排列。
+
+目录扫描结果会按 `PHOTO_DIR_CACHE_MINUTES` 做后端进程内缓存，单位是分钟，默认 5。缓存按活动目录独立保存；单活动照片接口命中缓存时直接复用照片列表，不重新扫描目录，也不重复检查缩略图；缓存过期后的下一次访问会重新扫描并为新增或更新的照片生成缩略图。设置为 `0` 可关闭缓存。
 
 ### 文件管理与上传
 

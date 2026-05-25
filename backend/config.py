@@ -27,6 +27,7 @@ class Settings:
     db_name: str = os.getenv("DB_NAME", "campus_cas_forum")
     auth_secret_key: str = os.getenv("AUTH_SECRET_KEY", "dev-only-change-me")
     auth_token_expire_minutes: int = int(os.getenv("AUTH_TOKEN_EXPIRE_MINUTES", "120"))
+    photo_dir_cache_minutes: int = int(os.getenv("PHOTO_DIR_CACHE_MINUTES", "5"))
     cors_origins: tuple[str, ...] = tuple(
         # CORS_ORIGINS 使用逗号分隔，便于同时允许 localhost 和 127.0.0.1。
         origin.strip()
