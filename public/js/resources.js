@@ -169,9 +169,8 @@ function activityResourceCard(activity) {
 }
 
 function renderCombinedResources(resources, activities) {
-  const ordinaryResources = resources.filter((item) => item.category !== 'photos');
   const combined = sortCombinedResources([
-    ...ordinaryResources.map((item) => ({ kind: 'resource', data: item })),
+    ...resources.map((item) => ({ kind: 'resource', data: item })),
     ...activities.map((item) => ({ kind: 'photoActivity', data: item })),
   ]);
 

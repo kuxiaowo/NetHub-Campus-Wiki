@@ -78,7 +78,7 @@ CREATE TABLE resources (
   title VARCHAR(160) NOT NULL COMMENT '资源标题',
   description TEXT NOT NULL COMMENT '资源简介',
   year INT NOT NULL COMMENT '资源年份',
-  category VARCHAR(40) NOT NULL COMMENT '资源分类值，例如 yearbook/photos/other',
+  category VARCHAR(40) NOT NULL COMMENT '普通资源分类值，例如 yearbook/other；活动照片不写入 resources',
   label VARCHAR(60) NOT NULL COMMENT '资源分类展示名',
   type VARCHAR(40) NOT NULL COMMENT '资源类型展示名',
   hot INT NOT NULL DEFAULT 0 COMMENT '热度',
@@ -95,7 +95,7 @@ CREATE TABLE resources (
 
 CREATE TABLE resource_categories (
   id INT AUTO_INCREMENT PRIMARY KEY COMMENT '资源分类 ID',
-  value VARCHAR(40) NOT NULL COMMENT '资源分类值，例如 yearbook/photos/other',
+  value VARCHAR(40) NOT NULL COMMENT '资源分类入口值，例如 yearbook/photos/other；photos 只作为活动照片入口',
   label VARCHAR(60) NOT NULL COMMENT '资源分类展示名称',
   sort_order INT NOT NULL DEFAULT 0 COMMENT '人工排序权重，数字越小越靠前',
   is_active TINYINT(1) NOT NULL DEFAULT 1 COMMENT '分类是否启用',

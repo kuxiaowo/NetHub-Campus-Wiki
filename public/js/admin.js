@@ -970,6 +970,33 @@ async function loadResourceManagementView() {
 
 async function loadResources() {
   adminEls.resourcesTable.innerHTML = '<div class="empty">正在加载资源...</div>';
+  if (!adminState.resourceCategory) {
+    const resourceQuery = buildQuery({
+      search: adminEls.resourceSearch.value.trim(),
+      year: adminState.resourceYear,
+      sort: adminState.resourceSort,
+    });
+    const activityQuery = buildQuery({
+      search: adminEls.resourceSearch.value.trim(),
+      year: adminState.resourceYear,
+      sort: ['hot', 'new', 'old', 'photoCount'].includes(adminState.resourceSort) ? adminState.resourceSort : 'hot',
+    });
+    const [resourceResult, activityResult] = await Promise.all([
+      adminEndpoint(`/resources${resourceQuery}`),
+      adminEndpoint(`/photo-activities${activityQuery}`),
+    ]);
+    adminState.resources = resourceResult.data;
+    adminState.activities = activityResult.data;
+    const combined = [
+      ...adminState.resources.map((item) => ({ kind: 'resource', data: item })),
+      ...adminState.activities.map((item) => ({ kind: 'activity', data: item })),
+    ];
+    adminEls.resourceCount.textContent = `共 ${combined.length} 个资源`;
+    adminEls.resourcesTable.innerHTML = combined.length
+      ? combined.map((item) => (item.kind === 'resource' ? resourceAdminCard(item.data) : photoActivityCard(item.data))).join('')
+      : '<div class="empty">暂无资源</div>';
+    return;
+  }
   const query = buildQuery({
     search: adminEls.resourceSearch.value.trim(),
     category: adminState.resourceCategory,
@@ -982,6 +1009,16 @@ async function loadResources() {
   adminEls.resourcesTable.innerHTML = adminState.resources.length
     ? adminState.resources.map(resourceAdminCard).join('')
     : '<div class="empty">暂无资源</div>';
+}
+
+function selectResourceCategory(category) {
+  adminState.resourceCategory = category;
+  adminState.resourceYear = '';
+  adminEls.resourceCategoryList.querySelectorAll('.category-button').forEach((item) => {
+    item.classList.toggle('active', item.dataset.adminResourceCategory === category);
+  });
+  adminEls.resourceYear.value = '';
+  renderResourceYearOptions();
 }
 
 function resourceAdminCard(resource) {
@@ -1010,13 +1047,27 @@ function resourceAdminCard(resource) {
   `;
 }
 
+function resourceCategoryOptions() {
+  const categories = adminState.resourceMeta?.categories || [];
+  return categories
+    .map((category) => ({ value: category.value, label: category.label }));
+}
+
 function resourceFields(resource = {}) {
+  const categoryOptions = resourceCategoryOptions();
+  const defaultCategory = categoryOptions[0]?.value || 'other';
   return [
     { name: 'title', label: '标题', value: resource.title, required: true },
     { name: 'description', label: '简介', value: resource.description, type: 'textarea', required: true },
     { name: 'year', label: '年份', value: resource.year || new Date().getFullYear(), type: 'number', required: true },
-    { name: 'category', label: '分类值', value: resource.category || 'other', required: true },
-    { name: 'label', label: '分类显示名', value: resource.label || '其他资源', required: true },
+    {
+      name: 'category',
+      label: '分类',
+      value: resource.category || defaultCategory,
+      type: 'select',
+      required: true,
+      options: categoryOptions,
+    },
     { name: 'type', label: '类型', value: resource.type || '文档', required: true },
     { name: 'hot', label: '热度', value: resource.hot || 0, type: 'number' },
     { name: 'downloads', label: '下载数', value: resource.downloads || 0, type: 'number' },
@@ -1028,6 +1079,14 @@ function resourceFields(resource = {}) {
 function openResourceModal(resource) {
   const isEdit = Boolean(resource?.id);
   openAdminModal(isEdit ? '编辑资源' : '新建资源', resourceFields(resource), async (payload) => {
+    if (!isEdit && payload.category === 'photos') {
+      selectResourceCategory('photos');
+      await loadResourceManagementView();
+      setTimeout(() => openActivityModal({}), 0);
+      return;
+    }
+    const selectedCategory = resourceCategoryOptions().find((category) => category.value === payload.category);
+    payload.label = selectedCategory?.label || payload.category;
     await adminEndpoint(isEdit ? `/admin/resources/${resource.id}` : '/admin/resources', {
       method: isEdit ? 'PATCH' : 'POST',
       body: JSON.stringify(payload),
@@ -1035,6 +1094,17 @@ function openResourceModal(resource) {
     adminState.resourceMetaLoaded = false;
     await loadResourceManagementView();
   });
+  const categorySelect = adminEls.modalForm.elements.category;
+  if (!isEdit && categorySelect) {
+    categorySelect.addEventListener('change', () => {
+      if (categorySelect.value !== 'photos') return;
+      closeAdminModal();
+      selectResourceCategory('photos');
+      loadResourceManagementView()
+        .then(() => openActivityModal({}))
+        .catch((error) => window.alert(error.message));
+    });
+  }
   if (isEdit) {
     const actions = adminEls.modalForm.querySelector('.admin-modal-actions');
     if (actions) {
@@ -1065,7 +1135,26 @@ async function loadActivities() {
   if (adminState.selectedActivity !== null && !result.data.some((item) => item.id === adminState.selectedActivity)) {
     adminState.selectedActivity = null;
   }
-  renderAdminPhotos(result.data);
+  await renderAdminPhotos(result.data);
+}
+
+function activityPhotoCount(activity) {
+  if (Array.isArray(activity.images)) return activity.images.length;
+  return adminNumber(activity.photoCount, 0);
+}
+
+function activityCoverImage(activity) {
+  if (Array.isArray(activity.images) && activity.images[0]) {
+    return activity.images[0].thumbSrc || activity.images[0].src || '';
+  }
+  return activity.coverThumbSrc || activity.coverSrc || '';
+}
+
+async function loadAdminActivityPhotos(activity) {
+  if (Array.isArray(activity.images)) return activity.images;
+  const result = await adminEndpoint(`/photo-activities/${activity.id}/photos`);
+  activity.images = result.data;
+  return activity.images;
 }
 
 function renderAdminActivityList(activities) {
@@ -1073,7 +1162,7 @@ function renderAdminActivityList(activities) {
     adminEls.activityList.innerHTML = '<div class="empty">暂无活动</div>';
     return;
   }
-  const totalPhotoCount = activities.reduce((sum, activity) => sum + activity.images.length, 0);
+  const totalPhotoCount = activities.reduce((sum, activity) => sum + activityPhotoCount(activity), 0);
   adminEls.activityList.innerHTML = [
     `<button class="category-button ${adminState.selectedActivity === null ? 'active' : ''}" type="button" data-admin-activity-id="">
       全部活动
@@ -1089,7 +1178,7 @@ function renderAdminActivityList(activities) {
         draggable="true"
       >
         ${adminText(activity.activity)}
-        <span class="activity-count">${adminText(activity.images.length)} 张</span>
+        <span class="activity-count">${adminText(activityPhotoCount(activity))} 张</span>
       </button>
     `),
   ].join('');
@@ -1105,7 +1194,7 @@ function photoButton(item) {
 }
 
 function photoActivityCard(activity) {
-  const cover = activity.images[0] ? (activity.images[0].thumbSrc || activity.images[0].src) : '';
+  const cover = activityCoverImage(activity);
   const image = cover ? `<img src="${safeExternalUrl(cover)}" alt="${adminText(activity.activity)}" loading="lazy">` : '';
   return `
     <article class="resource-card photo-activity-card admin-photo-activity-card">
@@ -1118,22 +1207,23 @@ function photoActivityCard(activity) {
           <h2>${adminText(activity.activity)}</h2>
           <p>${adminText(activity.description)}</p>
           <span class="meta">
-            <span>${adminText(activity.images.length)} 张照片</span>
+            <span>${adminText(activityPhotoCount(activity))} 张照片</span>
             <span>热度 ${adminText(activity.hot)}</span>
           </span>
         </span>
       </button>
       <div class="admin-card-edit-row">
         <button class="button compact" type="button" data-edit-activity="${adminText(activity.id)}">编辑</button>
+        <button class="button secondary compact danger" type="button" data-delete-activity="${adminText(activity.id)}">删除</button>
       </div>
     </article>
   `;
 }
 
-function renderAdminPhotos(activities) {
+async function renderAdminPhotos(activities) {
   renderAdminActivityList(activities);
   if (adminState.selectedActivity === null) {
-    const totalPhotoCount = activities.reduce((sum, activity) => sum + activity.images.length, 0);
+    const totalPhotoCount = activities.reduce((sum, activity) => sum + activityPhotoCount(activity), 0);
     adminEls.activitiesTable.classList.remove('photo-groups');
     adminEls.activitiesTable.classList.add('photo-activity-cards');
     adminEls.photoTitle.textContent = '全部活动';
@@ -1163,8 +1253,19 @@ function renderAdminPhotos(activities) {
 
   adminState.currentActivity = current;
   adminEls.photoTitle.textContent = current.activity;
-  adminEls.photoMeta.textContent = `${current.description} · ${current.year} · ${current.images.length} 张照片 · 热度 ${current.hot}`;
-  adminState.activePhotoItems = current.images.map((item, index) => ({
+  adminEls.photoMeta.textContent = `${current.description} · ${current.year} · ${activityPhotoCount(current)} 张照片 · 热度 ${current.hot}`;
+  adminEls.activitiesTable.innerHTML = '<div class="empty">正在加载活动照片...</div>';
+  let photos = [];
+  try {
+    photos = await loadAdminActivityPhotos(current);
+  } catch (error) {
+    adminEls.activitiesTable.innerHTML = `<div class="empty error">${adminText(error.message)}</div>`;
+    adminState.activePhotoItems = [];
+    return;
+  }
+  if (adminState.selectedActivity !== current.id) return;
+  adminEls.photoMeta.textContent = `${current.description} · ${current.year} · ${photos.length} 张照片 · 热度 ${current.hot}`;
+  adminState.activePhotoItems = photos.map((item, index) => ({
     ...item,
     activity: current.activity,
     year: current.year,
@@ -1175,11 +1276,20 @@ function renderAdminPhotos(activities) {
     : '<div class="empty">这个活动还没有照片。</div>';
 }
 
-function activityFields(activity = {}) {
+function activityFields(activity = {}, options = {}) {
+  const categoryField = {
+    name: 'category',
+    label: '分类',
+    value: 'photos',
+    type: 'select',
+    required: true,
+    options: resourceCategoryOptions(),
+  };
   return [
     { name: 'activity', label: '活动名称', value: activity.activity, required: true },
     { name: 'description', label: '活动简介', value: activity.description, type: 'textarea', required: true },
     { name: 'year', label: '年份', value: activity.year || new Date().getFullYear(), type: 'number', required: true },
+    ...(options.includeCategory ? [categoryField] : []),
     { name: 'hot', label: '热度', value: activity.hot || 0, type: 'number' },
     { name: 'sortOrder', label: 'sortOrder', value: activity.sortOrder || 0, type: 'number' },
     { name: 'photoDir', label: '照片目录', value: activity.photoDir || '', browse: 'folder' },
@@ -1188,7 +1298,15 @@ function activityFields(activity = {}) {
 
 function openActivityModal(activity) {
   const isEdit = Boolean(activity?.id);
-  openAdminModal(isEdit ? '编辑活动' : '新建活动', activityFields(activity), async (payload) => {
+  openAdminModal(isEdit ? '编辑活动' : '新建活动', activityFields(activity, { includeCategory: !isEdit }), async (payload) => {
+    if (!isEdit && payload.category && payload.category !== 'photos') {
+      const selectedCategory = resourceCategoryOptions().find((category) => category.value === payload.category);
+      selectResourceCategory(payload.category);
+      await loadResourceManagementView();
+      setTimeout(() => openResourceModal({ category: payload.category, label: selectedCategory?.label }), 0);
+      return;
+    }
+    delete payload.category;
     await adminEndpoint(isEdit ? `/admin/photo-activities/${activity.id}` : '/admin/photo-activities', {
       method: isEdit ? 'PATCH' : 'POST',
       body: JSON.stringify(payload),
@@ -1196,13 +1314,35 @@ function openActivityModal(activity) {
     adminState.resourceMetaLoaded = false;
     await loadActivities();
   });
+  const categorySelect = adminEls.modalForm.elements.category;
+  if (!isEdit && categorySelect) {
+    categorySelect.addEventListener('change', () => {
+      if (categorySelect.value === 'photos') return;
+      const selectedCategory = resourceCategoryOptions().find((category) => category.value === categorySelect.value);
+      closeAdminModal();
+      selectResourceCategory(categorySelect.value);
+      loadResourceManagementView()
+        .then(() => openResourceModal({ category: categorySelect.value, label: selectedCategory?.label }))
+        .catch((error) => window.alert(error.message));
+    });
+  }
+  if (isEdit) {
+    const actions = adminEls.modalForm.querySelector('.admin-modal-actions');
+    if (actions) {
+      actions.insertAdjacentHTML(
+        'afterbegin',
+        `<button class="button secondary danger" type="button" data-delete-activity-from-modal="${adminText(activity.id)}">删除活动</button>`,
+      );
+    }
+  }
 }
 
 async function deleteActivity(id) {
-  if (!window.confirm('确认删除这个活动？活动下照片记录会一起删除。')) return;
+  if (!window.confirm('确认删除这个活动？活动下照片记录会一起删除。')) return false;
   await adminEndpoint(`/admin/photo-activities/${id}`, { method: 'DELETE' });
   adminState.selectedActivity = null;
   await loadResourceManagementView();
+  return true;
 }
 
 async function loadDbTables() {
@@ -1495,11 +1635,7 @@ function bindAdminEvents() {
       if (project) openProjectModal(project);
     }
     if (target.dataset.adminResourceCategory !== undefined) {
-      adminState.resourceCategory = target.dataset.adminResourceCategory;
-      adminState.resourceYear = '';
-      adminEls.resourceCategoryList.querySelectorAll('.category-button').forEach((item) => item.classList.remove('active'));
-      target.classList.add('active');
-      renderResourceYearOptions();
+      selectResourceCategory(target.dataset.adminResourceCategory);
       loadResourceManagementView();
     }
     if (target.dataset.editResource) {
@@ -1513,13 +1649,25 @@ function bindAdminEvents() {
         .catch((error) => window.alert(error.message));
     }
     if (target.dataset.deleteResource) deleteResource(target.dataset.deleteResource);
+    if (target.dataset.deleteActivityFromModal) {
+      deleteActivity(target.dataset.deleteActivityFromModal)
+        .then((deleted) => {
+          if (deleted) closeAdminModal();
+        })
+        .catch((error) => window.alert(error.message));
+    }
     if (target.dataset.adminActivityId !== undefined) {
       adminState.selectedActivity = target.dataset.adminActivityId ? Number(target.dataset.adminActivityId) : null;
-      renderAdminPhotos(adminState.activities);
+      renderAdminPhotos(adminState.activities).catch((error) => window.alert(error.message));
     }
     if (target.dataset.adminActivityCardId) {
       adminState.selectedActivity = Number(target.dataset.adminActivityCardId);
-      renderAdminPhotos(adminState.activities);
+      if (!isPhotoResourceCategory()) {
+        selectResourceCategory('photos');
+        loadResourceManagementView();
+      } else {
+        renderAdminPhotos(adminState.activities).catch((error) => window.alert(error.message));
+      }
     }
     if (target.dataset.photoIndex) {
       const item = adminState.activePhotoItems[Number(target.dataset.photoIndex)];
