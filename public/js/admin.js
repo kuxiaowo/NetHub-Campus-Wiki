@@ -337,10 +337,16 @@ function openAdminModal(title, fields, onSubmit) {
         `;
       }
       if (field.type === 'textarea') {
+        const browseButton = field.browse
+          ? `<button class="button secondary compact" type="button" data-browse-target="${adminText(field.name)}" data-browse-mode="${adminText(field.browse)}">浏览</button>`
+          : '';
         return `
           <label>
             <span>${adminText(field.label)}</span>
-            <textarea class="input" name="${adminText(field.name)}" rows="4" ${field.required ? 'required' : ''}>${adminText(value)}</textarea>
+            <div class="${browseButton ? 'admin-input-row' : ''}">
+              <textarea class="input" name="${adminText(field.name)}" rows="4" ${field.required ? 'required' : ''}>${adminText(value)}</textarea>
+              ${browseButton}
+            </div>
           </label>
         `;
       }
@@ -541,7 +547,13 @@ async function loadPickerFiles(path = adminState.picker?.path || '') {
 }
 
 function chooseFileUrl(url) {
-  if (adminState.picker?.target) adminState.picker.target.value = url;
+  const target = adminState.picker?.target;
+  if (target?.tagName === 'TEXTAREA') {
+    const currentValue = target.value.trimEnd();
+    target.value = currentValue ? `${currentValue}\n${url}` : url;
+  } else if (target) {
+    target.value = url;
+  }
   adminState.picker = null;
   closeFilePicker();
 }
@@ -842,9 +854,6 @@ async function saveProjectMediaOrder() {
 }
 
 function projectFields(project = {}) {
-  const mediaFields = project.id
-    ? []
-    : [{ name: 'media', label: '媒体 URL（拖动排序）', value: project.media || [], type: 'sortableList' }];
   return [
     { name: 'name', label: '项目名称', value: project.name, required: true },
     { name: 'leader', label: '负责人', value: project.leader, required: true },
@@ -853,7 +862,7 @@ function projectFields(project = {}) {
     { name: 'year', label: '年份', value: project.year || new Date().getFullYear(), type: 'number', required: true },
     { name: 'icon', label: '图标 URL', value: project.icon || '', browse: 'file' },
     { name: 'description', label: '简介', value: project.description, type: 'textarea', required: true },
-    ...mediaFields,
+    { name: 'media', label: '媒体 URL（一行一个）', value: (project.media || []).join('\n'), type: 'textarea', browse: 'file' },
     { name: 'casCreativity', label: 'CAS Creativity', value: project.cas?.creativity, type: 'checkbox' },
     { name: 'casActivity', label: 'CAS Activity', value: project.cas?.activity, type: 'checkbox' },
     { name: 'casService', label: 'CAS Service', value: project.cas?.service, type: 'checkbox' },
@@ -865,7 +874,7 @@ function projectFields(project = {}) {
 function openProjectModal(project = {}) {
   const isEdit = Boolean(project?.id);
   openAdminModal(isEdit ? '编辑 CAS 项目' : '新建 CAS 项目', projectFields(project), async (payload) => {
-    if (!isEdit) payload.media = Array.isArray(payload.media) ? payload.media : linesToList(payload.media);
+    payload.media = linesToList(payload.media);
     payload.updates = linesToList(payload.updates);
     const saved = await adminEndpoint(isEdit ? `/admin/projects/${project.id}` : '/admin/projects', {
       method: isEdit ? 'PATCH' : 'POST',
