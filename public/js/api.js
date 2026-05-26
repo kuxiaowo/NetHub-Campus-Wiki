@@ -1,5 +1,5 @@
 // 统一封装 API 请求，方便后续替换接口前缀或做登录鉴权。
-const API_BASE = window.CAMPUS_WIKI_CONFIG?.apiBaseUrl || 'http://127.0.0.1:3100/api';
+const API_BASE = window.CAMPUS_WIKI_CONFIG?.apiBaseUrl || '/api';
 
 /**
  * 请求后端 API。

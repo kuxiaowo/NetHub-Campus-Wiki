@@ -6,7 +6,7 @@
 http://127.0.0.1:3100
 ```
 
-所有业务接口都以 `/api` 开头，响应格式为 JSON。前端默认从 `public/js/config.js` 读取：
+所有业务接口都以 `/api` 开头，响应格式为 JSON。前端从运行时配置 `window.CAMPUS_WIKI_CONFIG` 读取 API 前缀；使用 `frontend_server.py` 时，该配置由 `.env` 中的 `FRONTEND_API_BASE_URL` 动态生成：
 
 ```javascript
 window.CAMPUS_WIKI_CONFIG = {

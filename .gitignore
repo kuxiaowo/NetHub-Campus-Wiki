@@ -5,5 +5,5 @@ npm-debug.log*
 __pycache__/
 *.py[cod]
 .venv/
-public/uploads/*
-!public/uploads/.gitkeep
+public/Photos/*
+!public/Photos/.gitkeep

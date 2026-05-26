@@ -50,11 +50,12 @@ python3 -m pip install -r requirements.txt
 
 ### 2. 配置环境变量
 
-复制 `.env.example` 为 `.env`，按本机 MySQL 配置修改：
+复制 `.env.example` 为 `.env`，按本机 MySQL 和部署地址修改：
 
 ```env
 API_PORT=3100
 FRONTEND_PORT=3200
+FRONTEND_API_BASE_URL=http://127.0.0.1:3100/api
 CORS_ORIGINS=http://127.0.0.1:3200,http://localhost:3200
 DB_HOST=127.0.0.1
 DB_PORT=3306
@@ -65,6 +66,13 @@ AUTH_SECRET_KEY=change-this-to-a-long-random-secret
 AUTH_TOKEN_EXPIRE_MINUTES=120
 PHOTO_DIR_CACHE_MINUTES=5
 ```
+
+`FRONTEND_API_BASE_URL` 是浏览器实际请求的后端 API 前缀，必须包含 `/api`，例如 `https://api.example.com/api`。使用 `frontend_server.py` 启动前端时，`/js/config.js` 会从 `.env` 动态生成；如果不填写，默认使用 `http://127.0.0.1:${API_PORT}/api`。
+
+`CORS_ORIGINS` 是允许访问后端的前端页面来源，只写协议、域名和端口，不带路径，例如 `https://wiki.example.com`。前后端分离部署时，需要同时修改：
+
+- 前端请求后端：`FRONTEND_API_BASE_URL=https://后端域名/api`
+- 后端允许前端跨域：`CORS_ORIGINS=https://前端域名`
 
 ### 3. 初始化数据库
 
@@ -122,7 +130,7 @@ python3 frontend_server.py
 - 首页：http://127.0.0.1:3200/
 - CAS 项目库：http://127.0.0.1:3200/projects.html
 
-如果后端端口变化，修改 `public/js/config.js` 中的 `apiBaseUrl`。
+如果后端端口或域名变化，修改 `.env` 中的 `FRONTEND_API_BASE_URL`，然后重启前端服务。后端的 `CORS_ORIGINS` 也要包含当前前端页面的来源，否则浏览器会拦截跨域请求。
 
 ## 数据库结构
 
@@ -146,7 +154,7 @@ python3 frontend_server.py
 
 - 后端只负责 API、数据访问和响应模型，不再托管前端页面。
 - 前端只负责页面渲染和用户交互，通过 `public/js/api.js` 调用后端。
-- 环境差异通过 `.env` 和 `public/js/config.js` 配置，不把数据库账号写死到业务代码中。
+- 环境差异通过 `.env` 配置；前端运行时的 `/js/config.js` 由 `frontend_server.py` 根据 `.env` 生成，不把数据库账号或后端地址写死到业务代码中。
 - API 响应统一使用 JSON；项目列表和详情都返回 `{ "data": ... }`。
 - 需要登录的接口使用 `Authorization: Bearer <accessToken>`；前端会把登录 token 保存在浏览器本地存储中。
 - 数据库访问集中在 `backend/database.py`、`backend/auth.py`、`backend/projects.py` 和 `backend/resources.py`，路由层不直接拼装业务数据。

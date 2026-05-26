@@ -8,11 +8,25 @@
 """
 
 import os
+import json
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent
 PUBLIC_DIR = BASE_DIR / "public"
+
+load_dotenv(BASE_DIR / ".env")
+
+
+def frontend_api_base_url() -> str:
+    """Return the browser-facing API base URL used by public/js/api.js."""
+    explicit_url = os.getenv("FRONTEND_API_BASE_URL", "").strip()
+    if explicit_url:
+        return explicit_url.rstrip("/")
+    api_port = os.getenv("API_PORT", os.getenv("PORT", "3100"))
+    return f"http://127.0.0.1:{api_port}/api"
 
 
 class FrontendHandler(SimpleHTTPRequestHandler):
@@ -29,6 +43,19 @@ class FrontendHandler(SimpleHTTPRequestHandler):
         # 访问 http://127.0.0.1:3200/ 时直接打开首页。
         if self.path == "/":
             self.path = "/index.html"
+        if self.path.split("?", 1)[0] == "/js/config.js":
+            config = {
+                "apiBaseUrl": frontend_api_base_url(),
+            }
+            body = f"window.CAMPUS_WIKI_CONFIG = {json.dumps(config, ensure_ascii=False)};\n"
+            encoded_body = body.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript; charset=utf-8")
+            self.send_header("Content-Length", str(len(encoded_body)))
+            self.send_header("Cache-Control", "no-store, max-age=0")
+            self.end_headers()
+            self.wfile.write(encoded_body)
+            return
         return super().do_GET()
 
     def end_headers(self):  # noqa: N802 - inherited method name from stdlib.
