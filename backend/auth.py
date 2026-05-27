@@ -143,6 +143,32 @@ def authenticate_user(username: str, password: str) -> dict[str, Any]:
     return format_user(row)
 
 
+def change_user_password(user_id: int, current_password: str, new_password: str) -> dict[str, Any]:
+    """使用原密码校验后更新当前用户密码。"""
+
+    validate_password(new_password)
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM users WHERE id = %s LIMIT 1", (user_id,))
+            row = cursor.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="用户不存在")
+            if not verify_password(current_password, row["password_hash"]):
+                raise HTTPException(status_code=400, detail="原密码错误")
+            if not row.get("is_active"):
+                raise HTTPException(status_code=403, detail="账号已被禁用")
+
+            cursor.execute(
+                "UPDATE users SET password_hash = %s WHERE id = %s",
+                (hash_password(new_password), user_id),
+            )
+            cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+            updated_row = cursor.fetchone()
+
+    return format_user(updated_row)
+
+
 def create_access_token(user: dict[str, Any]) -> str:
     """创建 HMAC-SHA256 签名的 Bearer Token。"""
 

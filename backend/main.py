@@ -20,12 +20,13 @@ if __package__ in {None, ""}:
 
 from backend.admin import router as admin_router
 from backend.config import settings
-from backend.auth import authenticate_user, create_access_token, create_user, get_current_user
+from backend.auth import authenticate_user, change_user_password, create_access_token, create_user, get_current_user
 from backend.database import get_db_connection
 from backend.projects import get_project, list_meta, list_projects
 from backend.resources import list_activity_photos, list_photo_activities, list_resource_meta, list_resources
 from backend.schemas import (
     AnnouncementsResponse,
+    ChangePasswordRequest,
     HealthResponse,
     LoginRequest,
     LoginResponse,
@@ -125,6 +126,17 @@ def current_user(user: dict = Depends(get_current_user)):
     """返回当前 Bearer Token 对应的用户。"""
 
     return user
+
+
+@app.patch("/api/auth/password", response_model=User, tags=["auth"])
+def change_password(payload: ChangePasswordRequest, user: dict = Depends(get_current_user)):
+    """修改当前登录用户密码，必须提供原密码。"""
+
+    return change_user_password(
+        user_id=user["id"],
+        current_password=payload.currentPassword,
+        new_password=payload.newPassword,
+    )
 
 
 @app.get("/api/meta", response_model=MetaResponse, tags=["projects"])

@@ -52,6 +52,13 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ChangePasswordRequest(BaseModel):
+    """当前用户修改密码请求。"""
+
+    currentPassword: str
+    newPassword: str = Field(min_length=8)
+
+
 class LoginResponse(BaseModel):
     """登录成功响应。"""
 

@@ -76,6 +76,13 @@ async function registerUser(username, password, displayName) {
   });
 }
 
+async function changeCurrentUserPassword(currentPassword, newPassword) {
+  return request('/auth/password', {
+    method: 'PATCH',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
 async function refreshCurrentUser() {
   if (!getAuthToken()) return null;
   try {
@@ -183,6 +190,21 @@ function authDialogTemplate() {
           </label>
           <button class="button auth-submit" type="submit">注册并登录</button>
         </form>
+        <form id="authPasswordForm" class="auth-form is-hidden">
+          <label>
+            <span class="sr-only">原密码</span>
+            <input class="input" name="currentPassword" type="password" autocomplete="current-password" placeholder="原密码" required minlength="8" />
+          </label>
+          <label>
+            <span class="sr-only">新密码</span>
+            <input class="input" name="newPassword" type="password" autocomplete="new-password" placeholder="新密码（至少 8 位）" required minlength="8" />
+          </label>
+          <label>
+            <span class="sr-only">确认新密码</span>
+            <input class="input" name="confirmPassword" type="password" autocomplete="new-password" placeholder="确认新密码" required minlength="8" />
+          </label>
+          <button class="button auth-submit" type="submit">修改密码</button>
+        </form>
         <div id="authMessage" class="auth-message" aria-live="polite"></div>
       </section>
     </div>
@@ -201,6 +223,7 @@ function initAuthNav() {
   const modal = document.querySelector('#authModal');
   const loginForm = document.querySelector('#authLoginForm');
   const registerForm = document.querySelector('#authRegisterForm');
+  const passwordForm = document.querySelector('#authPasswordForm');
   const hint = document.querySelector('#authHint');
   const accountState = document.querySelector('#authAccountState');
   const message = document.querySelector('#authMessage');
@@ -215,7 +238,7 @@ function initAuthNav() {
       authArea.innerHTML = `
         <button class="auth-avatar logged-out" type="button" data-open-auth aria-label="打开账号面板">登</button>
       `;
-      authArea.querySelector('[data-open-auth]').addEventListener('click', () => openAuthModal('login'));
+      authArea.querySelector('[data-open-auth]').addEventListener('click', (event) => openAuthModal('login', event.currentTarget));
       return;
     }
 
@@ -224,7 +247,7 @@ function initAuthNav() {
         ${escapeHtml(userInitial(user))}
       </button>
     `;
-    authArea.querySelector('[data-open-auth]').addEventListener('click', () => openAuthModal('login'));
+    authArea.querySelector('[data-open-auth]').addEventListener('click', (event) => openAuthModal('login', event.currentTarget));
   }
 
   function renderAccountState() {
@@ -233,6 +256,7 @@ function initAuthNav() {
       hint.textContent = '未登录：可浏览内容，登录后可参与更多校园互动。';
       loginForm.classList.toggle('is-hidden', mode !== 'login');
       registerForm.classList.toggle('is-hidden', mode !== 'register');
+      passwordForm.classList.add('is-hidden');
       loginTab.classList.remove('is-hidden');
       registerTab.classList.remove('is-hidden');
       return;
@@ -242,6 +266,7 @@ function initAuthNav() {
       <span>(${escapeHtml(currentUser.username)})</span>`;
     loginForm.classList.add('is-hidden');
     registerForm.classList.add('is-hidden');
+    passwordForm.classList.remove('is-hidden');
     loginTab.classList.add('is-hidden');
     registerTab.classList.add('is-hidden');
     accountState.innerHTML = `
@@ -270,12 +295,29 @@ function initAuthNav() {
     message.classList.remove('error');
   }
 
-  function openAuthModal(nextMode) {
+  function updateAuthPanelPosition(trigger) {
+    const anchor = trigger || authArea.querySelector('[data-open-auth]');
+    if (!anchor) return;
+
+    const rect = anchor.getBoundingClientRect();
+    const panelWidth = Math.min(380, window.innerWidth - 32);
+    const left = Math.min(
+      Math.max(16, rect.right - panelWidth),
+      Math.max(16, window.innerWidth - panelWidth - 16),
+    );
+    modal.style.setProperty('--auth-panel-top', `${Math.round(rect.bottom + 10)}px`);
+    modal.style.setProperty('--auth-panel-left', `${Math.round(left)}px`);
+    modal.style.setProperty('--auth-panel-width', `${Math.round(panelWidth)}px`);
+  }
+
+  function openAuthModal(nextMode, trigger) {
     setMode(nextMode);
+    updateAuthPanelPosition(trigger);
     modal.classList.add('is-open');
     modal.setAttribute('aria-hidden', 'false');
-    const activeForm = mode === 'register' ? registerForm : loginForm;
-    activeForm.username.focus();
+    const activeForm = currentUser ? passwordForm : (mode === 'register' ? registerForm : loginForm);
+    const focusTarget = currentUser ? activeForm.currentPassword : activeForm.username;
+    focusTarget.focus();
   }
 
   function closeAuthModal() {
@@ -283,6 +325,7 @@ function initAuthNav() {
     modal.setAttribute('aria-hidden', 'true');
     loginForm.reset();
     registerForm.reset();
+    passwordForm.reset();
     message.textContent = '登录后可保存你的项目资料与校园互动状态。';
     message.classList.remove('error');
   }
@@ -292,6 +335,9 @@ function initAuthNav() {
   document.querySelectorAll('[data-auth-close]').forEach((item) => item.addEventListener('click', closeAuthModal));
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && modal.classList.contains('is-open')) closeAuthModal();
+  });
+  window.addEventListener('resize', () => {
+    if (modal.classList.contains('is-open')) updateAuthPanelPosition();
   });
 
   loginForm.addEventListener('submit', async (event) => {
@@ -334,6 +380,37 @@ function initAuthNav() {
       const user = await loginUser(username, password);
       renderUser(user);
       closeAuthModal();
+    } catch (error) {
+      message.textContent = error.message;
+      message.classList.add('error');
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
+  passwordForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    message.textContent = '正在修改密码...';
+    message.classList.remove('error');
+    const submit = passwordForm.querySelector('[type="submit"]');
+    submit.disabled = true;
+
+    try {
+      const formData = new FormData(passwordForm);
+      const currentPassword = String(formData.get('currentPassword') || '');
+      const newPassword = String(formData.get('newPassword') || '');
+      const confirmPassword = String(formData.get('confirmPassword') || '');
+
+      if (newPassword !== confirmPassword) {
+        throw new Error('两次输入的新密码不一致');
+      }
+
+      const user = await changeCurrentUserPassword(currentPassword, newPassword);
+      window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+      renderUser(user);
+      passwordForm.reset();
+      message.textContent = '密码已修改';
+      message.classList.remove('error');
     } catch (error) {
       message.textContent = error.message;
       message.classList.add('error');

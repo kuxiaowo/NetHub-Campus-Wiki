@@ -408,13 +408,17 @@ p { color: var(--muted); line-height: 1.8; }
   display: none;
   padding: 28px;
 }
-.auth-modal.is-open { display: grid; place-items: start center; }
+.auth-modal.is-open { display: block; }
 .auth-backdrop { position: absolute; inset: 0; background: rgba(23, 32, 51, 0.16); backdrop-filter: blur(2px); }
 .auth-panel {
-  position: relative;
-  width: min(520px, 100%);
+  position: absolute;
+  top: var(--auth-panel-top, 76px);
+  left: var(--auth-panel-left, 16px);
+  width: var(--auth-panel-width, min(380px, calc(100vw - 32px)));
+  max-height: calc(100vh - var(--auth-panel-top, 76px) - 16px);
+  overflow: auto;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 24px 70px rgba(23, 32, 51, 0.16);
   padding: 16px 18px 18px;
