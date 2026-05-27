@@ -275,6 +275,23 @@
     </section>
   </div>
 
+  <div id="adminPhotoModal" class="photo-modal" aria-hidden="true" role="dialog" aria-label="照片详情">
+    <div class="photo-modal-backdrop" data-admin-photo-modal-close></div>
+    <section class="photo-modal-panel">
+      <div class="photo-modal-head">
+        <div>
+          <h2 id="adminModalPhotoTitle">照片详情</h2>
+          <p id="adminModalPhotoMeta"></p>
+        </div>
+        <div class="modal-actions">
+          <button id="adminModalPhotoDownload" class="button secondary" type="button">下载</button>
+          <button class="icon-button" type="button" aria-label="关闭" data-admin-photo-modal-close>×</button>
+        </div>
+      </div>
+      <img id="adminModalPhotoImage" src="" alt="" />
+    </section>
+  </div>
+
   <script src="/js/config.js"></script>
   <script src="/js/api.js?v=admin"></script>
   <script src="/js/admin.js"></script>

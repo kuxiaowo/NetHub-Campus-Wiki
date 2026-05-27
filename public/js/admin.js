@@ -24,6 +24,7 @@ const adminState = {
   activePhotoItems: [],
   selectedActivity: null,
   currentActivity: null,
+  currentModalPhoto: null,
   dragState: null,
   modalDragItem: null,
   dragJustEnded: false,
@@ -1223,10 +1224,42 @@ function photoActivityCard(activity) {
       </button>
       <div class="admin-card-edit-row">
         <button class="button compact" type="button" data-edit-activity="${adminText(activity.id)}">编辑</button>
-        <button class="button secondary compact danger" type="button" data-delete-activity="${adminText(activity.id)}">删除</button>
       </div>
     </article>
   `;
+}
+
+function openAdminPhotoModal(index) {
+  const item = adminState.activePhotoItems[index];
+  if (!item) return;
+
+  const src = safeExternalUrl(item.src);
+  adminState.currentModalPhoto = { ...item, src };
+  adminEls.photoModalTitle.textContent = item.title || '照片详情';
+  adminEls.photoModalMeta.textContent = [item.activity, item.year].filter(Boolean).join(' · ');
+  adminEls.photoModalImage.src = src;
+  adminEls.photoModalImage.alt = item.title || '';
+  adminEls.photoModal.classList.add('is-open');
+  adminEls.photoModal.setAttribute('aria-hidden', 'false');
+}
+
+function closeAdminPhotoModal() {
+  adminEls.photoModal.classList.remove('is-open');
+  adminEls.photoModal.setAttribute('aria-hidden', 'true');
+  adminEls.photoModalImage.src = '';
+  adminState.currentModalPhoto = null;
+}
+
+function downloadAdminModalPhoto() {
+  const item = adminState.currentModalPhoto;
+  if (!item) return;
+
+  const link = document.createElement('a');
+  link.href = item.src;
+  link.download = `${item.activity || 'photo'}-${item.title || 'image'}.jpg`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 }
 
 async function renderAdminPhotos(activities) {
@@ -1568,6 +1601,7 @@ function bindAdminEvents() {
     }
     window.open(safeExternalUrl(archiveUrl), '_blank', 'noopener,noreferrer');
   });
+  adminEls.photoModalDownload.addEventListener('click', downloadAdminModalPhoto);
   adminEls.createDbRowButton.addEventListener('click', () => openDbRowModal({}));
   adminEls.dbPrevPage.addEventListener('click', () => {
     if (adminState.dbPage > 1) {
@@ -1589,6 +1623,7 @@ function bindAdminEvents() {
 
     if (target.dataset.adminModalClose !== undefined) closeAdminModal();
     if (target.dataset.filePickerClose !== undefined) closeFilePicker();
+    if (target.dataset.adminPhotoModalClose !== undefined) closeAdminPhotoModal();
     if (target.dataset.browseTarget) openFilePicker(target.dataset.browseTarget, target.dataset.browseMode);
     if (target.dataset.openFileFolder) {
       if (adminState.picker) {
@@ -1679,8 +1714,7 @@ function bindAdminEvents() {
       }
     }
     if (target.dataset.photoIndex) {
-      const item = adminState.activePhotoItems[Number(target.dataset.photoIndex)];
-      if (item) window.open(safeExternalUrl(item.src), '_blank', 'noopener,noreferrer');
+      openAdminPhotoModal(Number(target.dataset.photoIndex));
     }
     if (target.dataset.editActivity) {
       openActivityModal(adminState.activities.find((item) => String(item.id) === target.dataset.editActivity));
@@ -1694,6 +1728,12 @@ function bindAdminEvents() {
       openDbRowModal(adminState.dbRows.find((item) => String(item.id) === target.dataset.editDbRow));
     }
     if (target.dataset.deleteDbRow) deleteDbRow(target.dataset.deleteDbRow);
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && adminEls.photoModal.classList.contains('is-open')) {
+      closeAdminPhotoModal();
+    }
   });
 }
 
@@ -1749,6 +1789,11 @@ async function initAdmin() {
     editCurrentActivityButton: adminQuery('#editCurrentActivityButton'),
     downloadActivity: adminQuery('#downloadActivity'),
     activitiesTable: adminQuery('#activitiesTable'),
+    photoModal: adminQuery('#adminPhotoModal'),
+    photoModalTitle: adminQuery('#adminModalPhotoTitle'),
+    photoModalMeta: adminQuery('#adminModalPhotoMeta'),
+    photoModalImage: adminQuery('#adminModalPhotoImage'),
+    photoModalDownload: adminQuery('#adminModalPhotoDownload'),
     createDbRowButton: adminQuery('#createDbRowButton'),
     dbTableList: adminQuery('#dbTableList'),
     dbTableMeta: adminQuery('#dbTableMeta'),
