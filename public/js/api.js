@@ -231,6 +231,7 @@ function initAuthNav() {
   const registerTab = document.querySelector('#authRegisterTab');
   let mode = 'login';
   let currentUser = getStoredUser();
+  let passwordFormOpen = false;
 
   function renderUser(user) {
     currentUser = user;
@@ -266,7 +267,7 @@ function initAuthNav() {
       <span>(${escapeHtml(currentUser.username)})</span>`;
     loginForm.classList.add('is-hidden');
     registerForm.classList.add('is-hidden');
-    passwordForm.classList.remove('is-hidden');
+    passwordForm.classList.toggle('is-hidden', !passwordFormOpen);
     loginTab.classList.add('is-hidden');
     registerTab.classList.add('is-hidden');
     accountState.innerHTML = `
@@ -274,9 +275,22 @@ function initAuthNav() {
         ? '<button class="button auth-admin-button" type="button" data-admin-entry>进入管理员后台</button>'
         : ''}
       <button class="button secondary auth-logout-button" type="button" data-logout>退出账号，重新登录</button>
+      <button class="auth-password-toggle" type="button" data-toggle-password>
+        ${passwordFormOpen ? '收起修改密码' : '修改密码'}
+      </button>
     `;
+    accountState.querySelector('[data-toggle-password]')?.addEventListener('click', () => {
+      passwordFormOpen = !passwordFormOpen;
+      if (!passwordFormOpen) passwordForm.reset();
+      message.textContent = '登录后可保存你的项目资料与校园互动状态。';
+      message.classList.remove('error');
+      renderAccountState();
+      updateAuthPanelPosition();
+      if (passwordFormOpen) passwordForm.currentPassword.focus();
+    });
     accountState.querySelector('[data-logout]')?.addEventListener('click', () => {
       clearAuthSession();
+      passwordFormOpen = false;
       renderUser(null);
       setMode('login');
     });
@@ -311,13 +325,17 @@ function initAuthNav() {
   }
 
   function openAuthModal(nextMode, trigger) {
+    if (currentUser) passwordFormOpen = false;
     setMode(nextMode);
     updateAuthPanelPosition(trigger);
     modal.classList.add('is-open');
     modal.setAttribute('aria-hidden', 'false');
-    const activeForm = currentUser ? passwordForm : (mode === 'register' ? registerForm : loginForm);
-    const focusTarget = currentUser ? activeForm.currentPassword : activeForm.username;
-    focusTarget.focus();
+    if (currentUser) {
+      accountState.querySelector('[data-toggle-password]')?.focus();
+      return;
+    }
+    const activeForm = mode === 'register' ? registerForm : loginForm;
+    activeForm.username.focus();
   }
 
   function closeAuthModal() {
@@ -326,6 +344,7 @@ function initAuthNav() {
     loginForm.reset();
     registerForm.reset();
     passwordForm.reset();
+    passwordFormOpen = false;
     message.textContent = '登录后可保存你的项目资料与校园互动状态。';
     message.classList.remove('error');
   }
@@ -407,7 +426,9 @@ function initAuthNav() {
 
       const user = await changeCurrentUserPassword(currentPassword, newPassword);
       window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+      passwordFormOpen = false;
       renderUser(user);
+      renderAccountState();
       passwordForm.reset();
       message.textContent = '密码已修改';
       message.classList.remove('error');

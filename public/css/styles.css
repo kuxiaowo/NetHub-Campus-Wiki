@@ -471,6 +471,18 @@ p { color: var(--muted); line-height: 1.8; }
 }
 .auth-submit { background: #429cf5; }
 .auth-submit:hover { background: #2f86dc; }
+.auth-password-toggle {
+  width: fit-content;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 800;
+}
+.auth-password-toggle:hover { color: var(--primary-dark); }
 .auth-message {
   min-height: 22px;
   color: #ff3333;
