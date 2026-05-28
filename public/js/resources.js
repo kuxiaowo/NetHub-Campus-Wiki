@@ -18,11 +18,14 @@ const modalTitle = document.querySelector('#modalTitle');
 const modalMeta = document.querySelector('#modalMeta');
 const modalImage = document.querySelector('#modalImage');
 const modalDownload = document.querySelector('#modalDownload');
+const modalPrev = document.querySelector('#modalPrev');
+const modalNext = document.querySelector('#modalNext');
 
 let selectedResourceCategory = '';
 let selectedActivityId = null;
 let activePhotoItems = [];
 let currentModalPhoto = null;
+let currentModalIndex = -1;
 let currentActivity = null;
 let resourceYears = [];
 let photoYears = [];
@@ -386,13 +389,20 @@ function openPhotoModal(index) {
   if (!item) return;
 
   const src = safeExternalUrl(item.src);
+  currentModalIndex = index;
   currentModalPhoto = { ...item, src };
   modalTitle.textContent = item.title;
-  modalMeta.textContent = `${item.activity} · ${item.year}`;
+  modalMeta.textContent = `${item.activity} · ${item.year} · ${index + 1}/${activePhotoItems.length}`;
   modalImage.src = src;
   modalImage.alt = item.title;
   photoModal.classList.add('is-open');
   photoModal.setAttribute('aria-hidden', 'false');
+}
+
+function shiftPhotoModal(direction) {
+  if (!photoModal.classList.contains('is-open') || !activePhotoItems.length) return;
+  const nextIndex = (currentModalIndex + direction + activePhotoItems.length) % activePhotoItems.length;
+  openPhotoModal(nextIndex);
 }
 
 function closePhotoModal() {
@@ -400,6 +410,7 @@ function closePhotoModal() {
   photoModal.setAttribute('aria-hidden', 'true');
   modalImage.src = '';
   currentModalPhoto = null;
+  currentModalIndex = -1;
 }
 
 function downloadBlob(url, filename) {
@@ -462,10 +473,21 @@ resourceSearch.addEventListener('keydown', (event) => {
 
 downloadActivity.addEventListener('click', downloadCurrentActivityArchive);
 modalDownload.addEventListener('click', downloadModalPhoto);
+modalPrev.addEventListener('click', () => shiftPhotoModal(-1));
+modalNext.addEventListener('click', () => shiftPhotoModal(1));
 document.querySelectorAll('[data-close-modal]').forEach((item) => item.addEventListener('click', closePhotoModal));
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && photoModal.classList.contains('is-open')) {
+  if (!photoModal.classList.contains('is-open')) return;
+  if (event.key === 'Escape') {
     closePhotoModal();
+  }
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault();
+    shiftPhotoModal(-1);
+  }
+  if (event.key === 'ArrowRight') {
+    event.preventDefault();
+    shiftPhotoModal(1);
   }
 });
 

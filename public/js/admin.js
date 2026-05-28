@@ -25,6 +25,7 @@ const adminState = {
   selectedActivity: null,
   currentActivity: null,
   currentModalPhoto: null,
+  currentModalIndex: -1,
   dragState: null,
   modalDragItem: null,
   dragJustEnded: false,
@@ -1234,13 +1235,20 @@ function openAdminPhotoModal(index) {
   if (!item) return;
 
   const src = safeExternalUrl(item.src);
+  adminState.currentModalIndex = index;
   adminState.currentModalPhoto = { ...item, src };
   adminEls.photoModalTitle.textContent = item.title || '照片详情';
-  adminEls.photoModalMeta.textContent = [item.activity, item.year].filter(Boolean).join(' · ');
+  adminEls.photoModalMeta.textContent = [...[item.activity, item.year].filter(Boolean), `${index + 1}/${adminState.activePhotoItems.length}`].join(' · ');
   adminEls.photoModalImage.src = src;
   adminEls.photoModalImage.alt = item.title || '';
   adminEls.photoModal.classList.add('is-open');
   adminEls.photoModal.setAttribute('aria-hidden', 'false');
+}
+
+function shiftAdminPhotoModal(direction) {
+  if (!adminEls.photoModal.classList.contains('is-open') || !adminState.activePhotoItems.length) return;
+  const nextIndex = (adminState.currentModalIndex + direction + adminState.activePhotoItems.length) % adminState.activePhotoItems.length;
+  openAdminPhotoModal(nextIndex);
 }
 
 function closeAdminPhotoModal() {
@@ -1248,6 +1256,7 @@ function closeAdminPhotoModal() {
   adminEls.photoModal.setAttribute('aria-hidden', 'true');
   adminEls.photoModalImage.src = '';
   adminState.currentModalPhoto = null;
+  adminState.currentModalIndex = -1;
 }
 
 function downloadAdminModalPhoto() {
@@ -1602,6 +1611,8 @@ function bindAdminEvents() {
     window.open(safeExternalUrl(archiveUrl), '_blank', 'noopener,noreferrer');
   });
   adminEls.photoModalDownload.addEventListener('click', downloadAdminModalPhoto);
+  adminEls.photoModalPrev.addEventListener('click', () => shiftAdminPhotoModal(-1));
+  adminEls.photoModalNext.addEventListener('click', () => shiftAdminPhotoModal(1));
   adminEls.createDbRowButton.addEventListener('click', () => openDbRowModal({}));
   adminEls.dbPrevPage.addEventListener('click', () => {
     if (adminState.dbPage > 1) {
@@ -1731,8 +1742,17 @@ function bindAdminEvents() {
   });
 
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && adminEls.photoModal.classList.contains('is-open')) {
+    if (!adminEls.photoModal.classList.contains('is-open')) return;
+    if (event.key === 'Escape') {
       closeAdminPhotoModal();
+    }
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      shiftAdminPhotoModal(-1);
+    }
+    if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      shiftAdminPhotoModal(1);
     }
   });
 }
@@ -1794,6 +1814,8 @@ async function initAdmin() {
     photoModalMeta: adminQuery('#adminModalPhotoMeta'),
     photoModalImage: adminQuery('#adminModalPhotoImage'),
     photoModalDownload: adminQuery('#adminModalPhotoDownload'),
+    photoModalPrev: adminQuery('#adminModalPhotoPrev'),
+    photoModalNext: adminQuery('#adminModalPhotoNext'),
     createDbRowButton: adminQuery('#createDbRowButton'),
     dbTableList: adminQuery('#dbTableList'),
     dbTableMeta: adminQuery('#dbTableMeta'),

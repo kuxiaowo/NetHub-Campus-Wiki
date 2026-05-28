@@ -393,6 +393,13 @@ p { color: var(--muted); line-height: 1.8; }
   line-height: 1;
 }
 .icon-button:hover { border-color: var(--primary); color: var(--primary); }
+.photo-modal-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 240px;
+  background: #f7f9ff;
+}
 .photo-modal-panel img {
   width: 100%;
   max-height: calc(100vh - 160px);
@@ -400,6 +407,26 @@ p { color: var(--muted); line-height: 1.8; }
   object-fit: contain;
   background: #f7f9ff;
 }
+.photo-modal-nav {
+  position: absolute;
+  top: 50%;
+  z-index: 1;
+  width: 44px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 8px;
+  background: rgba(23, 32, 51, 0.62);
+  color: #fff;
+  cursor: pointer;
+  font-size: 42px;
+  line-height: 1;
+  transform: translateY(-50%);
+}
+.photo-modal-nav:hover { background: rgba(23, 32, 51, 0.82); }
+.photo-modal-nav.prev { left: 14px; }
+.photo-modal-nav.next { right: 14px; }
 
 .auth-modal {
   position: fixed;
