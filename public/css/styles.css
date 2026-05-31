@@ -259,6 +259,7 @@ p { color: var(--muted); line-height: 1.8; }
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
 }
+.resource-grid.is-hidden { display: none; }
 .resource-card {
   display: flex;
   flex-direction: column;
@@ -281,6 +282,69 @@ p { color: var(--muted); line-height: 1.8; }
 .resource-body { display: grid; gap: 10px; padding: 16px; flex: 1; }
 .resource-body h2 { margin: 0; font-size: 18px; }
 .resource-body p { margin: 0; }
+
+.yearbook-view {
+  display: grid;
+  gap: 16px;
+}
+.yearbook-view.is-hidden { display: none; }
+.yearbook-spread {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+.yearbook-page {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: zoom-in;
+  text-align: left;
+}
+.yearbook-page-frame {
+  position: relative;
+  display: block;
+  min-height: 360px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 26px rgba(28, 39, 76, 0.08);
+}
+.yearbook-page-frame img {
+  width: 100%;
+  height: 100%;
+  min-height: 360px;
+  display: block;
+  object-fit: contain;
+  background: #fff;
+}
+.yearbook-page-empty {
+  position: absolute;
+  inset: 0;
+  display: none;
+  place-items: center;
+  padding: 24px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
+  word-break: break-all;
+}
+.yearbook-page-frame.is-missing img { display: none; }
+.yearbook-page-frame.is-missing .yearbook-page-empty { display: grid; }
+.yearbook-page-label {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+.yearbook-page:hover .yearbook-page-frame {
+  border-color: #cfd8ff;
+  box-shadow: var(--shadow);
+}
 
 .photo-view { display: none; }
 .photo-view.is-visible { display: block; }
@@ -1014,7 +1078,8 @@ p { color: var(--muted); line-height: 1.8; }
   .auth-area { width: 100%; margin-left: 0; justify-content: space-between; }
   .auth-user { text-align: left; }
   .page-grid, .library-layout { grid-template-columns: 1fr; }
-  .project-grid, .resource-grid, .photo-grid.photo-activity-cards { grid-template-columns: 1fr; }
+  .project-grid, .resource-grid, .yearbook-spread, .photo-grid.photo-activity-cards { grid-template-columns: 1fr; }
+  .yearbook-page-frame, .yearbook-page-frame img { min-height: 280px; }
   .sidebar { position: static; }
   .project-row,
   .admin-project-row,

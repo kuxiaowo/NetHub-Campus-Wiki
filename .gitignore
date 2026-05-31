@@ -7,3 +7,7 @@ __pycache__/
 .venv/
 public/Photos/*
 !public/Photos/.gitkeep
+!public/Photos/yearbook/
+!public/Photos/yearbook/.gitkeep
+!public/Photos/yearbook/*.png
+!public/Photos/yearbook/*.pdf
