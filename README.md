@@ -88,7 +88,7 @@ mysql -u root -p --default-character-set=utf8mb4 < sql/schema.sql
 mysql -u root -p --default-character-set=utf8mb4
 ```
 
-进入 `mysql>` 后执行：
+进入 `mysql>` 后执行
 
 ```sql
 source /opt/campus-wiki/sql/schema.sql;
