@@ -1099,7 +1099,7 @@ function setAdminYearbookDownload(pdfUrl) {
     adminEls.yearbookDownload.classList.add('disabled');
     return;
   }
-  adminEls.yearbookDownload.href = safeExternalUrl(pdfUrl);
+  adminEls.yearbookDownload.href = authenticatedPublicFileUrl(pdfUrl) || safeExternalUrl(pdfUrl);
   adminEls.yearbookDownload.download = `${adminState.currentYearbook?.resource?.title || 'yearbook'}.pdf`;
   adminEls.yearbookDownload.removeAttribute('aria-disabled');
   adminEls.yearbookDownload.classList.remove('disabled');
@@ -1374,9 +1374,10 @@ function closeAdminPhotoModal() {
 function downloadAdminModalPhoto() {
   const item = adminState.currentModalPhoto;
   if (!item) return;
+  if (!requireAuthForDownload()) return;
 
   const link = document.createElement('a');
-  link.href = item.src;
+  link.href = authenticatedPublicFileUrl(item.src) || item.src;
   link.download = `${item.activity || 'photo'}-${item.title || 'image'}.jpg`;
   document.body.appendChild(link);
   link.click();
@@ -1724,15 +1725,21 @@ function bindAdminEvents() {
   adminEls.yearbookDownload.addEventListener('click', (event) => {
     if (adminEls.yearbookDownload.getAttribute('aria-disabled') === 'true') {
       event.preventDefault();
+      return;
+    }
+    if (!requireAuthForDownload()) {
+      event.preventDefault();
     }
   });
   adminEls.downloadActivity.addEventListener('click', () => {
+    if (!requireAuthForDownload()) return;
+
     const archiveUrl = adminState.currentActivity?.archiveUrl;
     if (!archiveUrl) {
       window.alert('当前活动还没有配置压缩文件。');
       return;
     }
-    window.open(safeExternalUrl(archiveUrl), '_blank', 'noopener,noreferrer');
+    window.open(authenticatedPublicFileUrl(archiveUrl) || safeExternalUrl(archiveUrl), '_blank', 'noopener,noreferrer');
   });
   adminEls.photoModalDownload.addEventListener('click', downloadAdminModalPhoto);
   adminEls.photoModalPrev.addEventListener('click', () => shiftAdminPhotoModal(-1));

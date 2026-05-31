@@ -11,11 +11,16 @@ import os
 import json
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent
 PUBLIC_DIR = BASE_DIR / "public"
+PROTECTED_STATIC_EXTENSIONS = {
+    ".pdf", ".zip", ".rar", ".7z",
+    ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+}
 
 load_dotenv(BASE_DIR / ".env")
 
@@ -27,6 +32,12 @@ def frontend_api_base_url() -> str:
         return explicit_url.rstrip("/")
     api_port = os.getenv("API_PORT", os.getenv("PORT", "3100"))
     return f"http://127.0.0.1:{api_port}/api"
+
+
+def is_protected_static_path(path: str) -> bool:
+    clean_path = unquote(urlsplit(path).path).replace("\\", "/").lstrip("/")
+    suffix = Path(clean_path).suffix.lower()
+    return suffix in PROTECTED_STATIC_EXTENSIONS
 
 
 class FrontendHandler(SimpleHTTPRequestHandler):
@@ -55,6 +66,9 @@ class FrontendHandler(SimpleHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store, max-age=0")
             self.end_headers()
             self.wfile.write(encoded_body)
+            return
+        if is_protected_static_path(self.path):
+            self.send_error(401, "Login required")
             return
         return super().do_GET()
 

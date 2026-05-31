@@ -9,6 +9,12 @@ const API_BASE = window.CAMPUS_WIKI_CONFIG?.apiBaseUrl || '/api';
  */
 const AUTH_TOKEN_KEY = 'campusWikiAuthToken';
 const AUTH_USER_KEY = 'campusWikiAuthUser';
+const PROTECTED_FILE_EXTENSIONS = new Set([
+  '.jpg', '.jpeg', '.png', '.webp', '.gif',
+  '.pdf', '.zip', '.rar', '.7z',
+  '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+]);
+const PROTECTED_FILE_DIRS = new Set(['photos', 'yearbook']);
 
 async function request(path, options = {}) {
   const headers = new Headers(options.headers || {});
@@ -132,6 +138,62 @@ function safeExternalUrl(value) {
   } catch {
     return '#';
   }
+}
+
+function apiBaseUrl() {
+  return String(API_BASE).replace(/\/$/, '');
+}
+
+function publicFilePath(value) {
+  const rawValue = String(value ?? '').trim();
+  if (!rawValue) return null;
+
+  let url;
+  try {
+    url = new URL(rawValue, window.location.origin);
+  } catch {
+    return null;
+  }
+
+  if (!['http:', 'https:'].includes(url.protocol)) return null;
+  const localHostnames = new Set(['localhost', '127.0.0.1']);
+  const sameLocalFrontend = localHostnames.has(url.hostname)
+    && localHostnames.has(window.location.hostname)
+    && url.port === window.location.port;
+  if (url.origin !== window.location.origin && !rawValue.startsWith('/') && !sameLocalFrontend) return null;
+  if (url.pathname.startsWith('/api/')) return null;
+
+  let path;
+  try {
+    path = decodeURIComponent(url.pathname).replace(/^\/+/, '').replace(/\\/g, '/');
+  } catch {
+    return null;
+  }
+  const parts = path.split('/').filter(Boolean);
+  if (!parts.length || parts.includes('..')) return null;
+
+  const lowerParts = parts.map((part) => part.toLowerCase());
+  const extensionMatch = path.toLowerCase().match(/\.[a-z0-9]+$/);
+  const extension = extensionMatch ? extensionMatch[0] : '';
+  if (!lowerParts.some((part) => PROTECTED_FILE_DIRS.has(part)) && !PROTECTED_FILE_EXTENSIONS.has(extension)) {
+    return null;
+  }
+  return parts.map((part) => encodeURIComponent(part)).join('/');
+}
+
+function authenticatedPublicFileUrl(value) {
+  const path = publicFilePath(value);
+  if (!path) return null;
+
+  const token = getAuthToken();
+  const query = token ? `?token=${encodeURIComponent(token)}` : '';
+  return `${apiBaseUrl()}/files/${path}${query}`;
+}
+
+function requireAuthForDownload() {
+  if (getAuthToken()) return true;
+  window.alert('抱歉，需要登陆');
+  return false;
 }
 
 /**

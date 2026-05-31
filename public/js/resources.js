@@ -143,7 +143,7 @@ function sortCombinedResources(items) {
 
 function resourceCard(resource) {
   const image = safeExternalUrl(resource.image);
-  const resourceUrl = safeExternalUrl(resource.resourceUrl);
+  const resourceUrl = authenticatedPublicFileUrl(resource.resourceUrl) || safeExternalUrl(resource.resourceUrl);
   const isYearbook = resource.category === 'yearbook';
   const thumb = `
     <span class="resource-thumb">
@@ -156,7 +156,7 @@ function resourceCard(resource) {
     <article class="resource-card">
       ${isYearbook
         ? `<button class="resource-card-link" type="button" data-yearbook-resource-id="${escapeHtml(resource.id)}">${thumb}</button>`
-        : `<a class="resource-card-link" href="${resourceUrl}" target="_blank" rel="noopener noreferrer" data-resource-download-id="${escapeHtml(resource.id)}">${thumb}</a>`}
+        : `<a class="resource-card-link" href="${resourceUrl}" target="_blank" rel="noopener noreferrer" data-resource-download-id="${escapeHtml(resource.id)}" data-resource-url="${escapeHtml(resource.resourceUrl)}">${thumb}</a>`}
       <div class="resource-body">
         <h2>${escapeHtml(resource.title)}</h2>
         <p>${escapeHtml(resource.description)}</p>
@@ -205,7 +205,13 @@ function updateCurrentYearbookDownloads(resource) {
 
 function bindResourceDownloadLinks() {
   resourceGrid.querySelectorAll('[data-resource-download-id]').forEach((link) => {
-    link.addEventListener('click', () => {
+    link.addEventListener('click', (event) => {
+      if (!requireAuthForDownload()) {
+        event.preventDefault();
+        return;
+      }
+      const downloadUrl = authenticatedPublicFileUrl(link.dataset.resourceUrl);
+      if (downloadUrl) link.href = downloadUrl;
       trackResourceDownload(Number(link.dataset.resourceDownloadId));
     });
   });
@@ -495,7 +501,7 @@ function setYearbookDownload(pdfUrl) {
     return;
   }
 
-  downloadYearbook.href = safeExternalUrl(pdfUrl);
+  downloadYearbook.href = authenticatedPublicFileUrl(pdfUrl) || safeExternalUrl(pdfUrl);
   downloadYearbook.download = `${currentYearbook?.resource?.title || 'yearbook'}.pdf`;
   downloadYearbook.removeAttribute('aria-disabled');
   downloadYearbook.classList.remove('disabled');
@@ -602,6 +608,7 @@ function downloadBlob(url, filename) {
 
 async function downloadModalPhoto() {
   if (!currentModalPhoto) return;
+  if (!requireAuthForDownload()) return;
 
   const filename = `${currentModalPhoto.activity}-${currentModalPhoto.title}.jpg`;
   if (currentModalPhoto.downloadMetric === 'photoActivity') {
@@ -612,9 +619,10 @@ async function downloadModalPhoto() {
     const resource = await trackResourceDownload(currentModalPhoto.downloadMetricId);
     updateCurrentYearbookDownloads(resource);
   }
-  downloadBlob(currentModalPhoto.src, filename).catch(() => {
+  const downloadUrl = authenticatedPublicFileUrl(currentModalPhoto.src) || currentModalPhoto.src;
+  downloadBlob(downloadUrl, filename).catch(() => {
     const link = document.createElement('a');
-    link.href = currentModalPhoto.src;
+    link.href = downloadUrl;
     link.target = '_blank';
     link.rel = 'noreferrer';
     document.body.appendChild(link);
@@ -625,6 +633,8 @@ async function downloadModalPhoto() {
 
 async function downloadCurrentActivityArchive() {
   if (!currentActivity) return;
+  if (!requireAuthForDownload()) return;
+
   const archiveUrl = currentActivity.archiveUrl;
   if (!archiveUrl) {
     window.alert('当前活动还没有配置压缩文件。');
@@ -635,7 +645,7 @@ async function downloadCurrentActivityArchive() {
   updateCurrentActivityDownloads(updated);
 
   const link = document.createElement('a');
-  link.href = safeExternalUrl(archiveUrl);
+  link.href = authenticatedPublicFileUrl(archiveUrl) || safeExternalUrl(archiveUrl);
   link.download = `${currentActivity.activity}.rar`;
   document.body.appendChild(link);
   link.click();
@@ -660,6 +670,12 @@ downloadYearbook.addEventListener('click', (event) => {
     event.preventDefault();
     return;
   }
+  if (!requireAuthForDownload()) {
+    event.preventDefault();
+    return;
+  }
+  const downloadUrl = authenticatedPublicFileUrl(currentYearbook?.pdfUrl);
+  if (downloadUrl) downloadYearbook.href = downloadUrl;
   const resourceId = currentYearbook?.resource?.id;
   trackResourceDownload(resourceId).then(updateCurrentYearbookDownloads);
 });

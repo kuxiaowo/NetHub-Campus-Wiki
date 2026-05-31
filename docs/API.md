@@ -22,6 +22,7 @@ window.CAMPUS_WIKI_CONFIG = {
 - 错误响应：FastAPI 默认错误结构，例如 `{"detail": "项目不存在"}`
 - 跨域：后端通过 `CORS_ORIGINS` 环境变量允许前端服务访问
 - 登录鉴权：需要登录的接口使用 `Authorization: Bearer <accessToken>`
+- 查看与下载权限：资源列表、Yearbook 阅读器数据、活动照片列表和图片查看保持公开；实际下载普通资源文件、Yearbook PDF、活动压缩包或单张照片时必须登录。前端未登录点击下载会弹出 `抱歉，需要登陆` 并阻止下载请求。
 
 ## 用户结构
 
@@ -409,6 +410,8 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 前台默认会把本接口调用计入资源热度；热度使用通用节流逻辑，同一登录账户对同一对象 5 秒内只会增加一次。后台预览应传 `track=false`，例如 `/api/resources/1/yearbook?track=false`。
 
+该接口不要求登录，未登录用户也可以查看 Yearbook 页面图片；只有点击 PDF 下载或单页图片下载时才要求登录。
+
 目录约定：
 
 - 页面文件扫描 `.jpg`、`.jpeg`、`.png`、`.webp`、`.gif`，按文件名自然升序排列。
@@ -434,7 +437,9 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 ## POST /api/resources/{resource_id}/download
 
-给资源下载数加一，并返回更新后的资源。下载数不做 5 秒节流，前台点击普通资源链接或 Yearbook PDF 下载时调用；后台预览和后台下载不调用，避免管理员操作影响公开统计。
+给资源下载数加一，并返回更新后的资源。下载数不做 5 秒节流，前台点击普通资源链接、Yearbook PDF 下载或 Yearbook 单页图片下载时调用；后台预览和后台下载不调用，避免管理员操作影响公开统计。
+
+该接口必须登录，需携带 `Authorization: Bearer <accessToken>`。未登录返回 `401 Unauthorized`；前端未登录点击下载时会先弹出 `抱歉，需要登陆`，不会发起下载统计请求。
 
 ### 响应字段
 
@@ -444,6 +449,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 ### 常见错误
 
+- `401 Unauthorized`：未登录、token 无效或 token 已过期。
 - `404 Not Found`：资源不存在。
 
 ## GET /api/photo-activities
@@ -512,6 +518,8 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 记录一次活动照片下载，并返回更新后的活动摘要。该接口统计活动级下载量，前台下载整包压缩文件和下载单张放大照片都会调用它。
 
+该接口必须登录，需携带 `Authorization: Bearer <accessToken>`。未登录返回 `401 Unauthorized`；前端未登录点击下载时会先弹出 `抱歉，需要登陆`，不会发起下载统计请求。
+
 ### 响应字段
 
 | 字段 | 类型 | 说明 |
@@ -521,6 +529,8 @@ curl http://127.0.0.1:3100/api/resources/meta
 ## GET /api/photo-activities/{activity_id}/photos
 
 获取单个活动下的照片。前端进入某个活动详情时调用该接口。前台默认会把本接口调用计入活动热度；热度使用通用节流逻辑，同一登录账户对同一活动 5 秒内只会增加一次。后台预览应传 `track=false`，例如 `/api/photo-activities/1/photos?track=false`。
+
+该接口不要求登录，未登录用户也可以查看照片列表和放大预览；只有点击活动整包下载或单张照片下载时才要求登录。
 
 ### 查询参数
 
@@ -548,6 +558,32 @@ curl http://127.0.0.1:3100/api/resources/meta
 ### 参数错误
 
 `sort` 只允许 `hot`、`new`、`old`、`photoCount` 或 `download`。传入其他值会返回 `422 Unprocessable Entity`。
+
+## GET /api/files/{file_path}
+
+从 `public/` 目录读取文件并作为附件返回。该接口用于受登录保护的下载，不用于普通图片查看。前端在下载普通资源文件、Yearbook PDF、活动压缩包或单张照片时，会把本地 `public/` URL 转换为 `/api/files/...` 下载 URL。
+
+### 鉴权
+
+必须登录。接口支持两种传递 token 的方式：
+
+- `Authorization: Bearer <accessToken>`：适合 `fetch` 或 API 客户端。
+- `?token=<accessToken>`：适合浏览器 `<a download>` 这类无法附加请求头的下载链接。
+
+未登录、token 无效或 token 已过期时返回 `401 Unauthorized`。前端未登录点击下载时会先弹出 `抱歉，需要登陆`，不会跳转到该接口。
+
+### 路径安全
+
+`file_path` 是相对 `public/` 的文件路径，例如 `uploads/yearbook/2026/yearbook.pdf` 或 `Photos/activity/001.jpg`。后端会拒绝空路径、绝对路径、Windows 盘符路径和包含 `..` 的路径；解析后的文件必须仍位于 `public/` 下。
+
+### 响应
+
+成功时返回文件内容，并设置 `Content-Disposition: attachment` 和 `Cache-Control: private, no-store, max-age=0`。
+
+### 常见错误
+
+- `401 Unauthorized`：未登录、token 无效或 token 已过期。
+- `404 Not Found`：文件不存在，或路径不在允许范围内。
 
 ## 管理后台 API
 
@@ -635,6 +671,8 @@ CAS 项目写接口字段包括：`name`、`leader`、`members`、`category`、`
 路径安全限制：`path` 和 `targetPath` 必须解析后仍位于 `public/` 内；不允许 `..` 和以 `/` 开头的绝对路径。
 
 资源和照片编辑接口只保存 URL。上传文件请先到后台“文件管理”栏目完成，再在资源或照片编辑中手动填写地址，或通过“浏览”选择已有文件/文件夹。
+
+上传到 `public/` 的图片文件可直接用于公开查看。PDF、压缩包和 Office 文档等下载型文件不应依赖前端静态直连；前端下载时会把它们转换到 `GET /api/files/{file_path}`，由后端校验登录后返回附件。
 
 ### 数据库查看器
 

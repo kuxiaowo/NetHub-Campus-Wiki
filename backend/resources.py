@@ -285,8 +285,23 @@ def ensure_photo_activity_downloads_column() -> None:
                 cursor.execute(
                     """
                     ALTER TABLE photo_activities
-                      ADD COLUMN downloads INT NOT NULL DEFAULT 0 COMMENT '下载次数' AFTER hot,
-                      ADD INDEX idx_photo_activity_downloads (downloads)
+                      ADD COLUMN downloads INT NOT NULL DEFAULT 0 COMMENT '下载次数' AFTER hot
+                    """
+                )
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM information_schema.STATISTICS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'photo_activities'
+                  AND INDEX_NAME = 'idx_photo_activity_downloads'
+                """
+            )
+            if cursor.fetchone()["count"] == 0:
+                cursor.execute(
+                    """
+                    CREATE INDEX idx_photo_activity_downloads
+                      ON photo_activities (downloads)
                     """
                 )
     _PHOTO_ACTIVITY_DOWNLOADS_COLUMN_READY = True

@@ -8,11 +8,14 @@
 后端不再托管前端页面；前端由 frontend_server.py 单独提供静态服务。
 """
 
+import mimetypes
+import re
 import sys
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 import uvicorn
 
 if __package__ in {None, ""}:
@@ -26,6 +29,7 @@ from backend.auth import (
     create_access_token,
     create_user,
     get_current_user,
+    get_current_user_from_token,
     get_optional_current_user,
 )
 from backend.database import get_db_connection
@@ -94,6 +98,53 @@ app.add_middleware(
 )
 
 app.include_router(admin_router)
+
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+PUBLIC_DIR = BASE_DIR / "public"
+WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:/")
+
+
+def _resolve_public_file(file_path: str) -> Path:
+    raw_path = file_path.strip().replace("\\", "/").lstrip("/")
+    path = Path(raw_path)
+    if not raw_path or path.is_absolute() or path.drive or ".." in path.parts or WINDOWS_DRIVE_PATTERN.match(raw_path):
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    public_root = PUBLIC_DIR.resolve()
+    target = (public_root / raw_path).resolve()
+    if target != public_root and public_root not in target.parents and target != public_root:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return target
+
+
+def _get_file_request_user(request: Request) -> dict:
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer "):
+        return get_current_user_from_token(authorization.split(" ", 1)[1].strip())
+
+    token = request.query_params.get("token")
+    if token:
+        return get_current_user_from_token(token)
+
+    raise HTTPException(status_code=401, detail="需要登录")
+
+
+@app.get("/api/files/{file_path:path}", tags=["resources"])
+def protected_public_file(file_path: str, request: Request):
+    """Serve files from public/ only to logged-in users."""
+
+    _get_file_request_user(request)
+    target = _resolve_public_file(file_path)
+    media_type, _ = mimetypes.guess_type(target.name)
+    return FileResponse(
+        target,
+        media_type=media_type,
+        filename=target.name,
+        headers={"Cache-Control": "private, no-store, max-age=0"},
+    )
 
 
 @app.get("/api/health", response_model=HealthResponse, tags=["system"])
@@ -230,7 +281,7 @@ def resource_yearbook(
 
 
 @app.post("/api/resources/{resource_id}/download", response_model=ResourceDetailResponse, tags=["resources"])
-def resource_download(resource_id: int):
+def resource_download(resource_id: int, user: dict = Depends(get_current_user)):
     """给资源下载数加一，并返回更新后的资源。"""
 
     resource = bump_resource_metric(resource_id, "downloads")
@@ -251,7 +302,7 @@ def photo_activities(
 
 
 @app.post("/api/photo-activities/{activity_id}/download", response_model=PhotoActivityDetailResponse, tags=["resources"])
-def photo_activity_download(activity_id: int):
+def photo_activity_download(activity_id: int, user: dict = Depends(get_current_user)):
     """Increment one activity archive download counter and return the updated activity."""
 
     activity = bump_photo_activity_downloads(activity_id)

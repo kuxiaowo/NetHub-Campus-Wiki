@@ -223,6 +223,21 @@ def get_user_by_id(user_id: int) -> dict[str, Any] | None:
     return None if row is None else format_user(row)
 
 
+def get_current_user_from_token(token: str) -> dict[str, Any]:
+    payload = decode_access_token(token)
+    try:
+        user_id = int(payload["sub"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="登录状态无效或已过期") from None
+
+    user = get_user_by_id(user_id)
+    if user is None:
+        raise HTTPException(status_code=401, detail="用户不存在")
+    if not user["isActive"]:
+        raise HTTPException(status_code=403, detail="账号已被禁用")
+    return user
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> dict[str, Any]:
