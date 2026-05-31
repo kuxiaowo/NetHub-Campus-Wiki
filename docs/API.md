@@ -407,6 +407,8 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 读取单个 Yearbook 资源的双页阅读器数据。该接口只支持 `resources.category = "yearbook"` 的资源，并要求 `resourceUrl` 指向 `public/` 下的目录，例如 `/uploads/yearbook/2026/`。
 
+前台默认会把本接口调用计入资源热度；热度使用通用节流逻辑，同一登录账户对同一对象 5 秒内只会增加一次。后台预览应传 `track=false`，例如 `/api/resources/1/yearbook?track=false`。
+
 目录约定：
 
 - 页面文件扫描 `.jpg`、`.jpeg`、`.png`、`.webp`、`.gif`，按文件名自然升序排列。
@@ -430,6 +432,20 @@ curl http://127.0.0.1:3100/api/resources/meta
 - `404 Not Found`：资源不存在，或资源不是 `yearbook` 分类。
 - `422 Unprocessable Entity`：`resourceUrl` 不是 `public/` 下的目录、目录不存在，或目录内没有图片页面。
 
+## POST /api/resources/{resource_id}/download
+
+给资源下载数加一，并返回更新后的资源。下载数不做 5 秒节流，前台点击普通资源链接或 Yearbook PDF 下载时调用；后台预览和后台下载不调用，避免管理员操作影响公开统计。
+
+### 响应字段
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `data` | `Resource` | 更新下载数后的资源 |
+
+### 常见错误
+
+- `404 Not Found`：资源不存在。
+
 ## GET /api/photo-activities
 
 获取活动照片活动列表。资源中心选择“活动照片”分类时使用此接口；“全部活动”视图会把每条 `PhotoActivity` 渲染成活动卡片，进入某个活动后再请求单活动照片接口。
@@ -440,7 +456,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 | --- | --- | --- | --- | --- |
 | `year` | `number` | 否 | 无 | 按活动年份筛选 |
 | `search` | `string` | 否 | 无 | 搜索活动名称和活动简介 |
-| `sort` | `string` | 否 | `hot` | `hot`、`new`、`old` 或 `photoCount` |
+| `sort` | `string` | 否 | `hot` | `hot`、`new`、`old`、`photoCount` 或 `download` |
 
 ### 响应字段
 
@@ -457,6 +473,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 | `description` | `string` | 活动照片简介 |
 | `year` | `number` | 活动年份 |
 | `hot` | `number` | 活动热度 |
+| `downloads` | `number` | 活动下载次数 |
 | `sortOrder` | `number` | 活动列表人工排序权重，数字越小越靠前 |
 | `photoDir` | `string \| null` | 活动照片目录 |
 | `archiveUrl` | `string \| null` | 活动压缩文件 URL，存在同名 `.rar` 时返回 |
@@ -467,7 +484,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 活动卡片不使用 icon 字段；“全部活动”视图使用活动第一张照片作为封面。活动列表接口只返回封面和数量，不返回完整照片数组。
 
-活动级下载使用照片目录下的同名压缩文件，不能由前端逐张触发下载。例如 `photoDir` 是 `/uploads/photos/春季运动会/` 时，压缩文件应放在 `/uploads/photos/春季运动会/春季运动会.rar`。只有该文件实际存在时，接口才返回 `archiveUrl`。
+活动级整包下载使用照片目录下的同名压缩文件。例如 `photoDir` 是 `/uploads/photos/春季运动会/` 时，压缩文件应放在 `/uploads/photos/春季运动会/春季运动会.rar`。只有该文件实际存在时，接口才返回 `archiveUrl`。前台点击活动整包下载或在照片放大弹窗中下载单张照片，都会让活动级 `downloads` 加 1。
 
 ### 响应示例
 
@@ -480,6 +497,7 @@ curl http://127.0.0.1:3100/api/resources/meta
       "description": "记录开幕式、接力赛、领奖瞬间和操场看台等运动会现场照片。",
       "year": 2026,
       "hot": 98,
+      "downloads": 24,
       "sortOrder": 10,
       "coverSrc": "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1200&q=85",
       "coverThumbSrc": null,
@@ -490,15 +508,32 @@ curl http://127.0.0.1:3100/api/resources/meta
 }
 ```
 
+## POST /api/photo-activities/{activity_id}/download
+
+记录一次活动照片下载，并返回更新后的活动摘要。该接口统计活动级下载量，前台下载整包压缩文件和下载单张放大照片都会调用它。
+
+### 响应字段
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `data` | `PhotoActivity` | 更新下载数后的活动照片摘要 |
+
 ## GET /api/photo-activities/{activity_id}/photos
 
-获取单个活动下的照片。前端进入某个活动详情时调用该接口。
+获取单个活动下的照片。前端进入某个活动详情时调用该接口。前台默认会把本接口调用计入活动热度；热度使用通用节流逻辑，同一登录账户对同一活动 5 秒内只会增加一次。后台预览应传 `track=false`，例如 `/api/photo-activities/1/photos?track=false`。
+
+### 查询参数
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `track` | `boolean` | 否 | `true` | 是否计入前台浏览热度 |
 
 ### 响应字段
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `data` | `PhotoItem[]` | 指定活动下的照片 |
+| `activity` | `PhotoActivity \| null` | 更新热度后的活动摘要 |
 
 ### PhotoItem 结构
 
@@ -512,7 +547,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 ### 参数错误
 
-`sort` 只允许 `hot`、`new`、`old` 或 `photoCount`。传入其他值会返回 `422 Unprocessable Entity`。
+`sort` 只允许 `hot`、`new`、`old`、`photoCount` 或 `download`。传入其他值会返回 `422 Unprocessable Entity`。
 
 ## 管理后台 API
 

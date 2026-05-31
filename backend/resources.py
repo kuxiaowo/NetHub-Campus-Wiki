@@ -13,7 +13,8 @@ from backend.config import settings
 from backend.database import get_db_connection
 
 ResourceSort = Literal["hot", "new", "old", "download"]
-PhotoSort = Literal["hot", "new", "old", "photoCount"]
+PhotoSort = Literal["hot", "new", "old", "photoCount", "download"]
+ResourceMetric = Literal["hot", "downloads"]
 BASE_DIR = Path(__file__).resolve().parents[1]
 PUBLIC_DIR = BASE_DIR / "public"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
@@ -22,6 +23,9 @@ WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:/")
 THUMB_DIR_NAME = ".thumbs"
 THUMB_MAX_SIZE = (640, 640)
 _PHOTO_DIR_CACHE: dict[str, dict[str, Any]] = {}
+_HOT_TRACK: dict[tuple[str, int, int], float] = {}
+HOT_THROTTLE_SECONDS = 5.0
+_PHOTO_ACTIVITY_DOWNLOADS_COLUMN_READY = False
 
 
 class YearbookResourceError(Exception):
@@ -197,6 +201,30 @@ def photo_archive_url(photo_dir: str | None) -> str | None:
     return f"/{relative.rstrip('/')}/{folder_name}.rar"
 
 
+def format_photo_activity(row: dict[str, Any], legacy_photos: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return the public activity card shape with directory-derived cover data."""
+
+    scanned_photos = _scan_photo_dir(row.get("photo_dir"), cover_only=True)
+    cover_images = scanned_photos or legacy_photos[:1]
+    directory_photo_count = len(_scan_photo_dir(row.get("photo_dir"), count_only=True)) if row.get("photo_dir") else 0
+    archive_url = photo_archive_url(row.get("photo_dir"))
+    return {
+        "id": row["id"],
+        "activity": row["activity"],
+        "description": row.get("description") or "",
+        "year": row["year"],
+        "hot": row["hot"],
+        "downloads": row.get("downloads", 0),
+        "sortOrder": row["sort_order"],
+        "photoDir": row.get("photo_dir"),
+        "archiveUrl": archive_url,
+        "coverSrc": cover_images[0]["src"] if cover_images else None,
+        "coverThumbSrc": cover_images[0].get("thumbSrc") if cover_images else None,
+        "photoCount": directory_photo_count or row["photo_count"],
+        "createdAt": row.get("created_at"),
+    }
+
+
 def format_resource(row: dict[str, Any]) -> dict[str, Any]:
     """把 resources 表行转换为前端资源卡片需要的数据结构。"""
 
@@ -221,11 +249,113 @@ def format_resource(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def get_yearbook_detail(resource_id: int) -> dict[str, Any]:
+def bump_resource_metric(resource_id: int, metric: ResourceMetric) -> dict[str, Any] | None:
+    """Increment one public resource counter and return the updated resource."""
+
+    column = {"hot": "hot", "downloads": "downloads"}[metric]
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(f"UPDATE resources SET {column} = {column} + 1 WHERE id = %s", (resource_id,))
+            if cursor.rowcount == 0:
+                return None
+            cursor.execute("SELECT * FROM resources WHERE id = %s LIMIT 1", (resource_id,))
+            row = cursor.fetchone()
+    return format_resource(row) if row else None
+
+
+def ensure_photo_activity_downloads_column() -> None:
+    """Add the activity-level downloads counter for existing local databases."""
+
+    global _PHOTO_ACTIVITY_DOWNLOADS_COLUMN_READY
+    if _PHOTO_ACTIVITY_DOWNLOADS_COLUMN_READY:
+        return
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'photo_activities'
+                  AND COLUMN_NAME = 'downloads'
+                """
+            )
+            if cursor.fetchone()["count"] == 0:
+                cursor.execute(
+                    """
+                    ALTER TABLE photo_activities
+                      ADD COLUMN downloads INT NOT NULL DEFAULT 0 COMMENT '下载次数' AFTER hot,
+                      ADD INDEX idx_photo_activity_downloads (downloads)
+                    """
+                )
+    _PHOTO_ACTIVITY_DOWNLOADS_COLUMN_READY = True
+
+
+def bump_photo_activity_downloads(activity_id: int) -> dict[str, Any] | None:
+    """Increment one activity archive download counter and return the updated activity."""
+
+    ensure_photo_activity_downloads_column()
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("UPDATE photo_activities SET downloads = downloads + 1 WHERE id = %s", (activity_id,))
+            if cursor.rowcount == 0:
+                return None
+            cursor.execute(
+                """
+                SELECT pa.*, COUNT(pi.id) AS photo_count
+                FROM photo_activities pa
+                LEFT JOIN photo_items pi ON pi.activity_id = pa.id
+                WHERE pa.id = %s
+                GROUP BY
+                  pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads,
+                  pa.sort_order, pa.photo_dir, pa.created_at, pa.updated_at
+                """,
+                (activity_id,),
+            )
+            row = cursor.fetchone()
+    return format_photo_activity(row, []) if row else None
+
+
+def _hot_track_key(scope: str, item_id: int, user_id: int | None) -> tuple[str, int, int] | None:
+    if user_id is None:
+        return None
+    return (scope, item_id, user_id)
+
+
+def _can_track_hot(scope: str, item_id: int, user_id: int | None) -> bool:
+    key = _hot_track_key(scope, item_id, user_id)
+    if key is None:
+        return True
+
+    now = time.monotonic()
+    previous = _HOT_TRACK.get(key)
+    if previous is not None and now - previous < HOT_THROTTLE_SECONDS:
+        return False
+    return True
+
+
+def _mark_hot_tracked(scope: str, item_id: int, user_id: int | None) -> None:
+    key = _hot_track_key(scope, item_id, user_id)
+    if key is None:
+        return
+    _HOT_TRACK[key] = time.monotonic()
+
+
+def get_yearbook_detail(
+    resource_id: int,
+    *,
+    track_view: bool = False,
+    viewer_user_id: int | None = None,
+) -> dict[str, Any]:
     """Return the scanned image pages and first PDF for a yearbook resource directory."""
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
+            if track_view and _can_track_hot("resource", resource_id, viewer_user_id):
+                cursor.execute("UPDATE resources SET hot = hot + 1 WHERE id = %s", (resource_id,))
+                if cursor.rowcount:
+                    _mark_hot_tracked("resource", resource_id, viewer_user_id)
             cursor.execute("SELECT * FROM resources WHERE id = %s LIMIT 1", (resource_id,))
             row = cursor.fetchone()
 
@@ -348,6 +478,7 @@ def list_photo_activities(
 ) -> list[dict[str, Any]]:
     """查询活动照片活动列表，不加载完整照片数组。"""
 
+    ensure_photo_activity_downloads_column()
     where_parts = []
     params = []
 
@@ -364,6 +495,7 @@ def list_photo_activities(
         "new": "pa.sort_order ASC, pa.year DESC, pa.created_at DESC",
         "old": "pa.sort_order ASC, pa.year ASC, pa.created_at ASC",
         "photoCount": "pa.sort_order ASC, photo_count DESC, pa.created_at DESC",
+        "download": "pa.sort_order ASC, pa.downloads DESC, pa.created_at DESC",
     }
     where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
     sql = f"""
@@ -373,6 +505,7 @@ def list_photo_activities(
           pa.description,
           pa.year,
           pa.hot,
+          pa.downloads,
           pa.sort_order,
           pa.photo_dir,
           pa.created_at,
@@ -380,7 +513,7 @@ def list_photo_activities(
         FROM photo_activities pa
         LEFT JOIN photo_items pi ON pi.activity_id = pa.id
         {where_sql}
-        GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.sort_order, pa.photo_dir, pa.created_at
+        GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads, pa.sort_order, pa.photo_dir, pa.created_at
         ORDER BY {order_map[sort]}, pa.id DESC
     """
 
@@ -417,46 +550,46 @@ def list_photo_activities(
             }
         )
 
-    result = []
-    for row in activities:
-        scanned_photos = _scan_photo_dir(row.get("photo_dir"), cover_only=True)
-        legacy_photos = photos_by_activity[row["id"]]
-        cover_images = scanned_photos or legacy_photos[:1]
-        directory_photo_count = len(_scan_photo_dir(row.get("photo_dir"), count_only=True)) if row.get("photo_dir") else 0
-        archive_url = photo_archive_url(row.get("photo_dir"))
-        result.append(
-            {
-                "id": row["id"],
-                "activity": row["activity"],
-                "description": row.get("description") or "",
-                "year": row["year"],
-                "hot": row["hot"],
-                "sortOrder": row["sort_order"],
-                "photoDir": row.get("photo_dir"),
-                "archiveUrl": archive_url,
-                "coverSrc": cover_images[0]["src"] if cover_images else None,
-                "coverThumbSrc": cover_images[0].get("thumbSrc") if cover_images else None,
-                "photoCount": directory_photo_count or row["photo_count"],
-                "createdAt": row.get("created_at"),
-            }
-        )
-    if sort == "photoCount":
+    result = [format_photo_activity(row, photos_by_activity[row["id"]]) for row in activities]
+    if sort in {"photoCount", "download"}:
         result.sort(
             key=lambda item: (
                 item["sortOrder"],
-                -item["photoCount"],
+                -item["photoCount"] if sort == "photoCount" else -item["downloads"],
                 -(item["createdAt"].timestamp() if item["createdAt"] else 0),
             )
         )
     return result
 
 
-def list_activity_photos(activity_id: int) -> list[dict[str, Any]] | None:
-    """Return photos for one activity, using the per-directory cache when configured."""
+def get_activity_photo_detail(
+    activity_id: int,
+    *,
+    track_view: bool = False,
+    viewer_user_id: int | None = None,
+) -> dict[str, Any] | None:
+    """Return one activity with photos, optionally counting a public view."""
 
+    ensure_photo_activity_downloads_column()
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT photo_dir FROM photo_activities WHERE id = %s", (activity_id,))
+            if track_view and _can_track_hot("photo_activity", activity_id, viewer_user_id):
+                cursor.execute("UPDATE photo_activities SET hot = hot + 1 WHERE id = %s", (activity_id,))
+                if cursor.rowcount:
+                    _mark_hot_tracked("photo_activity", activity_id, viewer_user_id)
+
+            cursor.execute(
+                """
+                SELECT pa.*, COUNT(pi.id) AS photo_count
+                FROM photo_activities pa
+                LEFT JOIN photo_items pi ON pi.activity_id = pa.id
+                WHERE pa.id = %s
+                GROUP BY
+                  pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads,
+                  pa.sort_order, pa.photo_dir, pa.created_at, pa.updated_at
+                """,
+                (activity_id,),
+            )
             activity = cursor.fetchone()
             if activity is None:
                 return None
@@ -474,14 +607,23 @@ def list_activity_photos(activity_id: int) -> list[dict[str, Any]] | None:
 
     scanned_photos = _scan_photo_dir(activity.get("photo_dir"))
     if scanned_photos:
-        return scanned_photos
-    return [
-        {
-            "id": row["id"],
-            "title": row["title"],
-            "src": row["image_url"],
-            "thumbSrc": None,
-            "sortOrder": row["sort_order"],
-        }
-        for row in photo_rows
-    ]
+        photos = scanned_photos
+    else:
+        photos = [
+            {
+                "id": row["id"],
+                "title": row["title"],
+                "src": row["image_url"],
+                "thumbSrc": None,
+                "sortOrder": row["sort_order"],
+            }
+            for row in photo_rows
+        ]
+    return {"activity": format_photo_activity(activity, photos), "photos": photos}
+
+
+def list_activity_photos(activity_id: int) -> list[dict[str, Any]] | None:
+    """Return photos for one activity, using the per-directory cache when configured."""
+
+    detail = get_activity_photo_detail(activity_id)
+    return detail["photos"] if detail else None

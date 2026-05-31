@@ -25,7 +25,7 @@ from backend.auth import (
 )
 from backend.database import get_db_connection
 from backend.projects import format_project
-from backend.resources import format_resource, photo_archive_url, yearbook_cover_url
+from backend.resources import ensure_photo_activity_downloads_column, format_resource, photo_archive_url, yearbook_cover_url
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -248,6 +248,7 @@ def _format_activity(row: dict[str, Any]) -> dict[str, Any]:
         "description": row["description"],
         "year": row["year"],
         "hot": row["hot"],
+        "downloads": row.get("downloads", 0),
         "sortOrder": row.get("sort_order", 0),
         "photoDir": row.get("photo_dir"),
         "archiveUrl": archive_url,
@@ -784,6 +785,7 @@ def admin_list_photo_activities(
     year: int | None = Query(default=None),
     _: dict[str, Any] = Depends(require_admin_user),
 ):
+    ensure_photo_activity_downloads_column()
     params: list[Any] = []
     where_parts: list[str] = []
     if year:
@@ -802,7 +804,7 @@ def admin_list_photo_activities(
                 FROM photo_activities pa
                 LEFT JOIN photo_items pi ON pi.activity_id = pa.id
                 {where_sql}
-                GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.sort_order, pa.photo_dir, pa.created_at, pa.updated_at
+                GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads, pa.sort_order, pa.photo_dir, pa.created_at, pa.updated_at
                 ORDER BY pa.sort_order ASC, pa.id DESC
                 """,
                 params,
@@ -816,6 +818,7 @@ def admin_create_photo_activity(
     payload: dict[str, Any],
     _: dict[str, Any] = Depends(require_admin_user),
 ):
+    ensure_photo_activity_downloads_column()
     required = ["activity", "description", "year"]
     missing = [field for field in required if payload.get(field) in {None, ""}]
     if missing:
@@ -824,14 +827,15 @@ def admin_create_photo_activity(
         with conn.cursor() as cursor:
             cursor.execute(
                 """
-                INSERT INTO photo_activities (activity, description, year, hot, sort_order, photo_dir)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO photo_activities (activity, description, year, hot, downloads, sort_order, photo_dir)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     payload["activity"],
                     payload["description"],
                     _normalize_int(payload["year"], "year"),
                     _normalize_int(payload.get("hot", 0), "hot"),
+                    _normalize_int(payload.get("downloads", 0), "downloads"),
                     _normalize_int(payload.get("sortOrder", _next_activity_sort_order(cursor)), "sortOrder"),
                     _normalize_public_url(payload.get("photoDir")),
                 ),
@@ -860,11 +864,13 @@ def admin_update_photo_activity(
     payload: dict[str, Any],
     _: dict[str, Any] = Depends(require_admin_user),
 ):
+    ensure_photo_activity_downloads_column()
     field_map = {
         "activity": "activity",
         "description": "description",
         "year": "year",
         "hot": "hot",
+        "downloads": "downloads",
         "sortOrder": "sort_order",
         "photoDir": "photo_dir",
     }
@@ -876,7 +882,7 @@ def admin_update_photo_activity(
     for api_field, column in field_map.items():
         if api_field in payload:
             value = payload[api_field]
-            if api_field in {"year", "hot", "sortOrder"}:
+            if api_field in {"year", "hot", "downloads", "sortOrder"}:
                 value = _normalize_int(value, api_field)
             if api_field == "photoDir":
                 value = _normalize_public_url(value)
@@ -896,7 +902,7 @@ def admin_update_photo_activity(
                 FROM photo_activities pa
                 LEFT JOIN photo_items pi ON pi.activity_id = pa.id
                 WHERE pa.id = %s
-                GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.sort_order, pa.photo_dir, pa.created_at, pa.updated_at
+                GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads, pa.sort_order, pa.photo_dir, pa.created_at, pa.updated_at
                 """,
                 (activity_id,),
             )

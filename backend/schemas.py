@@ -177,6 +177,12 @@ class ResourceListResponse(BaseModel):
     data: list[Resource] = Field(description="符合查询条件的资源列表。")
 
 
+class ResourceDetailResponse(BaseModel):
+    """单个资源响应。"""
+
+    data: Resource
+
+
 class YearbookPage(BaseModel):
     """Yearbook image page discovered from a resource directory."""
 
@@ -217,6 +223,7 @@ class PhotoActivity(BaseModel):
     description: str
     year: int
     hot: int
+    downloads: int = 0
     sortOrder: int
     photoDir: str | None = None
     archiveUrl: str | None = None
@@ -232,7 +239,14 @@ class PhotoActivityListResponse(BaseModel):
     data: list[PhotoActivity] = Field(description="符合查询条件的活动照片集合。")
 
 
+class PhotoActivityDetailResponse(BaseModel):
+    """单个活动照片摘要响应。"""
+
+    data: PhotoActivity
+
+
 class PhotoActivityPhotosResponse(BaseModel):
     """单个活动照片响应。"""
 
     data: list[PhotoItem] = Field(description="指定活动下的照片集合。")
+    activity: PhotoActivity | None = Field(default=None, description="更新热度后的活动摘要。")

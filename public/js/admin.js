@@ -1081,7 +1081,7 @@ async function openAdminYearbook(resourceId) {
   updateAdminYearbookControls();
 
   try {
-    const result = await adminEndpoint(`/resources/${resourceId}/yearbook`);
+    const result = await adminEndpoint(`/resources/${resourceId}/yearbook?track=false`);
     adminState.currentYearbook = result.data;
     adminState.currentYearbookPage = 0;
     renderAdminYearbook();
@@ -1113,7 +1113,7 @@ function renderAdminYearbook() {
   const visiblePages = pages.slice(start, start + 2);
 
   adminEls.yearbookTitle.textContent = resource.title;
-  adminEls.yearbookMeta.textContent = `${resource.year} · ${pages.length} 页 · 第 ${start + 1}-${Math.min(start + visiblePages.length, pages.length)} 页`;
+  adminEls.yearbookMeta.textContent = `${resource.year} · ${pages.length} 页 · 第 ${start + 1}-${Math.min(start + visiblePages.length, pages.length)} 页 · 热度 ${resource.hot} · 下载 ${resource.downloads}`;
   setAdminYearbookDownload(pdfUrl);
   adminState.activePhotoItems = pages.map((page, index) => ({
     ...page,
@@ -1274,7 +1274,7 @@ function activityCoverImage(activity) {
 
 async function loadAdminActivityPhotos(activity) {
   if (Array.isArray(activity.images)) return activity.images;
-  const result = await adminEndpoint(`/photo-activities/${activity.id}/photos`);
+  const result = await adminEndpoint(`/photo-activities/${activity.id}/photos?track=false`);
   activity.images = result.data;
   return activity.images;
 }
@@ -1331,6 +1331,7 @@ function photoActivityCard(activity) {
           <span class="meta">
             <span>${adminText(activityPhotoCount(activity))} 张照片</span>
             <span>热度 ${adminText(activity.hot)}</span>
+            <span>下载 ${adminText(activity.downloads || 0)}</span>
           </span>
         </span>
       </button>
@@ -1415,7 +1416,7 @@ async function renderAdminPhotos(activities) {
 
   adminState.currentActivity = current;
   adminEls.photoTitle.textContent = current.activity;
-  adminEls.photoMeta.textContent = `${current.description} · ${current.year} · ${activityPhotoCount(current)} 张照片 · 热度 ${current.hot}`;
+  adminEls.photoMeta.textContent = `${current.description} · ${current.year} · ${activityPhotoCount(current)} 张照片 · 热度 ${current.hot} · 下载 ${current.downloads || 0}`;
   adminEls.activitiesTable.innerHTML = '<div class="empty">正在加载活动照片...</div>';
   let photos = [];
   try {
@@ -1426,7 +1427,7 @@ async function renderAdminPhotos(activities) {
     return;
   }
   if (adminState.selectedActivity !== current.id) return;
-  adminEls.photoMeta.textContent = `${current.description} · ${current.year} · ${photos.length} 张照片 · 热度 ${current.hot}`;
+  adminEls.photoMeta.textContent = `${current.description} · ${current.year} · ${photos.length} 张照片 · 热度 ${current.hot} · 下载 ${current.downloads || 0}`;
   adminState.activePhotoItems = photos.map((item, index) => ({
     ...item,
     activity: current.activity,
@@ -1453,6 +1454,7 @@ function activityFields(activity = {}, options = {}) {
     { name: 'year', label: '年份', value: activity.year || new Date().getFullYear(), type: 'number', required: true },
     ...(options.includeCategory ? [categoryField] : []),
     { name: 'hot', label: '热度', value: activity.hot || 0, type: 'number' },
+    { name: 'downloads', label: '下载数', value: activity.downloads || 0, type: 'number' },
     { name: 'sortOrder', label: 'sortOrder', value: activity.sortOrder || 0, type: 'number' },
     { name: 'photoDir', label: '照片目录', value: activity.photoDir || '', browse: 'folder' },
   ];

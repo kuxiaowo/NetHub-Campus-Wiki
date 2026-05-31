@@ -50,6 +50,7 @@ const resourceSortOptions = [
 const photoSortOptions = [
   { value: 'hot', label: '最热' },
   { value: 'new', label: '最新' },
+  { value: 'download', label: '下载最多' },
   { value: 'photoCount', label: '照片最多' },
   { value: 'old', label: '最早' },
 ];
@@ -120,7 +121,7 @@ function photoActivityParams(sort = resourceSort.value) {
   const params = new URLSearchParams();
   if (resourceYear.value) params.set('year', resourceYear.value);
   if (resourceSearch.value.trim()) params.set('search', resourceSearch.value.trim());
-  params.set('sort', sort === 'download' ? 'hot' : sort);
+  params.set('sort', sort);
   return params;
 }
 
@@ -128,9 +129,7 @@ function sortCombinedResources(items) {
   const sort = resourceSort.value;
   return [...items].sort((left, right) => {
     if (sort === 'download') {
-      if (left.kind !== right.kind) return left.kind === 'resource' ? -1 : 1;
-      if (left.kind === 'resource') return right.data.downloads - left.data.downloads;
-      return right.data.hot - left.data.hot;
+      return (right.data.downloads || 0) - (left.data.downloads || 0);
     }
     if (sort === 'new') {
       return (right.data.year - left.data.year) || (itemTimestamp(right.data) - itemTimestamp(left.data));
@@ -157,7 +156,7 @@ function resourceCard(resource) {
     <article class="resource-card">
       ${isYearbook
         ? `<button class="resource-card-link" type="button" data-yearbook-resource-id="${escapeHtml(resource.id)}">${thumb}</button>`
-        : `<a class="resource-card-link" href="${resourceUrl}" target="_blank" rel="noopener noreferrer">${thumb}</a>`}
+        : `<a class="resource-card-link" href="${resourceUrl}" target="_blank" rel="noopener noreferrer" data-resource-download-id="${escapeHtml(resource.id)}">${thumb}</a>`}
       <div class="resource-body">
         <h2>${escapeHtml(resource.title)}</h2>
         <p>${escapeHtml(resource.description)}</p>
@@ -178,6 +177,40 @@ function bindYearbookCards() {
   });
 }
 
+function trackResourceDownload(resourceId) {
+  if (!resourceId) return Promise.resolve(null);
+  return request(`/resources/${resourceId}/download`, { method: 'POST' })
+    .then((result) => result.data)
+    .catch(() => null);
+}
+
+function trackPhotoActivityDownload(activityId) {
+  if (!activityId) return Promise.resolve(null);
+  return request(`/photo-activities/${activityId}/download`, { method: 'POST' })
+    .then((result) => result.data)
+    .catch(() => null);
+}
+
+function updateCurrentActivityDownloads(activity) {
+  if (!activity || !currentActivity || currentActivity.id !== activity.id) return;
+  currentActivity = { ...currentActivity, ...activity };
+  photoMeta.textContent = `${currentActivity.year} · ${activePhotoItems.length || currentActivity.photoCount} 张照片 · 热度 ${currentActivity.hot} · 下载 ${currentActivity.downloads || 0}`;
+}
+
+function updateCurrentYearbookDownloads(resource) {
+  if (!resource || !currentYearbook || currentYearbook.resource.id !== resource.id) return;
+  currentYearbook.resource = resource;
+  renderYearbook();
+}
+
+function bindResourceDownloadLinks() {
+  resourceGrid.querySelectorAll('[data-resource-download-id]').forEach((link) => {
+    link.addEventListener('click', () => {
+      trackResourceDownload(Number(link.dataset.resourceDownloadId));
+    });
+  });
+}
+
 function activityResourceCard(activity) {
   const cover = activity.coverThumbSrc || activity.coverSrc || '';
   const image = cover ? `<img src="${safeExternalUrl(cover)}" alt="${escapeHtml(activity.activity)}" loading="lazy">` : '';
@@ -195,6 +228,7 @@ function activityResourceCard(activity) {
           <span>${escapeHtml(activity.year)}</span>
           <span>${escapeHtml(activity.photoCount)} 张照片</span>
           <span>热度 ${escapeHtml(activity.hot)}</span>
+          <span>下载 ${escapeHtml(activity.downloads || 0)}</span>
         </span>
       </span>
     </button>
@@ -216,6 +250,7 @@ function renderCombinedResources(resources, activities) {
     button.addEventListener('click', () => openActivityFromResourceCard(activities, Number(button.dataset.resourceActivityId)));
   });
   bindYearbookCards();
+  bindResourceDownloadLinks();
 }
 
 function openActivityFromResourceCard(activities, activityId) {
@@ -279,6 +314,7 @@ async function loadResources() {
     ? result.data.map(resourceCard).join('')
     : '<div class="empty">没有找到匹配的资源，换个筛选条件试试。</div>';
   bindYearbookCards();
+  bindResourceDownloadLinks();
 }
 
 function renderActivityList(activities) {
@@ -339,6 +375,7 @@ function photoActivityCard(activity) {
         <span class="meta">
           <span>${escapeHtml(activity.photoCount)} 张照片</span>
           <span>热度 ${escapeHtml(activity.hot)}</span>
+          <span>下载 ${escapeHtml(activity.downloads || 0)}</span>
         </span>
       </span>
     </button>
@@ -386,7 +423,7 @@ function renderPhotos(activities) {
 
   currentActivity = current;
   photoTitle.textContent = current.activity;
-  photoMeta.textContent = `${current.year} · ${current.photoCount} 张照片 · 热度 ${current.hot}`;
+  photoMeta.textContent = `${current.year} · ${current.photoCount} 张照片 · 热度 ${current.hot} · 下载 ${current.downloads || 0}`;
   activePhotoItems = [];
   photoGrid.innerHTML = '<div class="empty">正在加载活动照片...</div>';
   loadActivityPhotos(current).catch((error) => {
@@ -398,9 +435,20 @@ async function loadActivityPhotos(activity) {
   if (!activity.loadedImages) {
     const result = await request(`/photo-activities/${activity.id}/photos`);
     activity.loadedImages = result.data;
+    if (result.activity) {
+      Object.assign(activity, result.activity);
+      updateCurrentActivityDownloads(activity);
+    }
   }
-  activePhotoItems = activity.loadedImages.map((item, index) => ({ ...item, activity: activity.activity, year: activity.year, index }));
-  photoMeta.textContent = `${activity.year} · ${activePhotoItems.length} 张照片 · 热度 ${activity.hot}`;
+  activePhotoItems = activity.loadedImages.map((item, index) => ({
+    ...item,
+    activity: activity.activity,
+    year: activity.year,
+    index,
+    downloadMetric: 'photoActivity',
+    downloadMetricId: activity.id,
+  }));
+  photoMeta.textContent = `${activity.year} · ${activePhotoItems.length} 张照片 · 热度 ${activity.hot} · 下载 ${activity.downloads || 0}`;
   photoGrid.innerHTML = activePhotoItems.length
     ? activePhotoItems.map(photoButton).join('')
     : '<div class="empty">这个活动还没有照片。</div>';
@@ -459,13 +507,15 @@ function renderYearbook() {
   const visiblePages = pages.slice(currentYearbookPage, currentYearbookPage + 2);
 
   yearbookTitle.textContent = resource.title;
-  yearbookMeta.textContent = `${resource.year} · ${pages.length} 页 · 第 ${currentYearbookPage + 1}-${Math.min(currentYearbookPage + visiblePages.length, pages.length)} 页`;
+  yearbookMeta.textContent = `${resource.year} · ${pages.length} 页 · 第 ${currentYearbookPage + 1}-${Math.min(currentYearbookPage + visiblePages.length, pages.length)} 页 · 热度 ${resource.hot} · 下载 ${resource.downloads}`;
   setYearbookDownload(pdfUrl);
   activePhotoItems = pages.map((page, index) => ({
     ...page,
     activity: resource.title,
     year: resource.year,
     index,
+    downloadMetric: 'resource',
+    downloadMetricId: resource.id,
   }));
   yearbookPages.innerHTML = visiblePages.map((page) => `
     <figure class="yearbook-page">
@@ -550,10 +600,18 @@ function downloadBlob(url, filename) {
     });
 }
 
-function downloadModalPhoto() {
+async function downloadModalPhoto() {
   if (!currentModalPhoto) return;
 
   const filename = `${currentModalPhoto.activity}-${currentModalPhoto.title}.jpg`;
+  if (currentModalPhoto.downloadMetric === 'photoActivity') {
+    const activity = await trackPhotoActivityDownload(currentModalPhoto.downloadMetricId);
+    updateCurrentActivityDownloads(activity);
+  }
+  if (currentModalPhoto.downloadMetric === 'resource') {
+    const resource = await trackResourceDownload(currentModalPhoto.downloadMetricId);
+    updateCurrentYearbookDownloads(resource);
+  }
   downloadBlob(currentModalPhoto.src, filename).catch(() => {
     const link = document.createElement('a');
     link.href = currentModalPhoto.src;
@@ -565,13 +623,16 @@ function downloadModalPhoto() {
   });
 }
 
-function downloadCurrentActivityArchive() {
+async function downloadCurrentActivityArchive() {
   if (!currentActivity) return;
   const archiveUrl = currentActivity.archiveUrl;
   if (!archiveUrl) {
     window.alert('当前活动还没有配置压缩文件。');
     return;
   }
+
+  const updated = await trackPhotoActivityDownload(currentActivity.id);
+  updateCurrentActivityDownloads(updated);
 
   const link = document.createElement('a');
   link.href = safeExternalUrl(archiveUrl);
@@ -597,7 +658,10 @@ backToResources.addEventListener('click', closeYearbook);
 downloadYearbook.addEventListener('click', (event) => {
   if (downloadYearbook.getAttribute('aria-disabled') === 'true') {
     event.preventDefault();
+    return;
   }
+  const resourceId = currentYearbook?.resource?.id;
+  trackResourceDownload(resourceId).then(updateCurrentYearbookDownloads);
 });
 modalDownload.addEventListener('click', downloadModalPhoto);
 modalPrev.addEventListener('click', () => shiftPhotoModal(-1));

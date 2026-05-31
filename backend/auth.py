@@ -241,3 +241,22 @@ def get_current_user(
     if not user["isActive"]:
         raise HTTPException(status_code=403, detail="账号已被禁用")
     return user
+
+
+def get_optional_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> dict[str, Any] | None:
+    """Return the current user when a valid bearer token is present."""
+
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        return None
+    try:
+        payload = decode_access_token(credentials.credentials)
+        user_id = int(payload["sub"])
+    except (HTTPException, KeyError, TypeError, ValueError):
+        return None
+
+    user = get_user_by_id(user_id)
+    if user is None or not user["isActive"]:
+        return None
+    return user

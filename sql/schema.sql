@@ -111,12 +111,14 @@ CREATE TABLE photo_activities (
   description TEXT NOT NULL COMMENT '活动照片简介',
   year INT NOT NULL COMMENT '活动年份',
   hot INT NOT NULL DEFAULT 0 COMMENT '活动热度',
+  downloads INT NOT NULL DEFAULT 0 COMMENT '下载次数',
   sort_order INT NOT NULL DEFAULT 0 COMMENT '人工排序权重，数字越小越靠前',
   photo_dir VARCHAR(600) DEFAULT NULL COMMENT '活动照片目录 URL，指向 public 下的文件夹',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_photo_activity_year (year),
   INDEX idx_photo_activity_hot (hot),
+  INDEX idx_photo_activity_downloads (downloads),
   INDEX idx_photo_activity_sort (sort_order, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -240,13 +242,13 @@ VALUES
 ('photos', '活动照片', 20, 1),
 ('other', '其他资源', 999, 1);
 
-INSERT INTO photo_activities (id, activity, description, year, hot, sort_order)
+INSERT INTO photo_activities (id, activity, description, year, hot, downloads, sort_order)
 VALUES
-(1, '春季运动会', '记录开幕式、接力赛、领奖瞬间和操场看台等运动会现场照片。', 2026, 98, 10),
-(2, '校园文化节', '收录舞台演出、社团展位、音乐现场和合影留念等文化节影像。', 2026, 92, 20),
-(3, '毕业典礼', '整理拨穗仪式、毕业合照和校园告别等毕业季纪念照片。', 2026, 89, 30),
-(4, '新生迎新会', '记录签到现场、志愿服务和校园导览等迎新活动片段。', 2025, 76, 40),
-(5, '艺术展览', '展示展厅、作品墙和观展交流等艺术展览现场照片。', 2025, 72, 50);
+(1, '春季运动会', '记录开幕式、接力赛、领奖瞬间和操场看台等运动会现场照片。', 2026, 98, 24, 10),
+(2, '校园文化节', '收录舞台演出、社团展位、音乐现场和合影留念等文化节影像。', 2026, 92, 18, 20),
+(3, '毕业典礼', '整理拨穗仪式、毕业合照和校园告别等毕业季纪念照片。', 2026, 89, 31, 30),
+(4, '新生迎新会', '记录签到现场、志愿服务和校园导览等迎新活动片段。', 2025, 76, 12, 40),
+(5, '艺术展览', '展示展厅、作品墙和观展交流等艺术展览现场照片。', 2025, 72, 9, 50);
 
 INSERT INTO photo_items (activity_id, title, image_url, sort_order)
 VALUES

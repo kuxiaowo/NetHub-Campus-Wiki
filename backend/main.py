@@ -20,13 +20,22 @@ if __package__ in {None, ""}:
 
 from backend.admin import router as admin_router
 from backend.config import settings
-from backend.auth import authenticate_user, change_user_password, create_access_token, create_user, get_current_user
+from backend.auth import (
+    authenticate_user,
+    change_user_password,
+    create_access_token,
+    create_user,
+    get_current_user,
+    get_optional_current_user,
+)
 from backend.database import get_db_connection
 from backend.projects import get_project, list_meta, list_projects
 from backend.resources import (
     YearbookResourceError,
+    bump_photo_activity_downloads,
+    bump_resource_metric,
+    get_activity_photo_detail,
     get_yearbook_detail,
-    list_activity_photos,
     list_photo_activities,
     list_resource_meta,
     list_resources,
@@ -39,10 +48,12 @@ from backend.schemas import (
     LoginResponse,
     MetaResponse,
     PhotoActivityListResponse,
+    PhotoActivityDetailResponse,
     PhotoActivityPhotosResponse,
     ProjectDetailResponse,
     ProjectListResponse,
     ResourceListResponse,
+    ResourceDetailResponse,
     ResourceMetaResponse,
     RegisterRequest,
     User,
@@ -199,34 +210,72 @@ def resources(
 
 
 @app.get("/api/resources/{resource_id}/yearbook", response_model=YearbookDetailResponse, tags=["resources"])
-def resource_yearbook(resource_id: int):
-    """返回单个 Yearbook 资源目录下的 PNG 页面和 PDF 下载地址。"""
+def resource_yearbook(
+    resource_id: int,
+    track: bool = Query(default=True, description="是否计入前台浏览热度。"),
+    user: dict | None = Depends(get_optional_current_user),
+):
+    """返回单个 Yearbook 资源目录下的图片页面和 PDF 下载地址。"""
 
     try:
-        return {"data": get_yearbook_detail(resource_id)}
+        return {
+            "data": get_yearbook_detail(
+                resource_id,
+                track_view=track,
+                viewer_user_id=user["id"] if user else None,
+            )
+        }
     except YearbookResourceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@app.post("/api/resources/{resource_id}/download", response_model=ResourceDetailResponse, tags=["resources"])
+def resource_download(resource_id: int):
+    """给资源下载数加一，并返回更新后的资源。"""
+
+    resource = bump_resource_metric(resource_id, "downloads")
+    if resource is None:
+        raise HTTPException(status_code=404, detail="资源不存在")
+    return {"data": resource}
 
 
 @app.get("/api/photo-activities", response_model=PhotoActivityListResponse, tags=["resources"])
 def photo_activities(
     year: int | None = Query(default=None, description="按活动年份筛选。"),
     search: str | None = Query(default=None, description="搜索活动名称。"),
-    sort: str = Query(default="hot", pattern="^(hot|new|old|photoCount)$", description="排序方式。"),
+    sort: str = Query(default="hot", pattern="^(hot|new|old|photoCount|download)$", description="排序方式。"),
 ):
     """返回活动照片活动列表，不包含完整照片数组。"""
 
     return {"data": list_photo_activities(year=year, search=search, sort=sort)}
 
 
+@app.post("/api/photo-activities/{activity_id}/download", response_model=PhotoActivityDetailResponse, tags=["resources"])
+def photo_activity_download(activity_id: int):
+    """Increment one activity archive download counter and return the updated activity."""
+
+    activity = bump_photo_activity_downloads(activity_id)
+    if activity is None:
+        raise HTTPException(status_code=404, detail="活动不存在")
+    return {"data": activity}
+
+
 @app.get("/api/photo-activities/{activity_id}/photos", response_model=PhotoActivityPhotosResponse, tags=["resources"])
-def photo_activity_photos(activity_id: int):
+def photo_activity_photos(
+    activity_id: int,
+    track: bool = Query(default=True, description="是否计入前台浏览热度。"),
+    user: dict | None = Depends(get_optional_current_user),
+):
     """返回单个活动下的照片。"""
 
-    photos = list_activity_photos(activity_id)
-    if photos is None:
+    detail = get_activity_photo_detail(
+        activity_id,
+        track_view=track,
+        viewer_user_id=user["id"] if user else None,
+    )
+    if detail is None:
         raise HTTPException(status_code=404, detail="活动不存在")
-    return {"data": photos}
+    return {"data": detail["photos"], "activity": detail["activity"]}
 
 
 if __name__ == "__main__":
