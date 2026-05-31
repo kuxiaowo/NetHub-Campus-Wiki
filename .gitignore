@@ -7,3 +7,5 @@ __pycache__/
 .venv/
 public/Photos/*
 !public/Photos/.gitkeep
+public/yearbook/*
+!public/yearbook/.gitkeep

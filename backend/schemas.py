@@ -177,6 +177,28 @@ class ResourceListResponse(BaseModel):
     data: list[Resource] = Field(description="符合查询条件的资源列表。")
 
 
+class YearbookPage(BaseModel):
+    """Yearbook image page discovered from a resource directory."""
+
+    index: int
+    title: str
+    src: str
+
+
+class YearbookDetail(BaseModel):
+    """Yearbook reader data for one resource."""
+
+    resource: Resource
+    pages: list[YearbookPage]
+    pdfUrl: str | None = None
+
+
+class YearbookDetailResponse(BaseModel):
+    """Yearbook reader response."""
+
+    data: YearbookDetail
+
+
 class PhotoItem(BaseModel):
     """单张活动照片。"""
 

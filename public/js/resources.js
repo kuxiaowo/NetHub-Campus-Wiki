@@ -8,11 +8,19 @@ const resourceGrid = document.querySelector('#resourceGrid');
 const resourceView = document.querySelector('#resourceView');
 const photoFilters = document.querySelector('#photoFilters');
 const photoView = document.querySelector('#photoView');
+const yearbookView = document.querySelector('#yearbookView');
 const activityList = document.querySelector('#activityList');
 const photoTitle = document.querySelector('#photoTitle');
 const photoMeta = document.querySelector('#photoMeta');
 const photoGrid = document.querySelector('#photoGrid');
 const downloadActivity = document.querySelector('#downloadActivity');
+const yearbookTitle = document.querySelector('#yearbookTitle');
+const yearbookMeta = document.querySelector('#yearbookMeta');
+const yearbookPages = document.querySelector('#yearbookPages');
+const yearbookPrev = document.querySelector('#yearbookPrev');
+const yearbookNext = document.querySelector('#yearbookNext');
+const downloadYearbook = document.querySelector('#downloadYearbook');
+const backToResources = document.querySelector('#backToResources');
 const photoModal = document.querySelector('#photoModal');
 const modalTitle = document.querySelector('#modalTitle');
 const modalMeta = document.querySelector('#modalMeta');
@@ -29,6 +37,8 @@ let currentModalIndex = -1;
 let currentActivity = null;
 let resourceYears = [];
 let photoYears = [];
+let currentYearbook = null;
+let currentYearbookPage = 0;
 
 const resourceSortOptions = [
   { value: 'hot', label: '最热' },
@@ -48,6 +58,14 @@ function setPhotoMode(enabled) {
   photoFilters.classList.toggle('is-visible', enabled);
   photoView.classList.toggle('is-visible', enabled);
   resourceView.classList.toggle('is-hidden', enabled);
+  yearbookView.classList.remove('is-visible');
+}
+
+function setYearbookMode(enabled) {
+  photoFilters.classList.remove('is-visible');
+  photoView.classList.remove('is-visible');
+  resourceView.classList.toggle('is-hidden', enabled);
+  yearbookView.classList.toggle('is-visible', enabled);
 }
 
 function renderYearOptions(years) {
@@ -127,13 +145,19 @@ function sortCombinedResources(items) {
 function resourceCard(resource) {
   const image = safeExternalUrl(resource.image);
   const resourceUrl = safeExternalUrl(resource.resourceUrl);
+  const isYearbook = resource.category === 'yearbook';
+  const thumb = `
+    <span class="resource-thumb">
+      <img src="${image}" alt="${escapeHtml(resource.title)}" loading="lazy">
+      <span class="badge">${escapeHtml(resource.label)}</span>
+    </span>
+  `;
 
   return `
     <article class="resource-card">
-      <a class="resource-thumb" href="${resourceUrl}" target="_blank" rel="noopener noreferrer">
-        <img src="${image}" alt="${escapeHtml(resource.title)}" loading="lazy">
-        <span class="badge">${escapeHtml(resource.label)}</span>
-      </a>
+      ${isYearbook
+        ? `<button class="resource-card-link" type="button" data-yearbook-resource-id="${escapeHtml(resource.id)}">${thumb}</button>`
+        : `<a class="resource-card-link" href="${resourceUrl}" target="_blank" rel="noopener noreferrer">${thumb}</a>`}
       <div class="resource-body">
         <h2>${escapeHtml(resource.title)}</h2>
         <p>${escapeHtml(resource.description)}</p>
@@ -146,6 +170,12 @@ function resourceCard(resource) {
       </div>
     </article>
   `;
+}
+
+function bindYearbookCards() {
+  resourceGrid.querySelectorAll('[data-yearbook-resource-id]').forEach((button) => {
+    button.addEventListener('click', () => openYearbook(Number(button.dataset.yearbookResourceId)));
+  });
 }
 
 function activityResourceCard(activity) {
@@ -185,6 +215,7 @@ function renderCombinedResources(resources, activities) {
   resourceGrid.querySelectorAll('[data-resource-activity-id]').forEach((button) => {
     button.addEventListener('click', () => openActivityFromResourceCard(activities, Number(button.dataset.resourceActivityId)));
   });
+  bindYearbookCards();
 }
 
 function openActivityFromResourceCard(activities, activityId) {
@@ -224,6 +255,7 @@ async function loadResourceMeta() {
     setPhotoMode(selectedResourceCategory === 'photos');
     updateFilterScope();
     selectedActivityId = null;
+    currentYearbook = null;
     loadCurrentView();
   });
 }
@@ -246,6 +278,7 @@ async function loadResources() {
   resourceGrid.innerHTML = result.data.length
     ? result.data.map(resourceCard).join('')
     : '<div class="empty">没有找到匹配的资源，换个筛选条件试试。</div>';
+  bindYearbookCards();
 }
 
 function renderActivityList(activities) {
@@ -384,6 +417,92 @@ async function loadPhotoActivities() {
   renderPhotos(result.data);
 }
 
+async function openYearbook(resourceId) {
+  setYearbookMode(true);
+  currentYearbook = null;
+  currentYearbookPage = 0;
+  yearbookTitle.textContent = 'Yearbook';
+  yearbookMeta.textContent = '正在加载 Yearbook...';
+  yearbookPages.innerHTML = '<div class="empty">正在加载 Yearbook...</div>';
+  setYearbookDownload(null);
+  updateYearbookControls();
+
+  try {
+    const result = await request(`/resources/${resourceId}/yearbook`);
+    currentYearbook = result.data;
+    currentYearbookPage = 0;
+    renderYearbook();
+  } catch (error) {
+    yearbookMeta.textContent = 'Yearbook 加载失败';
+    yearbookPages.innerHTML = `<div class="empty error">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function setYearbookDownload(pdfUrl) {
+  if (!pdfUrl) {
+    downloadYearbook.href = '#';
+    downloadYearbook.removeAttribute('download');
+    downloadYearbook.setAttribute('aria-disabled', 'true');
+    downloadYearbook.classList.add('disabled');
+    return;
+  }
+
+  downloadYearbook.href = safeExternalUrl(pdfUrl);
+  downloadYearbook.download = `${currentYearbook?.resource?.title || 'yearbook'}.pdf`;
+  downloadYearbook.removeAttribute('aria-disabled');
+  downloadYearbook.classList.remove('disabled');
+}
+
+function renderYearbook() {
+  if (!currentYearbook) return;
+  const { resource, pages, pdfUrl } = currentYearbook;
+  const visiblePages = pages.slice(currentYearbookPage, currentYearbookPage + 2);
+
+  yearbookTitle.textContent = resource.title;
+  yearbookMeta.textContent = `${resource.year} · ${pages.length} 页 · 第 ${currentYearbookPage + 1}-${Math.min(currentYearbookPage + visiblePages.length, pages.length)} 页`;
+  setYearbookDownload(pdfUrl);
+  activePhotoItems = pages.map((page, index) => ({
+    ...page,
+    activity: resource.title,
+    year: resource.year,
+    index,
+  }));
+  yearbookPages.innerHTML = visiblePages.map((page) => `
+    <figure class="yearbook-page">
+      <button class="yearbook-page-button" type="button" data-yearbook-page-index="${escapeHtml(page.index - 1)}" aria-label="查看 ${escapeHtml(page.title)}">
+        <img src="${safeExternalUrl(page.src)}" alt="${escapeHtml(resource.title)} ${escapeHtml(page.title)}" loading="eager">
+      </button>
+      <figcaption>${escapeHtml(page.index)} / ${escapeHtml(pages.length)}</figcaption>
+    </figure>
+  `).join('');
+  if (visiblePages.length === 1) {
+    yearbookPages.insertAdjacentHTML('beforeend', '<div class="yearbook-page-placeholder">本组只有一页</div>');
+  }
+  yearbookPages.querySelectorAll('[data-yearbook-page-index]').forEach((button) => {
+    button.addEventListener('click', () => openPhotoModal(Number(button.dataset.yearbookPageIndex)));
+  });
+  updateYearbookControls();
+}
+
+function updateYearbookControls() {
+  const pageCount = currentYearbook?.pages?.length || 0;
+  yearbookPrev.disabled = currentYearbookPage <= 0;
+  yearbookNext.disabled = !pageCount || currentYearbookPage + 2 >= pageCount;
+}
+
+function shiftYearbook(direction) {
+  if (!currentYearbook) return;
+  const maxStart = Math.max(0, Math.floor((currentYearbook.pages.length - 1) / 2) * 2);
+  currentYearbookPage = Math.min(Math.max(currentYearbookPage + direction * 2, 0), maxStart);
+  renderYearbook();
+}
+
+function closeYearbook() {
+  currentYearbook = null;
+  currentYearbookPage = 0;
+  setYearbookMode(false);
+}
+
 function openPhotoModal(index) {
   const item = activePhotoItems[index];
   if (!item) return;
@@ -472,11 +591,30 @@ resourceSearch.addEventListener('keydown', (event) => {
 });
 
 downloadActivity.addEventListener('click', downloadCurrentActivityArchive);
+yearbookPrev.addEventListener('click', () => shiftYearbook(-1));
+yearbookNext.addEventListener('click', () => shiftYearbook(1));
+backToResources.addEventListener('click', closeYearbook);
+downloadYearbook.addEventListener('click', (event) => {
+  if (downloadYearbook.getAttribute('aria-disabled') === 'true') {
+    event.preventDefault();
+  }
+});
 modalDownload.addEventListener('click', downloadModalPhoto);
 modalPrev.addEventListener('click', () => shiftPhotoModal(-1));
 modalNext.addEventListener('click', () => shiftPhotoModal(1));
 document.querySelectorAll('[data-close-modal]').forEach((item) => item.addEventListener('click', closePhotoModal));
 document.addEventListener('keydown', (event) => {
+  if (!photoModal.classList.contains('is-open') && yearbookView.classList.contains('is-visible')) {
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      shiftYearbook(-1);
+    }
+    if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      shiftYearbook(1);
+    }
+    return;
+  }
   if (!photoModal.classList.contains('is-open')) return;
   if (event.key === 'Escape') {
     closePhotoModal();

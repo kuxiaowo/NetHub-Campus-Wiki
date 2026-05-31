@@ -17,10 +17,20 @@ PhotoSort = Literal["hot", "new", "old", "photoCount"]
 BASE_DIR = Path(__file__).resolve().parents[1]
 PUBLIC_DIR = BASE_DIR / "public"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+YEARBOOK_PDF_EXTENSION = ".pdf"
 WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:/")
 THUMB_DIR_NAME = ".thumbs"
 THUMB_MAX_SIZE = (640, 640)
 _PHOTO_DIR_CACHE: dict[str, dict[str, Any]] = {}
+
+
+class YearbookResourceError(Exception):
+    """Raised when a yearbook resource cannot be opened as a page directory."""
+
+    def __init__(self, detail: str, status_code: int = 422) -> None:
+        self.detail = detail
+        self.status_code = status_code
+        super().__init__(detail)
 
 
 def _public_url_to_path(value: str | None) -> tuple[Path, str] | None:
@@ -49,6 +59,32 @@ def _photo_files(target: Path) -> list[Path]:
         for item in sorted(target.iterdir(), key=lambda path: path.name.lower())
         if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS
     ]
+
+
+def _natural_sort_key(path: Path) -> list[int | str]:
+    return [
+        int(part) if part.isdigit() else part.lower()
+        for part in re.split(r"(\d+)", path.name)
+    ]
+
+
+def _public_file_url(item: Path) -> str:
+    return f"/{item.relative_to(PUBLIC_DIR.resolve()).as_posix()}"
+
+
+def yearbook_cover_url(resource_url: str | None) -> str | None:
+    """Return the first image page URL for a public yearbook directory."""
+
+    resolved = _public_url_to_path(resource_url)
+    if resolved is None:
+        return None
+    target, _ = resolved
+    if not target.exists() or not target.is_dir():
+        return None
+    for item in sorted(target.iterdir(), key=_natural_sort_key):
+        if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS:
+            return _public_file_url(item)
+    return None
 
 
 def _scan_photo_dir(
@@ -164,6 +200,10 @@ def photo_archive_url(photo_dir: str | None) -> str | None:
 def format_resource(row: dict[str, Any]) -> dict[str, Any]:
     """把 resources 表行转换为前端资源卡片需要的数据结构。"""
 
+    image = row["image"]
+    if row["category"] == "yearbook":
+        image = yearbook_cover_url(row.get("resource_url")) or image
+
     return {
         "id": row["id"],
         "title": row["title"],
@@ -174,10 +214,60 @@ def format_resource(row: dict[str, Any]) -> dict[str, Any]:
         "type": row["type"],
         "hot": row["hot"],
         "downloads": row["downloads"],
-        "image": row["image"],
+        "image": image,
         "resourceUrl": row["resource_url"],
         "createdAt": row.get("created_at"),
         "updatedAt": row.get("updated_at"),
+    }
+
+
+def get_yearbook_detail(resource_id: int) -> dict[str, Any]:
+    """Return the scanned image pages and first PDF for a yearbook resource directory."""
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM resources WHERE id = %s LIMIT 1", (resource_id,))
+            row = cursor.fetchone()
+
+    if row is None:
+        raise YearbookResourceError("资源不存在", status_code=404)
+    if row["category"] != "yearbook":
+        raise YearbookResourceError("资源不是 Yearbook", status_code=404)
+
+    resolved = _public_url_to_path(row.get("resource_url"))
+    if resolved is None:
+        raise YearbookResourceError("Yearbook 资源 URL 必须是 public 下的目录")
+
+    target, _ = resolved
+    if not target.exists() or not target.is_dir():
+        raise YearbookResourceError("Yearbook 资源目录不存在")
+
+    page_files = [
+        item
+        for item in sorted(target.iterdir(), key=_natural_sort_key)
+        if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS
+    ]
+    if not page_files:
+        raise YearbookResourceError("Yearbook 资源目录中没有图片页面")
+
+    pdf_files = [
+        item
+        for item in sorted(target.iterdir(), key=_natural_sort_key)
+        if item.is_file() and item.suffix.lower() == YEARBOOK_PDF_EXTENSION
+    ]
+    pages = [
+        {
+            "index": index,
+            "title": item.stem,
+            "src": _public_file_url(item),
+        }
+        for index, item in enumerate(page_files, start=1)
+    ]
+
+    return {
+        "resource": format_resource(row),
+        "pages": pages,
+        "pdfUrl": _public_file_url(pdf_files[0]) if pdf_files else None,
     }
 
 

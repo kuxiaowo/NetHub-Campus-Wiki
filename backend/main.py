@@ -23,7 +23,14 @@ from backend.config import settings
 from backend.auth import authenticate_user, change_user_password, create_access_token, create_user, get_current_user
 from backend.database import get_db_connection
 from backend.projects import get_project, list_meta, list_projects
-from backend.resources import list_activity_photos, list_photo_activities, list_resource_meta, list_resources
+from backend.resources import (
+    YearbookResourceError,
+    get_yearbook_detail,
+    list_activity_photos,
+    list_photo_activities,
+    list_resource_meta,
+    list_resources,
+)
 from backend.schemas import (
     AnnouncementsResponse,
     ChangePasswordRequest,
@@ -39,6 +46,7 @@ from backend.schemas import (
     ResourceMetaResponse,
     RegisterRequest,
     User,
+    YearbookDetailResponse,
 )
 
 ANNOUNCEMENTS = [
@@ -188,6 +196,16 @@ def resources(
     """返回资源中心普通资源列表。"""
 
     return {"data": list_resources(category=category, year=year, search=search, sort=sort)}
+
+
+@app.get("/api/resources/{resource_id}/yearbook", response_model=YearbookDetailResponse, tags=["resources"])
+def resource_yearbook(resource_id: int):
+    """返回单个 Yearbook 资源目录下的 PNG 页面和 PDF 下载地址。"""
+
+    try:
+        return {"data": get_yearbook_detail(resource_id)}
+    except YearbookResourceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 @app.get("/api/photo-activities", response_model=PhotoActivityListResponse, tags=["resources"])

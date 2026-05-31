@@ -25,7 +25,7 @@ from backend.auth import (
 )
 from backend.database import get_db_connection
 from backend.projects import format_project
-from backend.resources import format_resource, photo_archive_url
+from backend.resources import format_resource, photo_archive_url, yearbook_cover_url
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -674,10 +674,17 @@ def admin_list_resources(
 
 @router.post("/resources")
 def admin_create_resource(payload: dict[str, Any], _: dict[str, Any] = Depends(require_admin_user)):
-    required = ["title", "description", "year", "category", "label", "type", "image", "resourceUrl"]
+    required = ["title", "description", "year", "category", "label", "type", "resourceUrl"]
+    if payload.get("category") != "yearbook":
+        required.append("image")
     missing = [field for field in required if payload.get(field) in {None, ""}]
     if missing:
         raise HTTPException(status_code=422, detail=f"缺少字段：{', '.join(missing)}")
+    image = payload.get("image")
+    if payload.get("category") == "yearbook":
+        image = yearbook_cover_url(payload.get("resourceUrl"))
+        if not image:
+            raise HTTPException(status_code=422, detail="Yearbook 目录中必须至少有一张图片作为封面和第一页")
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
@@ -695,7 +702,7 @@ def admin_create_resource(payload: dict[str, Any], _: dict[str, Any] = Depends(r
                     payload["type"],
                     _normalize_int(payload.get("hot", 0), "hot"),
                     _normalize_int(payload.get("downloads", 0), "downloads"),
-                    payload["image"],
+                    image,
                     payload["resourceUrl"],
                 ),
             )
@@ -724,6 +731,23 @@ def admin_update_resource(
     unknown = sorted(set(payload) - set(field_map))
     if unknown:
         raise HTTPException(status_code=422, detail=f"字段不允许编辑：{', '.join(unknown)}")
+    if payload.get("category") == "yearbook" or "resourceUrl" in payload:
+        next_resource_url = payload.get("resourceUrl")
+        next_category = payload.get("category")
+        if next_resource_url is None or next_category is None:
+            with get_db_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT category, resource_url FROM resources WHERE id = %s LIMIT 1", (resource_id,))
+                    current = cursor.fetchone()
+            if current is None:
+                raise HTTPException(status_code=404, detail="资源不存在")
+            next_resource_url = next_resource_url if next_resource_url is not None else current["resource_url"]
+            next_category = next_category if next_category is not None else current["category"]
+        if next_category == "yearbook":
+            image = yearbook_cover_url(next_resource_url)
+            if not image:
+                raise HTTPException(status_code=422, detail="Yearbook 目录中必须至少有一张图片作为封面和第一页")
+            payload["image"] = image
     updates = []
     params: list[Any] = []
     for api_field, column in field_map.items():

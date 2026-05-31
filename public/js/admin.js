@@ -24,6 +24,8 @@ const adminState = {
   activePhotoItems: [],
   selectedActivity: null,
   currentActivity: null,
+  currentYearbook: null,
+  currentYearbookPage: 0,
   currentModalPhoto: null,
   currentModalIndex: -1,
   dragState: null,
@@ -969,6 +971,7 @@ async function loadResourceManagementView() {
   adminEls.photoFilters.classList.toggle('is-visible', isPhotoMode);
   adminEls.resourceView.classList.toggle('is-hidden', isPhotoMode);
   adminEls.photoView.classList.toggle('is-visible', isPhotoMode);
+  adminEls.yearbookView.classList.remove('is-visible');
   adminEls.resourceSearch.placeholder = isPhotoMode ? '搜索活动名称' : '搜索名称、内容、简介';
   if (isPhotoMode) {
     await loadActivities();
@@ -976,6 +979,7 @@ async function loadResourceManagementView() {
   }
   adminState.selectedActivity = null;
   adminState.currentActivity = null;
+  adminState.currentYearbook = null;
   await loadResources();
 }
 
@@ -1035,12 +1039,18 @@ function selectResourceCategory(category) {
 function resourceAdminCard(resource) {
   const image = safeExternalUrl(resource.image);
   const resourceUrl = safeExternalUrl(resource.resourceUrl);
+  const isYearbook = resource.category === 'yearbook';
+  const thumb = `
+    <span class="resource-thumb">
+      <img src="${image}" alt="${adminText(resource.title)}" loading="lazy">
+      <span class="badge">${adminText(resource.label)}</span>
+    </span>
+  `;
   return `
     <article class="resource-card admin-resource-card">
-      <a class="resource-thumb" href="${resourceUrl}" target="_blank" rel="noopener noreferrer">
-        <img src="${image}" alt="${adminText(resource.title)}" loading="lazy">
-        <span class="badge">${adminText(resource.label)}</span>
-      </a>
+      ${isYearbook
+        ? `<button class="resource-card-link" type="button" data-admin-yearbook-resource-id="${adminText(resource.id)}">${thumb}</button>`
+        : `<a class="resource-card-link" href="${resourceUrl}" target="_blank" rel="noopener noreferrer">${thumb}</a>`}
       <div class="resource-body">
         <div class="admin-card-title-row">
           <h2>${adminText(resource.title)}</h2>
@@ -1058,6 +1068,93 @@ function resourceAdminCard(resource) {
   `;
 }
 
+async function openAdminYearbook(resourceId) {
+  adminEls.resourceView.classList.add('is-hidden');
+  adminEls.photoView.classList.remove('is-visible');
+  adminEls.yearbookView.classList.add('is-visible');
+  adminState.currentYearbook = null;
+  adminState.currentYearbookPage = 0;
+  adminEls.yearbookTitle.textContent = 'Yearbook';
+  adminEls.yearbookMeta.textContent = '正在加载 Yearbook...';
+  adminEls.yearbookPages.innerHTML = '<div class="empty">正在加载 Yearbook...</div>';
+  setAdminYearbookDownload(null);
+  updateAdminYearbookControls();
+
+  try {
+    const result = await adminEndpoint(`/resources/${resourceId}/yearbook`);
+    adminState.currentYearbook = result.data;
+    adminState.currentYearbookPage = 0;
+    renderAdminYearbook();
+  } catch (error) {
+    adminEls.yearbookMeta.textContent = 'Yearbook 加载失败';
+    adminEls.yearbookPages.innerHTML = `<div class="empty error">${adminText(error.message)}</div>`;
+  }
+}
+
+function setAdminYearbookDownload(pdfUrl) {
+  if (!pdfUrl) {
+    adminEls.yearbookDownload.href = '#';
+    adminEls.yearbookDownload.removeAttribute('download');
+    adminEls.yearbookDownload.setAttribute('aria-disabled', 'true');
+    adminEls.yearbookDownload.classList.add('disabled');
+    return;
+  }
+  adminEls.yearbookDownload.href = safeExternalUrl(pdfUrl);
+  adminEls.yearbookDownload.download = `${adminState.currentYearbook?.resource?.title || 'yearbook'}.pdf`;
+  adminEls.yearbookDownload.removeAttribute('aria-disabled');
+  adminEls.yearbookDownload.classList.remove('disabled');
+}
+
+function renderAdminYearbook() {
+  const yearbook = adminState.currentYearbook;
+  if (!yearbook) return;
+  const { resource, pages, pdfUrl } = yearbook;
+  const start = adminState.currentYearbookPage;
+  const visiblePages = pages.slice(start, start + 2);
+
+  adminEls.yearbookTitle.textContent = resource.title;
+  adminEls.yearbookMeta.textContent = `${resource.year} · ${pages.length} 页 · 第 ${start + 1}-${Math.min(start + visiblePages.length, pages.length)} 页`;
+  setAdminYearbookDownload(pdfUrl);
+  adminState.activePhotoItems = pages.map((page, index) => ({
+    ...page,
+    activity: resource.title,
+    year: resource.year,
+    index,
+  }));
+  adminEls.yearbookPages.innerHTML = visiblePages.map((page) => `
+    <figure class="yearbook-page">
+      <button class="yearbook-page-button" type="button" data-admin-yearbook-page-index="${adminText(page.index - 1)}" aria-label="查看 ${adminText(page.title)}">
+        <img src="${safeExternalUrl(page.src)}" alt="${adminText(resource.title)} ${adminText(page.title)}" loading="eager">
+      </button>
+      <figcaption>${adminText(page.index)} / ${adminText(pages.length)}</figcaption>
+    </figure>
+  `).join('');
+  if (visiblePages.length === 1) {
+    adminEls.yearbookPages.insertAdjacentHTML('beforeend', '<div class="yearbook-page-placeholder">本组只有一页</div>');
+  }
+  updateAdminYearbookControls();
+}
+
+function updateAdminYearbookControls() {
+  const pageCount = adminState.currentYearbook?.pages?.length || 0;
+  adminEls.yearbookPrev.disabled = adminState.currentYearbookPage <= 0;
+  adminEls.yearbookNext.disabled = !pageCount || adminState.currentYearbookPage + 2 >= pageCount;
+}
+
+function shiftAdminYearbook(direction) {
+  if (!adminState.currentYearbook) return;
+  const maxStart = Math.max(0, Math.floor((adminState.currentYearbook.pages.length - 1) / 2) * 2);
+  adminState.currentYearbookPage = Math.min(Math.max(adminState.currentYearbookPage + direction * 2, 0), maxStart);
+  renderAdminYearbook();
+}
+
+function closeAdminYearbook() {
+  adminState.currentYearbook = null;
+  adminState.currentYearbookPage = 0;
+  adminEls.yearbookView.classList.remove('is-visible');
+  adminEls.resourceView.classList.remove('is-hidden');
+}
+
 function resourceCategoryOptions() {
   const categories = adminState.resourceMeta?.categories || [];
   return categories
@@ -1067,6 +1164,8 @@ function resourceCategoryOptions() {
 function resourceFields(resource = {}) {
   const categoryOptions = resourceCategoryOptions();
   const defaultCategory = categoryOptions[0]?.value || 'other';
+  const category = resource.category || defaultCategory;
+  const isYearbook = category === 'yearbook';
   return [
     { name: 'title', label: '标题', value: resource.title, required: true },
     { name: 'description', label: '简介', value: resource.description, type: 'textarea', required: true },
@@ -1074,7 +1173,7 @@ function resourceFields(resource = {}) {
     {
       name: 'category',
       label: '分类',
-      value: resource.category || defaultCategory,
+      value: category,
       type: 'select',
       required: true,
       options: categoryOptions,
@@ -1082,8 +1181,14 @@ function resourceFields(resource = {}) {
     { name: 'type', label: '类型', value: resource.type || '文档', required: true },
     { name: 'hot', label: '热度', value: resource.hot || 0, type: 'number' },
     { name: 'downloads', label: '下载数', value: resource.downloads || 0, type: 'number' },
-    { name: 'image', label: '封面 URL', value: resource.image, required: true, browse: 'file' },
-    { name: 'resourceUrl', label: '资源 URL', value: resource.resourceUrl, required: true, browse: 'fileOrFolder' },
+    ...(isYearbook ? [] : [{ name: 'image', label: '封面 URL', value: resource.image, required: true, browse: 'file' }]),
+    {
+      name: 'resourceUrl',
+      label: isYearbook ? 'Yearbook 目录' : '资源 URL',
+      value: resource.resourceUrl,
+      required: true,
+      browse: isYearbook ? 'folder' : 'fileOrFolder',
+    },
   ];
 }
 
@@ -1108,6 +1213,12 @@ function openResourceModal(resource) {
   const categorySelect = adminEls.modalForm.elements.category;
   if (!isEdit && categorySelect) {
     categorySelect.addEventListener('change', () => {
+      if (categorySelect.value === 'yearbook') {
+        const selectedCategory = resourceCategoryOptions().find((category) => category.value === categorySelect.value);
+        closeAdminModal();
+        setTimeout(() => openResourceModal({ category: categorySelect.value, label: selectedCategory?.label, type: '年鉴' }), 0);
+        return;
+      }
       if (categorySelect.value !== 'photos') return;
       closeAdminModal();
       selectResourceCategory('photos');
@@ -1602,6 +1713,17 @@ function bindAdminEvents() {
   adminEls.editCurrentActivityButton.addEventListener('click', () => {
     if (adminState.currentActivity) openActivityModal(adminState.currentActivity);
   });
+  adminEls.backToResourcesButton.addEventListener('click', closeAdminYearbook);
+  adminEls.editCurrentYearbookButton.addEventListener('click', () => {
+    if (adminState.currentYearbook?.resource) openResourceModal(adminState.currentYearbook.resource);
+  });
+  adminEls.yearbookPrev.addEventListener('click', () => shiftAdminYearbook(-1));
+  adminEls.yearbookNext.addEventListener('click', () => shiftAdminYearbook(1));
+  adminEls.yearbookDownload.addEventListener('click', (event) => {
+    if (adminEls.yearbookDownload.getAttribute('aria-disabled') === 'true') {
+      event.preventDefault();
+    }
+  });
   adminEls.downloadActivity.addEventListener('click', () => {
     const archiveUrl = adminState.currentActivity?.archiveUrl;
     if (!archiveUrl) {
@@ -1696,6 +1818,9 @@ function bindAdminEvents() {
     if (target.dataset.editResource) {
       openResourceModal(adminState.resources.find((item) => String(item.id) === target.dataset.editResource));
     }
+    if (target.dataset.adminYearbookResourceId) {
+      openAdminYearbook(Number(target.dataset.adminYearbookResourceId));
+    }
     if (target.dataset.deleteResourceFromModal) {
       deleteResource(target.dataset.deleteResourceFromModal)
         .then((deleted) => {
@@ -1727,6 +1852,9 @@ function bindAdminEvents() {
     if (target.dataset.photoIndex) {
       openAdminPhotoModal(Number(target.dataset.photoIndex));
     }
+    if (target.dataset.adminYearbookPageIndex) {
+      openAdminPhotoModal(Number(target.dataset.adminYearbookPageIndex));
+    }
     if (target.dataset.editActivity) {
       openActivityModal(adminState.activities.find((item) => String(item.id) === target.dataset.editActivity));
     }
@@ -1742,6 +1870,17 @@ function bindAdminEvents() {
   });
 
   document.addEventListener('keydown', (event) => {
+    if (!adminEls.photoModal.classList.contains('is-open') && adminEls.yearbookView.classList.contains('is-visible')) {
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        shiftAdminYearbook(-1);
+      }
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        shiftAdminYearbook(1);
+      }
+      return;
+    }
     if (!adminEls.photoModal.classList.contains('is-open')) return;
     if (event.key === 'Escape') {
       closeAdminPhotoModal();
@@ -1800,6 +1939,15 @@ async function initAdmin() {
     resourceCount: adminQuery('#adminResourceCount'),
     resourceView: adminQuery('#adminResourceView'),
     resourcesTable: adminQuery('#resourcesTable'),
+    yearbookView: adminQuery('#adminYearbookView'),
+    yearbookTitle: adminQuery('#adminYearbookTitle'),
+    yearbookMeta: adminQuery('#adminYearbookMeta'),
+    yearbookPages: adminQuery('#adminYearbookPages'),
+    yearbookPrev: adminQuery('#adminYearbookPrev'),
+    yearbookNext: adminQuery('#adminYearbookNext'),
+    yearbookDownload: adminQuery('#adminDownloadYearbook'),
+    backToResourcesButton: adminQuery('#backToAdminResources'),
+    editCurrentYearbookButton: adminQuery('#editCurrentYearbookButton'),
     createActivityButton: adminQuery('#createActivityButton'),
     photoFilters: adminQuery('#adminPhotoFilters'),
     photoView: adminQuery('#adminPhotoView'),

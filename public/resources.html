@@ -80,6 +80,24 @@
         </div>
         <div id="photoGrid" class="photo-grid" aria-live="polite"></div>
       </div>
+
+      <div id="yearbookView" class="yearbook-view">
+        <div class="section-title with-control">
+          <div>
+            <h1 id="yearbookTitle">Yearbook</h1>
+            <span id="yearbookMeta">正在加载 Yearbook...</span>
+          </div>
+          <div class="yearbook-actions">
+            <button id="backToResources" class="button secondary" type="button">返回资源列表</button>
+            <a id="downloadYearbook" class="button secondary" href="#" download>下载 PDF</a>
+          </div>
+        </div>
+        <div class="yearbook-reader" aria-live="polite">
+          <button id="yearbookPrev" class="yearbook-nav prev" type="button" aria-label="上一组页面">‹</button>
+          <div id="yearbookPages" class="yearbook-pages"></div>
+          <button id="yearbookNext" class="yearbook-nav next" type="button" aria-label="下一组页面">›</button>
+        </div>
+      </div>
     </section>
   </main>
 

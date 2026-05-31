@@ -403,6 +403,33 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 `sort` 只允许 `hot`、`new`、`old` 或 `download`。传入其他值会返回 `422 Unprocessable Entity`。
 
+## GET /api/resources/{resource_id}/yearbook
+
+读取单个 Yearbook 资源的双页阅读器数据。该接口只支持 `resources.category = "yearbook"` 的资源，并要求 `resourceUrl` 指向 `public/` 下的目录，例如 `/uploads/yearbook/2026/`。
+
+目录约定：
+
+- 页面文件扫描 `.jpg`、`.jpeg`、`.png`、`.webp`、`.gif`，按文件名自然升序排列。
+- 封面不单独维护，资源卡片使用目录中排序第一的图片。
+- PDF 下载文件扫描 `.pdf`，如果有多个，使用文件名自然升序的第一个。
+- 推荐文件名：`001.png`、`002.png`、`003.png`、`yearbook.pdf`。
+
+### 响应字段
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `data.resource` | `Resource` | Yearbook 资源记录 |
+| `data.pages` | `YearbookPage[]` | 图片页面列表 |
+| `data.pages[].index` | `number` | 页面序号，从 1 开始 |
+| `data.pages[].title` | `string` | 页面文件名，不含扩展名 |
+| `data.pages[].src` | `string` | 图片页面 URL |
+| `data.pdfUrl` | `string \| null` | PDF 下载 URL；目录内没有 PDF 时为 `null` |
+
+### 常见错误
+
+- `404 Not Found`：资源不存在，或资源不是 `yearbook` 分类。
+- `422 Unprocessable Entity`：`resourceUrl` 不是 `public/` 下的目录、目录不存在，或目录内没有图片页面。
+
 ## GET /api/photo-activities
 
 获取活动照片活动列表。资源中心选择“活动照片”分类时使用此接口；“全部活动”视图会把每条 `PhotoActivity` 渲染成活动卡片，进入某个活动后再请求单活动照片接口。
