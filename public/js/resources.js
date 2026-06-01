@@ -162,7 +162,6 @@ function resourceCard(resource) {
         <p>${escapeHtml(resource.description)}</p>
         <div class="meta">
           <span>${escapeHtml(resource.year)}</span>
-          <span>${escapeHtml(resource.type)}</span>
           <span>热度 ${escapeHtml(resource.hot)}</span>
           <span>下载 ${escapeHtml(resource.downloads)}</span>
         </div>

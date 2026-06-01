@@ -162,7 +162,6 @@ class Resource(BaseModel):
     year: int
     category: str
     label: str
-    type: str
     hot: int
     downloads: int
     image: str

@@ -371,7 +371,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 | --- | --- | --- | --- | --- |
 | `category` | `string` | 否 | 无 | 按资源分类筛选，例如 `yearbook`、`other`；活动照片使用 `/api/photo-activities` |
 | `year` | `number` | 否 | 无 | 按资源年份筛选 |
-| `search` | `string` | 否 | 无 | 搜索资源标题、简介、分类展示名和类型 |
+| `search` | `string` | 否 | 无 | 搜索资源标题、简介和分类展示名 |
 | `sort` | `string` | 否 | `hot` | `hot`、`new`、`old` 或 `download` |
 
 ### 响应字段
@@ -390,7 +390,6 @@ curl http://127.0.0.1:3100/api/resources/meta
 | `year` | `number` | 资源年份 |
 | `category` | `string` | 资源分类值 |
 | `label` | `string` | 资源分类展示名 |
-| `type` | `string` | 资源类型展示名 |
 | `hot` | `number` | 热度 |
 | `downloads` | `number` | 下载次数 |
 | `image` | `string` | 封面图 URL |
@@ -622,7 +621,7 @@ CAS 项目写接口字段包括：`name`、`leader`、`members`、`category`、`
 - `PATCH /api/admin/resources/{resource_id}`：更新资源。
 - `DELETE /api/admin/resources/{resource_id}`：删除资源。
 
-资源字段包括：`title`、`description`、`year`、`category`、`label`、`type`、`hot`、`downloads`、`image`、`resourceUrl`。
+资源字段包括：`title`、`description`、`year`、`category`、`label`、`hot`、`downloads`、`image`、`resourceUrl`。
 
 `sortOrder` 是人工排序权重，数字越小越靠前。当前只用于资源分类和活动列表；普通资源卡片和单张照片卡片不使用人工排序。
 

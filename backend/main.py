@@ -252,7 +252,7 @@ def resources_meta():
 def resources(
     category: str | None = Query(default=None, description="按资源分类筛选。"),
     year: int | None = Query(default=None, description="按资源年份筛选。"),
-    search: str | None = Query(default=None, description="搜索资源名称、简介和类型。"),
+    search: str | None = Query(default=None, description="搜索资源名称、简介和分类。"),
     sort: str = Query(default="hot", pattern="^(hot|new|old|download)$", description="排序方式。"),
 ):
     """返回资源中心普通资源列表。"""

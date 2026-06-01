@@ -235,11 +235,10 @@ def format_resource(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": row["id"],
         "title": row["title"],
-        "description": row["description"],
+        "description": row.get("description") or "",
         "year": row["year"],
         "category": row["category"],
         "label": row["label"],
-        "type": row["type"],
         "hot": row["hot"],
         "downloads": row["downloads"],
         "image": image,
@@ -465,9 +464,9 @@ def list_resources(
         where_parts.append("year = %s")
         params.append(year)
     if search:
-        where_parts.append("(title LIKE %s OR description LIKE %s OR label LIKE %s OR type LIKE %s)")
+        where_parts.append("(title LIKE %s OR description LIKE %s OR label LIKE %s)")
         keyword = f"%{search}%"
-        params.extend([keyword, keyword, keyword, keyword])
+        params.extend([keyword, keyword, keyword])
 
     order_map = {
         "hot": "hot DESC, created_at DESC",

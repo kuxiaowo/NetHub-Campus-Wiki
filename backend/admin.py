@@ -662,9 +662,9 @@ def admin_list_resources(
         where_parts.append("year = %s")
         params.append(year)
     if search:
-        where_parts.append("(title LIKE %s OR description LIKE %s OR label LIKE %s OR type LIKE %s)")
+        where_parts.append("(title LIKE %s OR description LIKE %s OR label LIKE %s)")
         keyword = f"%{search}%"
-        params.extend([keyword, keyword, keyword, keyword])
+        params.extend([keyword, keyword, keyword])
     where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
@@ -675,7 +675,7 @@ def admin_list_resources(
 
 @router.post("/resources")
 def admin_create_resource(payload: dict[str, Any], _: dict[str, Any] = Depends(require_admin_user)):
-    required = ["title", "description", "year", "category", "label", "type", "resourceUrl"]
+    required = ["title", "year", "category", "label", "resourceUrl"]
     if payload.get("category") != "yearbook":
         required.append("image")
     missing = [field for field in required if payload.get(field) in {None, ""}]
@@ -691,16 +691,15 @@ def admin_create_resource(payload: dict[str, Any], _: dict[str, Any] = Depends(r
             cursor.execute(
                 """
                 INSERT INTO resources
-                  (title, description, year, category, label, type, hot, downloads, image, resource_url)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                  (title, description, year, category, label, hot, downloads, image, resource_url)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     payload["title"],
-                    payload["description"],
+                    payload.get("description") or "",
                     _normalize_int(payload["year"], "year"),
                     payload["category"],
                     payload["label"],
-                    payload["type"],
                     _normalize_int(payload.get("hot", 0), "hot"),
                     _normalize_int(payload.get("downloads", 0), "downloads"),
                     image,
@@ -723,7 +722,6 @@ def admin_update_resource(
         "year": "year",
         "category": "category",
         "label": "label",
-        "type": "type",
         "hot": "hot",
         "downloads": "downloads",
         "image": "image",

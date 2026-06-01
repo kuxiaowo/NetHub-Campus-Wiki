@@ -1059,7 +1059,6 @@ function resourceAdminCard(resource) {
         <p>${adminText(resource.description)}</p>
         <div class="meta">
           <span>${adminText(resource.year)}</span>
-          <span>${adminText(resource.type)}</span>
           <span>热度 ${adminText(resource.hot)}</span>
           <span>下载 ${adminText(resource.downloads)}</span>
         </div>
@@ -1168,7 +1167,7 @@ function resourceFields(resource = {}) {
   const isYearbook = category === 'yearbook';
   return [
     { name: 'title', label: '标题', value: resource.title, required: true },
-    { name: 'description', label: '简介', value: resource.description, type: 'textarea', required: true },
+    { name: 'description', label: '简介', value: resource.description, type: 'textarea' },
     { name: 'year', label: '年份', value: resource.year || new Date().getFullYear(), type: 'number', required: true },
     {
       name: 'category',
@@ -1178,7 +1177,6 @@ function resourceFields(resource = {}) {
       required: true,
       options: categoryOptions,
     },
-    { name: 'type', label: '类型', value: resource.type || '文档', required: true },
     { name: 'hot', label: '热度', value: resource.hot || 0, type: 'number' },
     { name: 'downloads', label: '下载数', value: resource.downloads || 0, type: 'number' },
     ...(isYearbook ? [] : [{ name: 'image', label: '封面 URL', value: resource.image, required: true, browse: 'file' }]),
@@ -1216,7 +1214,7 @@ function openResourceModal(resource) {
       if (categorySelect.value === 'yearbook') {
         const selectedCategory = resourceCategoryOptions().find((category) => category.value === categorySelect.value);
         closeAdminModal();
-        setTimeout(() => openResourceModal({ category: categorySelect.value, label: selectedCategory?.label, type: '年鉴' }), 0);
+        setTimeout(() => openResourceModal({ category: categorySelect.value, label: selectedCategory?.label }), 0);
         return;
       }
       if (categorySelect.value !== 'photos') return;

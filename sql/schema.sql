@@ -76,11 +76,10 @@ CREATE TABLE project_categories (
 CREATE TABLE resources (
   id INT AUTO_INCREMENT PRIMARY KEY COMMENT '资源 ID',
   title VARCHAR(160) NOT NULL COMMENT '资源标题',
-  description TEXT NOT NULL COMMENT '资源简介',
+  description TEXT COMMENT '资源简介',
   year INT NOT NULL COMMENT '资源年份',
   category VARCHAR(40) NOT NULL COMMENT '普通资源分类值，例如 yearbook/other；活动照片不写入 resources',
   label VARCHAR(60) NOT NULL COMMENT '资源分类展示名',
-  type VARCHAR(40) NOT NULL COMMENT '资源类型展示名',
   hot INT NOT NULL DEFAULT 0 COMMENT '热度',
   downloads INT NOT NULL DEFAULT 0 COMMENT '下载次数',
   image VARCHAR(600) NOT NULL COMMENT '封面图片 URL',
@@ -185,7 +184,7 @@ VALUES
 ('运动健康', 30, 1);
 
 INSERT INTO resources
-(title, description, year, category, label, type, hot, downloads, image, resource_url)
+(title, description, year, category, label, hot, downloads, image, resource_url)
 VALUES
 (
   '2026 校园 Yearbook',
@@ -193,7 +192,6 @@ VALUES
   2026,
   'yearbook',
   'Yearbook',
-  '年鉴',
   96,
   820,
   'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&w=900&q=80',
@@ -205,7 +203,6 @@ VALUES
   2026,
   'other',
   '其他资源',
-  '文档',
   79,
   734,
   'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=900&q=80',
@@ -217,7 +214,6 @@ VALUES
   2025,
   'yearbook',
   'Yearbook',
-  '年鉴',
   83,
   506,
   'https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&w=900&q=80',
@@ -229,7 +225,6 @@ VALUES
   2025,
   'other',
   '其他资源',
-  '文档',
   70,
   488,
   'https://images.unsplash.com/photo-1521587760476-6c12a4b040da?auto=format&fit=crop&w=900&q=80',
