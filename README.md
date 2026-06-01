@@ -188,9 +188,9 @@ http://127.0.0.1:3200/admin.html
 示例数据内置管理员账号：
 
 ```text
-用户名：kuxiaowo
-展示名：张三
-密码：123geufo
+昵称：kuxiaowo
+姓名：庞正心
+密码：12345678
 ```
 
 该账号用于本地示例和初始化验证，生产环境请修改密码或删除。
@@ -198,7 +198,7 @@ http://127.0.0.1:3200/admin.html
 后台只允许 `role = admin` 的用户访问。默认管理员由初始化脚本创建；如果需要把其他用户提升为管理员，可以在 MySQL 中执行：
 
 ```sql
-UPDATE users SET role = 'admin' WHERE username = '你的用户名';
+UPDATE users SET role = 'admin' WHERE username = '你的昵称';
 ```
 
 管理员登录后可以：
