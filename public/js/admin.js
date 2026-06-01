@@ -614,8 +614,8 @@ async function loadUsers() {
   adminEls.usersTable.innerHTML = renderAdminTable(
     [
       { key: 'id', label: 'ID' },
-      { key: 'username', label: '用户名' },
-      { key: 'displayName', label: '展示名' },
+      { key: 'username', label: '昵称' },
+      { key: 'displayName', label: '姓名' },
       { key: 'role', label: '角色', render: (row) => adminText(roleLabel(row.role)) },
       { key: 'isActive', label: '状态', render: (row) => row.isActive ? '启用' : '禁用' },
       { key: 'createdAt', label: '创建时间' },
@@ -639,10 +639,15 @@ function userFields(user = {}) {
     },
     { name: 'isActive', label: '启用账号', type: 'checkbox', value: user.isActive ?? true },
   ];
-  if (user.id) return permissionFields;
+  if (user.id) {
+    return [
+      { name: 'displayName', label: '姓名', value: user.displayName || '' },
+      ...permissionFields,
+    ];
+  }
   return [
-    { name: 'username', label: '用户名', value: user.username, required: true },
-    { name: 'displayName', label: '展示名', value: user.displayName || '' },
+    { name: 'username', label: '昵称', value: user.username, required: true },
+    { name: 'displayName', label: '姓名', value: user.displayName || '' },
     { name: 'password', label: '密码', type: 'password', required: true },
     ...permissionFields,
   ];

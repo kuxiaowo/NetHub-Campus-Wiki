@@ -18,9 +18,9 @@ DROP TABLE IF EXISTS users;
 
 CREATE TABLE users (
   id INT AUTO_INCREMENT PRIMARY KEY COMMENT '用户 ID',
-  username VARCHAR(32) NOT NULL COMMENT '登录用户名',
+  username VARCHAR(32) NOT NULL COMMENT '昵称/登录用户名',
   password_hash VARCHAR(255) NOT NULL COMMENT 'PBKDF2 密码哈希',
-  display_name VARCHAR(80) DEFAULT NULL COMMENT '展示名称',
+  display_name VARCHAR(80) DEFAULT NULL COMMENT '姓名',
   role ENUM('admin', 'user') NOT NULL DEFAULT 'user' COMMENT '用户角色：admin 管理员，user 普通用户',
   is_active TINYINT(1) NOT NULL DEFAULT 1 COMMENT '账号是否启用',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -49,9 +49,9 @@ users
 | 字段 | 类型 | 约束 | 示例值 | 作用 |
 | --- | --- | --- | --- | --- |
 | `id` | `INT` | 主键，自增 | `1` | 用户唯一 ID |
-| `username` | `VARCHAR(32)` | 非空，唯一 | `student01` | 登录用户名 |
+| `username` | `VARCHAR(32)` | 非空，唯一 | `student01` | 昵称/登录用户名 |
 | `password_hash` | `VARCHAR(255)` | 非空 | `pbkdf2_sha256$...` | PBKDF2-HMAC-SHA256 密码哈希 |
-| `display_name` | `VARCHAR(80)` | 可空 | `学生 01` | 页面展示名称 |
+| `display_name` | `VARCHAR(80)` | 可空 | `学生 01` | 姓名 |
 | `role` | `ENUM('admin','user')` | 非空，默认 `user`，索引 | `user` | 用户角色 |
 | `is_active` | `TINYINT(1)` | 非空，默认 `1`，索引 | `1` | 账号是否启用 |
 | `created_at` | `TIMESTAMP` | 非空，默认当前时间 | `2026-05-21 12:00:00` | 创建时间 |
@@ -67,15 +67,17 @@ users
 注册接口创建的账号固定为 `user`。初始化管理员账号可以先注册一个普通用户，再在 MySQL 中执行：
 
 ```sql
-UPDATE users SET role = 'admin' WHERE username = '你的用户名';
+UPDATE users SET role = 'admin' WHERE username = '你的昵称';
 ```
+
+当前用户字段不拆分额外昵称字段：昵称/登录用户名存 `username`，姓名存 `display_name`。用户可以自行修改自己的 `username`；管理员后台可以编辑用户的 `display_name`、角色和启用状态。
 
 ### 索引
 
 | 索引 | 字段 | 作用 |
 | --- | --- | --- |
 | `PRIMARY` | `id` | 主键查询 |
-| `uq_users_username` | `username` | 保证用户名唯一 |
+| `uq_users_username` | `username` | 保证昵称唯一 |
 | `idx_users_role` | `role` | 按角色筛选 |
 | `idx_users_active` | `is_active` | 按启用状态筛选 |
 

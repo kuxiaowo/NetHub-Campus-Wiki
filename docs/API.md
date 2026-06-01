@@ -31,8 +31,8 @@ window.CAMPUS_WIKI_CONFIG = {
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `id` | `number` | 用户 ID |
-| `username` | `string` | 登录用户名 |
-| `displayName` | `string \| null` | 展示名称 |
+| `username` | `string` | 昵称/登录用户名 |
+| `displayName` | `string \| null` | 姓名 |
 | `role` | `"admin" \| "user"` | 用户角色，`admin` 为管理员，`user` 为普通用户 |
 | `isActive` | `boolean` | 账号是否启用 |
 | `createdAt` | `string \| null` | 创建时间 |
@@ -53,9 +53,9 @@ curl -X POST http://127.0.0.1:3100/api/auth/register \
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `username` | `string` | 是 | 3-32 位，只允许字母、数字和下划线 |
+| `username` | `string` | 是 | 昵称/登录用户名，3-32 位，只允许字母、数字和下划线 |
 | `password` | `string` | 是 | 至少 8 位 |
-| `displayName` | `string` | 否 | 展示名称 |
+| `displayName` | `string` | 否 | 姓名 |
 
 ### 成功响应
 
@@ -63,12 +63,12 @@ curl -X POST http://127.0.0.1:3100/api/auth/register \
 
 ### 常见错误
 
-- `409 Conflict`：用户名已存在。
-- `422 Unprocessable Entity`：用户名或密码格式不符合要求。
+- `409 Conflict`：昵称已存在。
+- `422 Unprocessable Entity`：昵称或密码格式不符合要求。
 
 ## POST /api/auth/login
 
-使用用户名和密码登录，返回 Bearer Token。
+使用昵称和密码登录，返回 Bearer Token。
 
 ### 请求示例
 
@@ -97,7 +97,7 @@ curl -X POST http://127.0.0.1:3100/api/auth/login \
 
 ### 常见错误
 
-- `401 Unauthorized`：用户名或密码错误。
+- `401 Unauthorized`：昵称或密码错误。
 - `403 Forbidden`：账号已被禁用。
 
 ## GET /api/auth/me
@@ -119,6 +119,36 @@ curl http://127.0.0.1:3100/api/auth/me \
 
 - `401 Unauthorized`：缺少 token、token 无效或 token 已过期。
 - `403 Forbidden`：账号已被禁用。
+
+## PATCH /api/auth/me
+
+修改当前登录用户的昵称。昵称同时作为登录用户名使用。
+
+### 请求示例
+
+```bash
+curl -X PATCH http://127.0.0.1:3100/api/auth/me \
+  -H "Authorization: Bearer <accessToken>" \
+  -H "Content-Type: application/json" \
+  -d "{\"username\":\"student02\"}"
+```
+
+### 请求字段
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `username` | `string` | 是 | 新昵称/登录用户名，3-32 位，只允许字母、数字和下划线 |
+
+### 成功响应
+
+返回更新后的 `User`，前端应同步刷新本地保存的当前用户信息。
+
+### 常见错误
+
+- `401 Unauthorized`：缺少 token、token 无效或 token 已过期。
+- `403 Forbidden`：账号已被禁用。
+- `409 Conflict`：昵称已存在。
+- `422 Unprocessable Entity`：昵称格式不符合要求。
 
 ## GET /api/health
 
@@ -593,9 +623,9 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 - `GET /api/admin/users`：查询用户列表，支持 `search`、`role`、`isActive`。
 - `POST /api/admin/users`：创建用户。字段：`username`、`password`、`displayName`、`role`、`isActive`。
-- `PATCH /api/admin/users/{user_id}`：更新用户权限和状态。只允许字段：`role`、`isActive`。
+- `PATCH /api/admin/users/{user_id}`：更新用户姓名、权限和状态。只允许字段：`displayName`、`role`、`isActive`。
 
-`POST /api/admin/users` 允许管理员创建普通用户或管理员；`role` 只能是 `admin` 或 `user`。
+`username` 是昵称/登录用户名，`displayName` 是姓名。`POST /api/admin/users` 允许管理员创建普通用户或管理员；`role` 只能是 `admin` 或 `user`。`PATCH /api/admin/users/{user_id}` 中 `displayName` 传空字符串时保存为 `NULL`。
 
 ### CAS 项目管理
 

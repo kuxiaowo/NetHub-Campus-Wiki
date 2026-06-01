@@ -89,6 +89,13 @@ async function changeCurrentUserPassword(currentPassword, newPassword) {
   });
 }
 
+async function updateCurrentUsername(username) {
+  return request('/auth/me', {
+    method: 'PATCH',
+    body: JSON.stringify({ username }),
+  });
+}
+
 async function refreshCurrentUser() {
   if (!getAuthToken()) return null;
   try {
@@ -267,6 +274,13 @@ function authDialogTemplate() {
           </label>
           <button class="button auth-submit" type="submit">修改密码</button>
         </form>
+        <form id="authUsernameForm" class="auth-form is-hidden">
+          <label>
+            <span class="sr-only">新昵称</span>
+            <input class="input" name="username" autocomplete="username" placeholder="新昵称" required minlength="3" maxlength="32" />
+          </label>
+          <button class="button auth-submit" type="submit">保存昵称</button>
+        </form>
         <div id="authMessage" class="auth-message" aria-live="polite"></div>
       </section>
     </div>
@@ -286,6 +300,7 @@ function initAuthNav() {
   const loginForm = document.querySelector('#authLoginForm');
   const registerForm = document.querySelector('#authRegisterForm');
   const passwordForm = document.querySelector('#authPasswordForm');
+  const usernameForm = document.querySelector('#authUsernameForm');
   const hint = document.querySelector('#authHint');
   const accountState = document.querySelector('#authAccountState');
   const message = document.querySelector('#authMessage');
@@ -294,6 +309,7 @@ function initAuthNav() {
   let mode = 'login';
   let currentUser = getStoredUser();
   let passwordFormOpen = false;
+  let usernameFormOpen = false;
 
   function renderUser(user) {
     currentUser = user;
@@ -320,6 +336,7 @@ function initAuthNav() {
       loginForm.classList.toggle('is-hidden', mode !== 'login');
       registerForm.classList.toggle('is-hidden', mode !== 'register');
       passwordForm.classList.add('is-hidden');
+      usernameForm.classList.add('is-hidden');
       loginTab.classList.remove('is-hidden');
       registerTab.classList.remove('is-hidden');
       return;
@@ -330,6 +347,7 @@ function initAuthNav() {
     loginForm.classList.add('is-hidden');
     registerForm.classList.add('is-hidden');
     passwordForm.classList.toggle('is-hidden', !passwordFormOpen);
+    usernameForm.classList.toggle('is-hidden', !usernameFormOpen);
     loginTab.classList.add('is-hidden');
     registerTab.classList.add('is-hidden');
     accountState.innerHTML = `
@@ -337,12 +355,32 @@ function initAuthNav() {
         ? '<button class="button auth-admin-button" type="button" data-admin-entry>进入管理员后台</button>'
         : ''}
       <button class="button secondary auth-logout-button" type="button" data-logout>退出账号，重新登录</button>
-      <button class="auth-password-toggle" type="button" data-toggle-password>
-        ${passwordFormOpen ? '收起修改密码' : '修改密码'}
-      </button>
+      <div class="auth-account-actions">
+        <button class="auth-password-toggle" type="button" data-toggle-username>
+          ${usernameFormOpen ? '收起修改昵称' : '修改昵称'}
+        </button>
+        <button class="auth-password-toggle" type="button" data-toggle-password>
+          ${passwordFormOpen ? '收起修改密码' : '修改密码'}
+        </button>
+      </div>
     `;
+    accountState.querySelector('[data-toggle-username]')?.addEventListener('click', () => {
+      usernameFormOpen = !usernameFormOpen;
+      if (usernameFormOpen) {
+        passwordFormOpen = false;
+        usernameForm.username.value = currentUser.username || '';
+      } else {
+        usernameForm.reset();
+      }
+      message.textContent = '登录后可保存你的项目资料与校园互动状态。';
+      message.classList.remove('error');
+      renderAccountState();
+      updateAuthPanelPosition();
+      if (usernameFormOpen) usernameForm.username.focus();
+    });
     accountState.querySelector('[data-toggle-password]')?.addEventListener('click', () => {
       passwordFormOpen = !passwordFormOpen;
+      if (passwordFormOpen) usernameFormOpen = false;
       if (!passwordFormOpen) passwordForm.reset();
       message.textContent = '登录后可保存你的项目资料与校园互动状态。';
       message.classList.remove('error');
@@ -353,6 +391,7 @@ function initAuthNav() {
     accountState.querySelector('[data-logout]')?.addEventListener('click', () => {
       clearAuthSession();
       passwordFormOpen = false;
+      usernameFormOpen = false;
       renderUser(null);
       setMode('login');
     });
@@ -387,7 +426,10 @@ function initAuthNav() {
   }
 
   function openAuthModal(nextMode, trigger) {
-    if (currentUser) passwordFormOpen = false;
+    if (currentUser) {
+      passwordFormOpen = false;
+      usernameFormOpen = false;
+    }
     setMode(nextMode);
     updateAuthPanelPosition(trigger);
     modal.classList.add('is-open');
@@ -406,7 +448,9 @@ function initAuthNav() {
     loginForm.reset();
     registerForm.reset();
     passwordForm.reset();
+    usernameForm.reset();
     passwordFormOpen = false;
+    usernameFormOpen = false;
     message.textContent = '登录后可保存你的项目资料与校园互动状态。';
     message.classList.remove('error');
   }
@@ -493,6 +537,32 @@ function initAuthNav() {
       renderAccountState();
       passwordForm.reset();
       message.textContent = '密码已修改';
+      message.classList.remove('error');
+    } catch (error) {
+      message.textContent = error.message;
+      message.classList.add('error');
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
+  usernameForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    message.textContent = '正在修改昵称...';
+    message.classList.remove('error');
+    const submit = usernameForm.querySelector('[type="submit"]');
+    submit.disabled = true;
+
+    try {
+      const formData = new FormData(usernameForm);
+      const username = String(formData.get('username') || '').trim();
+      const user = await updateCurrentUsername(username);
+      window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+      usernameFormOpen = false;
+      renderUser(user);
+      renderAccountState();
+      usernameForm.reset();
+      message.textContent = '昵称已修改';
       message.classList.remove('error');
     } catch (error) {
       message.textContent = error.message;

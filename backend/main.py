@@ -31,6 +31,7 @@ from backend.auth import (
     get_current_user,
     get_current_user_from_token,
     get_optional_current_user,
+    update_username,
 )
 from backend.database import get_db_connection
 from backend.projects import get_project, list_meta, list_projects
@@ -60,6 +61,7 @@ from backend.schemas import (
     ResourceDetailResponse,
     ResourceMetaResponse,
     RegisterRequest,
+    UpdateCurrentUserRequest,
     User,
     YearbookDetailResponse,
 )
@@ -185,7 +187,7 @@ def register(payload: RegisterRequest):
 
 @app.post("/api/auth/login", response_model=LoginResponse, tags=["auth"])
 def login(payload: LoginRequest):
-    """使用用户名和密码登录，返回 Bearer Token。"""
+    """使用昵称和密码登录，返回 Bearer Token。"""
 
     user = authenticate_user(payload.username, payload.password)
     return {"accessToken": create_access_token(user), "tokenType": "bearer", "user": user}
@@ -196,6 +198,13 @@ def current_user(user: dict = Depends(get_current_user)):
     """返回当前 Bearer Token 对应的用户。"""
 
     return user
+
+
+@app.patch("/api/auth/me", response_model=User, tags=["auth"])
+def update_current_user(payload: UpdateCurrentUserRequest, user: dict = Depends(get_current_user)):
+    """修改当前登录用户的昵称。"""
+
+    return update_username(user_id=user["id"], username=payload.username)
 
 
 @app.patch("/api/auth/password", response_model=User, tags=["auth"])

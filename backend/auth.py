@@ -91,7 +91,7 @@ def format_user(row: dict[str, Any]) -> dict[str, Any]:
 def validate_username(username: str) -> str:
     normalized = username.strip()
     if not USERNAME_PATTERN.fullmatch(normalized):
-        raise HTTPException(status_code=422, detail="用户名只能包含字母、数字和下划线，长度为 3-32 位")
+        raise HTTPException(status_code=422, detail="昵称只能包含字母、数字和下划线，长度为 3-32 位")
     return normalized
 
 
@@ -101,7 +101,7 @@ def validate_password(password: str) -> None:
 
 
 def create_user(username: str, password: str, display_name: str | None = None) -> dict[str, Any]:
-    """注册普通用户；重复用户名返回 409。"""
+    """注册普通用户；重复昵称返回 409。"""
 
     username = validate_username(username)
     validate_password(password)
@@ -122,14 +122,42 @@ def create_user(username: str, password: str, display_name: str | None = None) -
                 row = cursor.fetchone()
     except IntegrityError as exc:
         if exc.args and exc.args[0] == 1062:
-            raise HTTPException(status_code=409, detail="用户名已存在") from exc
+            raise HTTPException(status_code=409, detail="昵称已存在") from exc
+        raise
+
+    return format_user(row)
+
+
+def update_username(user_id: int, username: str) -> dict[str, Any]:
+    """Update the current user's nickname/login username."""
+
+    username = validate_username(username)
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT * FROM users WHERE id = %s LIMIT 1", (user_id,))
+                current_row = cursor.fetchone()
+                if current_row is None:
+                    raise HTTPException(status_code=404, detail="用户不存在")
+                if current_row["username"] == username:
+                    return format_user(current_row)
+                cursor.execute(
+                    "UPDATE users SET username = %s WHERE id = %s",
+                    (username, user_id),
+                )
+                cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+                row = cursor.fetchone()
+    except IntegrityError as exc:
+        if exc.args and exc.args[0] == 1062:
+            raise HTTPException(status_code=409, detail="昵称已存在") from exc
         raise
 
     return format_user(row)
 
 
 def authenticate_user(username: str, password: str) -> dict[str, Any]:
-    """校验用户名密码并返回用户。"""
+    """校验昵称密码并返回用户。"""
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
@@ -137,7 +165,7 @@ def authenticate_user(username: str, password: str) -> dict[str, Any]:
             row = cursor.fetchone()
 
     if row is None or not verify_password(password, row["password_hash"]):
-        raise HTTPException(status_code=401, detail="用户名或密码错误")
+        raise HTTPException(status_code=401, detail="昵称或密码错误")
     if not row.get("is_active"):
         raise HTTPException(status_code=403, detail="账号已被禁用")
     return format_user(row)

@@ -617,7 +617,7 @@ def admin_update_user(
     payload: dict[str, Any],
     _: dict[str, Any] = Depends(require_admin_user),
 ):
-    allowed = {"role", "isActive"}
+    allowed = {"role", "isActive", "displayName"}
     unknown = sorted(set(payload) - allowed)
     if unknown:
         raise HTTPException(status_code=422, detail=f"字段不允许编辑：{', '.join(unknown)}")
@@ -632,6 +632,12 @@ def admin_update_user(
     if "isActive" in payload:
         updates.append("is_active = %s")
         params.append(1 if payload["isActive"] else 0)
+    if "displayName" in payload:
+        display_name = str(payload.get("displayName") or "").strip() or None
+        if display_name and len(display_name) > 80:
+            raise HTTPException(status_code=422, detail="姓名长度不能超过 80 位")
+        updates.append("display_name = %s")
+        params.append(display_name)
     if not updates:
         raise HTTPException(status_code=422, detail="请求体不能为空")
 

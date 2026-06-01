@@ -600,6 +600,12 @@ p { color: var(--muted); line-height: 1.8; }
   font-weight: 800;
 }
 .auth-password-toggle:hover { color: var(--primary-dark); }
+.auth-account-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
 .auth-message {
   min-height: 22px;
   color: #ff3333;
