@@ -34,7 +34,7 @@ INSERT INTO users (username, password_hash, display_name, role, is_active)
 VALUES
 (
   'kuxiaowo',
-  'pbkdf2_sha256$260000$a3V4aWFvd28tYWRtaW4tMDE$TdAF_ZJWEz0cqhL2I8sJo1_dxjYbOkGwNTNKdv-1PXM',
+  'pbkdf2_sha256$260000$sFsreGUvs4sl9blJnDz7-A$pmlfVc0l5Y6jtu13kNneITspjRGRZKeQiZAc7g8gASw',
   '庞正心',
   'admin',
   1
