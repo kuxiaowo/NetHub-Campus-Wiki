@@ -189,7 +189,7 @@ http://127.0.0.1:3200/admin.html
 
 ```text
 用户名：kuxiaowo
-展示名：庞正心
+展示名：张三
 密码：123geufo
 ```
 
