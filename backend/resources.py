@@ -77,7 +77,7 @@ def _public_file_url(item: Path) -> str:
 
 
 def yearbook_cover_url(resource_url: str | None) -> str | None:
-    """Return the first image page URL for a public yearbook directory."""
+    """Return a thumbnail for the first image page in a public yearbook directory."""
 
     resolved = _public_url_to_path(resource_url)
     if resolved is None:
@@ -87,7 +87,7 @@ def yearbook_cover_url(resource_url: str | None) -> str | None:
         return None
     for item in sorted(target.iterdir(), key=_natural_sort_key):
         if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS:
-            return _public_file_url(item)
+            return _ensure_thumbnail(item) or _public_file_url(item)
     return None
 
 
@@ -404,6 +404,7 @@ def get_yearbook_detail(
             "index": index,
             "title": item.stem,
             "src": _public_file_url(item),
+            "thumbSrc": _ensure_thumbnail(item),
         }
         for index, item in enumerate(page_files, start=1)
     ]

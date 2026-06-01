@@ -1123,7 +1123,7 @@ function renderAdminYearbook() {
   adminEls.yearbookPages.innerHTML = visiblePages.map((page) => `
     <figure class="yearbook-page">
       <button class="yearbook-page-button" type="button" data-admin-yearbook-page-index="${adminText(page.index - 1)}" aria-label="查看 ${adminText(page.title)}">
-        <img src="${safeExternalUrl(page.src)}" alt="${adminText(resource.title)} ${adminText(page.title)}" loading="eager">
+        <img src="${safeExternalUrl(page.thumbSrc || page.src)}" alt="${adminText(resource.title)} ${adminText(page.title)}" loading="eager">
       </button>
       <figcaption>${adminText(page.index)} / ${adminText(pages.length)}</figcaption>
     </figure>

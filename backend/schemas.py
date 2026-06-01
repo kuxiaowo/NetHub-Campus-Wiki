@@ -188,6 +188,7 @@ class YearbookPage(BaseModel):
     index: int
     title: str
     src: str
+    thumbSrc: str | None = None
 
 
 class YearbookDetail(BaseModel):

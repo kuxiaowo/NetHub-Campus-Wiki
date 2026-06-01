@@ -427,6 +427,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 | `data.pages[].index` | `number` | 页面序号，从 1 开始 |
 | `data.pages[].title` | `string` | 页面文件名，不含扩展名 |
 | `data.pages[].src` | `string` | 图片页面 URL |
+| `data.pages[].thumbSrc` | `string \| null` | WebP 缩略图 URL；后端会懒生成到页面目录下的 `.thumbs/`，生成失败时为 `null` |
 | `data.pdfUrl` | `string \| null` | PDF 下载 URL；目录内没有 PDF 时为 `null` |
 
 ### 常见错误

@@ -525,7 +525,7 @@ function renderYearbook() {
   yearbookPages.innerHTML = visiblePages.map((page) => `
     <figure class="yearbook-page">
       <button class="yearbook-page-button" type="button" data-yearbook-page-index="${escapeHtml(page.index - 1)}" aria-label="查看 ${escapeHtml(page.title)}">
-        <img src="${safeExternalUrl(page.src)}" alt="${escapeHtml(resource.title)} ${escapeHtml(page.title)}" loading="eager">
+        <img src="${safeExternalUrl(page.thumbSrc || page.src)}" alt="${escapeHtml(resource.title)} ${escapeHtml(page.title)}" loading="eager">
       </button>
       <figcaption>${escapeHtml(page.index)} / ${escapeHtml(pages.length)}</figcaption>
     </figure>

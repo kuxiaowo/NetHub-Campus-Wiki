@@ -150,7 +150,7 @@ python3 frontend_server.py
 
 活动照片整包下载使用照片目录下的同名压缩文件。比如 `photoDir` 为 `/uploads/photos/春季运动会/` 时，请把压缩文件放在 `/uploads/photos/春季运动会/春季运动会.rar`，接口会通过 `archiveUrl` 返回下载地址。活动照片下载量是活动级统计，点击整包下载或在放大弹窗里下载单张照片都会增加 `photo_activities.downloads`。
 
-Yearbook 资源使用 `resources.resource_url` 指向 `public/` 下的一个目录，例如 `/uploads/yearbook/2026/`。目录内放所有页面图片和 PDF 文件；页面图片支持 `.jpg`、`.jpeg`、`.png`、`.webp`、`.gif`。封面不单独维护，自动使用目录内文件名自然升序的第一张图片。前台进入 Yearbook 后会按文件名自然升序展示图片页面，每次显示两页并按两页翻页。PDF 下载按钮使用目录内文件名自然升序的第一个 `.pdf`，建议命名为 `yearbook.pdf`。页面图片建议使用 `001.png`、`002.png`、`003.png` 这类带前导零的文件名，避免排序歧义。
+Yearbook 资源使用 `resources.resource_url` 指向 `public/` 下的一个目录，例如 `/uploads/yearbook/2026/`。目录内放所有页面图片和 PDF 文件；页面图片支持 `.jpg`、`.jpeg`、`.png`、`.webp`、`.gif`。封面不单独维护，自动使用目录内文件名自然升序的第一张图片，并复用活动照片的缩略图逻辑懒生成 `.thumbs/*.webp`。前台进入 Yearbook 后会按文件名自然升序展示图片页面，每次显示两页并按两页翻页；双页阅读器优先加载缩略图，点开放大和下载仍使用原图。PDF 下载按钮使用目录内文件名自然升序的第一个 `.pdf`，建议命名为 `yearbook.pdf`。页面图片建议使用 `001.png`、`002.png`、`003.png` 这类带前导零的文件名，避免排序歧义。
 
 资源统计会由前台行为自动维护：打开 Yearbook 阅读器或进入某个活动照片详情会增加热度；热度使用通用节流逻辑，同一登录账户对同一对象 5 秒内只会增加一次。已登录用户点击普通资源链接、Yearbook PDF、Yearbook 单页图片、活动照片整包或活动单张照片下载会增加下载数，下载数不节流；未登录用户会被前端提示登录，不会增加下载数；后台预览和后台下载不计入统计。
 
