@@ -24,8 +24,9 @@ from backend.auth import (
     validate_username,
 )
 from backend.database import get_db_connection
+from backend.db_repair import repair_database_schema
 from backend.projects import format_project
-from backend.resources import ensure_photo_activity_downloads_column, format_resource, photo_archive_url, yearbook_cover_url
+from backend.resources import format_resource, photo_archive_url, yearbook_cover_url
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -789,7 +790,6 @@ def admin_list_photo_activities(
     year: int | None = Query(default=None),
     _: dict[str, Any] = Depends(require_admin_user),
 ):
-    ensure_photo_activity_downloads_column()
     params: list[Any] = []
     where_parts: list[str] = []
     if year:
@@ -822,7 +822,6 @@ def admin_create_photo_activity(
     payload: dict[str, Any],
     _: dict[str, Any] = Depends(require_admin_user),
 ):
-    ensure_photo_activity_downloads_column()
     required = ["activity", "description", "year"]
     missing = [field for field in required if payload.get(field) in {None, ""}]
     if missing:
@@ -868,7 +867,6 @@ def admin_update_photo_activity(
     payload: dict[str, Any],
     _: dict[str, Any] = Depends(require_admin_user),
 ):
-    ensure_photo_activity_downloads_column()
     field_map = {
         "activity": "activity",
         "description": "description",
@@ -1078,6 +1076,11 @@ def admin_file_tree(
 @router.get("/db/tables")
 def admin_db_tables(_: dict[str, Any] = Depends(require_admin_user)):
     return {"data": [{"name": table} for table in sorted(ALLOWED_DB_TABLES)]}
+
+
+@router.post("/db/repair-schema")
+def admin_db_repair_schema(_: dict[str, Any] = Depends(require_admin_user)):
+    return repair_database_schema()
 
 
 @router.get("/db/tables/{table}/schema")

@@ -978,6 +978,43 @@ p { color: var(--muted); line-height: 1.8; }
   background: #f3f6ff;
   outline: none;
 }
+.admin-db-repair-report {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.admin-db-repair-summary {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 800;
+}
+.admin-db-repair-summary.is-error { color: #b42318; }
+.admin-db-repair-section {
+  display: grid;
+  gap: 6px;
+}
+.admin-db-repair-section h4 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.admin-db-repair-section ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+}
+.admin-db-repair-section li {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.admin-db-repair-section.is-warning li { color: #9a6700; }
+.admin-db-repair-section.is-error li { color: #b42318; }
 .admin-db-cell-detail {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
