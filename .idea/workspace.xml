@@ -4,7 +4,16 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="2a7f86d5-2ffe-4bb0-8976-490d90f4c012" name="更改" comment="" />
+    <list default="true" id="2a7f86d5-2ffe-4bb0-8976-490d90f4c012" name="更改" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/admin.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/admin.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/resources.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/resources.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/DATABASE.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/DATABASE.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/public/admin.html" beforeDir="false" afterPath="$PROJECT_DIR$/public/admin.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/public/css/styles.css" beforeDir="false" afterPath="$PROJECT_DIR$/public/css/styles.css" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/public/js/admin.js" beforeDir="false" afterPath="$PROJECT_DIR$/public/js/admin.js" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
