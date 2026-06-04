@@ -25,7 +25,6 @@ THUMB_MAX_SIZE = (640, 640)
 _PHOTO_DIR_CACHE: dict[str, dict[str, Any]] = {}
 _HOT_TRACK: dict[tuple[str, int, int], float] = {}
 HOT_THROTTLE_SECONDS = 5.0
-_PHOTO_ACTIVITY_DOWNLOADS_COLUMN_READY = False
 
 
 class YearbookResourceError(Exception):
@@ -262,54 +261,9 @@ def bump_resource_metric(resource_id: int, metric: ResourceMetric) -> dict[str, 
     return format_resource(row) if row else None
 
 
-def ensure_photo_activity_downloads_column() -> None:
-    """Add the activity-level downloads counter for existing local databases."""
-
-    global _PHOTO_ACTIVITY_DOWNLOADS_COLUMN_READY
-    if _PHOTO_ACTIVITY_DOWNLOADS_COLUMN_READY:
-        return
-
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT COUNT(*) AS count
-                FROM information_schema.COLUMNS
-                WHERE TABLE_SCHEMA = DATABASE()
-                  AND TABLE_NAME = 'photo_activities'
-                  AND COLUMN_NAME = 'downloads'
-                """
-            )
-            if cursor.fetchone()["count"] == 0:
-                cursor.execute(
-                    """
-                    ALTER TABLE photo_activities
-                      ADD COLUMN downloads INT NOT NULL DEFAULT 0 COMMENT '下载次数' AFTER hot
-                    """
-                )
-            cursor.execute(
-                """
-                SELECT COUNT(*) AS count
-                FROM information_schema.STATISTICS
-                WHERE TABLE_SCHEMA = DATABASE()
-                  AND TABLE_NAME = 'photo_activities'
-                  AND INDEX_NAME = 'idx_photo_activity_downloads'
-                """
-            )
-            if cursor.fetchone()["count"] == 0:
-                cursor.execute(
-                    """
-                    CREATE INDEX idx_photo_activity_downloads
-                      ON photo_activities (downloads)
-                    """
-                )
-    _PHOTO_ACTIVITY_DOWNLOADS_COLUMN_READY = True
-
-
 def bump_photo_activity_downloads(activity_id: int) -> dict[str, Any] | None:
     """Increment one activity archive download counter and return the updated activity."""
 
-    ensure_photo_activity_downloads_column()
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("UPDATE photo_activities SET downloads = downloads + 1 WHERE id = %s", (activity_id,))
@@ -493,7 +447,6 @@ def list_photo_activities(
 ) -> list[dict[str, Any]]:
     """查询活动照片活动列表，不加载完整照片数组。"""
 
-    ensure_photo_activity_downloads_column()
     where_parts = []
     params = []
 
@@ -585,7 +538,6 @@ def get_activity_photo_detail(
 ) -> dict[str, Any] | None:
     """Return one activity with photos, optionally counting a public view."""
 
-    ensure_photo_activity_downloads_column()
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             if track_view and _can_track_hot("photo_activity", activity_id, viewer_user_id):

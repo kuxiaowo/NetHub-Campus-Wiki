@@ -241,7 +241,10 @@
               <h2>数据库查看器</h2>
               <p>受控查看和编辑白名单表，不开放任意 SQL。</p>
             </div>
-            <button id="createDbRowButton" class="button compact" type="button" disabled>新增记录</button>
+            <div class="admin-detail-actions">
+              <button id="repairDbSchemaButton" class="button secondary compact" type="button">检查并补全结构</button>
+              <button id="createDbRowButton" class="button compact" type="button" disabled>新增记录</button>
+            </div>
           </div>
           <div class="admin-db-layout">
             <aside class="card admin-db-sidebar">
@@ -254,6 +257,7 @@
                 <button id="dbPrevPage" class="button secondary compact" type="button">上一页</button>
                 <button id="dbNextPage" class="button secondary compact" type="button">下一页</button>
               </div>
+              <div id="dbRepairReport" class="admin-db-repair-report is-hidden" aria-live="polite"></div>
               <div id="dbRowsTable" class="admin-table-wrap"></div>
             </section>
           </div>
