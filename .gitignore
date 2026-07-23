@@ -5,6 +5,9 @@ npm-debug.log*
 __pycache__/
 *.py[cod]
 .venv/
+data/*.db
+data/*.db-shm
+data/*.db-wal
 public/Photos/*
 !public/Photos/.gitkeep
 public/yearbook/*

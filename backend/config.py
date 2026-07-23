@@ -6,10 +6,13 @@
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 @dataclass(frozen=True)
@@ -20,11 +23,7 @@ class Settings:
     """
 
     api_port: int = int(os.getenv("API_PORT", os.getenv("PORT", "3100")))
-    db_host: str = os.getenv("DB_HOST", "127.0.0.1")
-    db_port: int = int(os.getenv("DB_PORT", "3306"))
-    db_user: str = os.getenv("DB_USER", "root")
-    db_password: str = os.getenv("DB_PASSWORD", "")
-    db_name: str = os.getenv("DB_NAME", "campus_cas_forum")
+    database_path: str = os.getenv("DATABASE_PATH", "data/campus_wiki.db")
     auth_secret_key: str = os.getenv("AUTH_SECRET_KEY", "dev-only-change-me")
     auth_token_expire_minutes: int = int(os.getenv("AUTH_TOKEN_EXPIRE_MINUTES", "120"))
     photo_dir_cache_minutes: int = int(os.getenv("PHOTO_DIR_CACHE_MINUTES", "5"))
@@ -41,3 +40,12 @@ class Settings:
 
 # 全局只创建一个 settings 实例，其他模块通过导入它读取配置。
 settings = Settings()
+
+
+def get_database_path() -> Path:
+    """返回 SQLite 文件的绝对路径。"""
+
+    configured_path = Path(settings.database_path).expanduser()
+    if configured_path.is_absolute():
+        return configured_path
+    return PROJECT_ROOT / configured_path
