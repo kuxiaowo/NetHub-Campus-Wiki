@@ -637,7 +637,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 - `POST /api/admin/projects`：创建 CAS 项目。
 - `PATCH /api/admin/projects/{project_id}`：更新 CAS 项目。
 
-CAS 项目写接口字段包括：`name`、`leader`、`members`、`category`、`year`、`icon`、`description`、`media`、`casCreativity`、`casActivity`、`casService`、`popularity`、`updates`。其中 `media` 和 `updates` 是字符串数组，后端保存为 MySQL JSON；管理员在后台项目详情视图中直接拖拽 `media` 排序，拖动结束后自动保存，保存后的数组顺序就是正式详情页媒体展示顺序。编辑弹窗只修改项目基础信息和动态，正式前台详情页不提供编辑或排序能力。
+CAS 项目写接口字段包括：`name`、`leader`、`members`、`category`、`year`、`icon`、`description`、`media`、`casCreativity`、`casActivity`、`casService`、`popularity`、`updates`。其中 `media` 和 `updates` 是字符串数组，后端保存为 JSON 文本；管理员在后台项目详情视图中直接拖拽 `media` 排序，拖动结束后自动保存，保存后的数组顺序就是正式详情页媒体展示顺序。编辑弹窗只修改项目基础信息和动态，正式前台详情页不提供编辑或排序能力。
 
 `sortOrder` 是分类人工排序权重，数字越小越靠前。当前只用于 CAS 项目分类，不控制项目本身排序；项目仍按 `latest` 或 `popular` 排序。
 
@@ -703,16 +703,3 @@ CAS 项目写接口字段包括：`name`、`leader`、`members`、`category`、`
 资源和照片编辑接口只保存 URL。上传文件请先到后台“文件管理”栏目完成，再在资源或照片编辑中手动填写地址，或通过“浏览”选择已有文件/文件夹。
 
 上传到 `public/` 的图片文件可直接用于公开查看。PDF、压缩包和 Office 文档等下载型文件不应依赖前端静态直连；前端下载时会把它们转换到 `GET /api/files/{file_path}`，由后端校验登录后返回附件。
-
-### 数据库查看器
-
-数据库查看器只允许访问白名单表：`users`、`projects`、`project_categories`、`resource_categories`、`resources`、`photo_activities`、`photo_items`。不开放任意 SQL。
-
-- `GET /api/admin/db/tables`：返回可访问表列表。
-- `GET /api/admin/db/tables/{table}/schema`：返回字段结构。
-- `GET /api/admin/db/tables/{table}/rows?page=1&pageSize=50`：分页查询数据。
-- `POST /api/admin/db/tables/{table}/rows`：新增记录。
-- `PATCH /api/admin/db/tables/{table}/rows/{id}`：更新记录。
-- `DELETE /api/admin/db/tables/{table}/rows/{id}`：删除记录。
-
-限制：`users.password_hash` 不返回、不允许编辑；`id`、`created_at`、`updated_at` 为只读字段；表名和字段名必须来自白名单或数据库结构。`users` 表新增记录请使用用户管理接口，不通过数据库查看器创建。

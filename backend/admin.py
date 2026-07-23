@@ -9,12 +9,11 @@ from __future__ import annotations
 import json
 import re
 import secrets
+from sqlite3 import IntegrityError
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from pymysql.err import IntegrityError
-
 from backend.auth import (
     create_user,
     format_user,
@@ -24,7 +23,6 @@ from backend.auth import (
     validate_username,
 )
 from backend.database import get_db_connection
-from backend.db_repair import repair_database_schema
 from backend.projects import format_project
 from backend.resources import format_resource, photo_archive_url, yearbook_cover_url
 
@@ -50,17 +48,6 @@ ALLOWED_UPLOAD_EXTENSIONS = {
     "rar",
 }
 
-ALLOWED_DB_TABLES = {
-    "users",
-    "projects",
-    "project_categories",
-    "resource_categories",
-    "resources",
-    "photo_activities",
-    "photo_items",
-}
-HIDDEN_FIELDS = {"users": {"password_hash"}}
-READONLY_FIELDS = {"id", "created_at", "updated_at"}
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
 WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:/")
 WINDOWS_FILENAME_RESERVED_CHARS = re.compile(r'[\x00-\x1f<>:"|?*]')
@@ -72,12 +59,6 @@ def require_admin_user(user: dict[str, Any] = Depends(get_current_user)) -> dict
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="需要管理员权限")
     return user
-
-
-def _ensure_table(table: str) -> str:
-    if table not in ALLOWED_DB_TABLES:
-        raise HTTPException(status_code=404, detail="表不存在或不允许访问")
-    return table
 
 
 def _ensure_identifier(value: str) -> str:
@@ -138,61 +119,6 @@ def _format_file_item(path: Path, root: Path) -> dict[str, Any]:
         "size": None if is_dir else stat.st_size,
         "updatedAt": stat.st_mtime,
     }
-
-
-def _visible_columns(table: str) -> list[dict[str, Any]]:
-    table = _ensure_table(table)
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT
-                  COLUMN_NAME AS name,
-                  DATA_TYPE AS data_type,
-                  COLUMN_TYPE AS column_type,
-                  IS_NULLABLE AS is_nullable,
-                  COLUMN_KEY AS column_key,
-                  EXTRA AS extra
-                FROM INFORMATION_SCHEMA.COLUMNS
-                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s
-                ORDER BY ORDINAL_POSITION
-                """,
-                (table,),
-            )
-            rows = cursor.fetchall()
-
-    hidden = HIDDEN_FIELDS.get(table, set())
-    return [
-        {
-            "name": row["name"],
-            "dataType": row["data_type"],
-            "columnType": row["column_type"],
-            "nullable": row["is_nullable"] == "YES",
-            "primaryKey": row["column_key"] == "PRI",
-            "readonly": row["name"] in READONLY_FIELDS
-            or "auto_increment" in str(row.get("extra") or ""),
-        }
-        for row in rows
-        if row["name"] not in hidden
-    ]
-
-
-def _editable_column_names(table: str) -> set[str]:
-    return {
-        column["name"]
-        for column in _visible_columns(table)
-        if not column["readonly"]
-    }
-
-
-def _filter_payload(table: str, payload: dict[str, Any], *, partial: bool) -> dict[str, Any]:
-    editable = _editable_column_names(table)
-    unknown = sorted(set(payload) - editable)
-    if unknown:
-        raise HTTPException(status_code=422, detail=f"字段不允许编辑：{', '.join(unknown)}")
-    if not partial and not payload:
-        raise HTTPException(status_code=422, detail="请求体不能为空")
-    return payload
 
 
 def _normalize_int(value: Any, field_name: str) -> int:
@@ -1071,111 +997,3 @@ def admin_file_tree(
         "url": _file_url(relative, is_dir=True),
         "data": items,
     }
-
-
-@router.get("/db/tables")
-def admin_db_tables(_: dict[str, Any] = Depends(require_admin_user)):
-    return {"data": [{"name": table} for table in sorted(ALLOWED_DB_TABLES)]}
-
-
-@router.post("/db/repair-schema")
-def admin_db_repair_schema(_: dict[str, Any] = Depends(require_admin_user)):
-    return repair_database_schema()
-
-
-@router.get("/db/tables/{table}/schema")
-def admin_db_schema(table: str, _: dict[str, Any] = Depends(require_admin_user)):
-    return {"data": _visible_columns(table)}
-
-
-@router.get("/db/tables/{table}/rows")
-def admin_db_rows(
-    table: str,
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=50, alias="pageSize", ge=1, le=100),
-    _: dict[str, Any] = Depends(require_admin_user),
-):
-    table = _ensure_table(table)
-    columns = [_ensure_identifier(column["name"]) for column in _visible_columns(table)]
-    if not columns:
-        return {"data": [], "total": 0, "page": page, "pageSize": page_size}
-    column_sql = ", ".join(f"`{column}`" for column in columns)
-    offset = (page - 1) * page_size
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(f"SELECT COUNT(*) AS total FROM `{table}`")
-            total = cursor.fetchone()["total"]
-            cursor.execute(
-                f"SELECT {column_sql} FROM `{table}` ORDER BY id DESC LIMIT %s OFFSET %s",
-                (page_size, offset),
-            )
-            rows = cursor.fetchall()
-    return {"data": rows, "total": total, "page": page, "pageSize": page_size}
-
-
-@router.post("/db/tables/{table}/rows")
-def admin_db_create_row(
-    table: str,
-    payload: dict[str, Any],
-    _: dict[str, Any] = Depends(require_admin_user),
-):
-    table = _ensure_table(table)
-    if table == "users":
-        raise HTTPException(status_code=422, detail="请通过用户管理创建用户")
-    values = _filter_payload(table, payload, partial=False)
-    columns = [_ensure_identifier(column) for column in values]
-    placeholders = ", ".join(["%s"] * len(columns))
-    column_sql = ", ".join(f"`{column}`" for column in columns)
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    f"INSERT INTO `{table}` ({column_sql}) VALUES ({placeholders})",
-                    [values[column] for column in columns],
-                )
-                row_id = cursor.lastrowid
-    except IntegrityError as exc:
-        raise HTTPException(status_code=409, detail="数据违反唯一约束或外键约束") from exc
-    return {"id": row_id}
-
-
-@router.patch("/db/tables/{table}/rows/{row_id}")
-def admin_db_update_row(
-    table: str,
-    row_id: int,
-    payload: dict[str, Any],
-    _: dict[str, Any] = Depends(require_admin_user),
-):
-    table = _ensure_table(table)
-    values = _filter_payload(table, payload, partial=True)
-    if not values:
-        raise HTTPException(status_code=422, detail="请求体不能为空")
-    columns = [_ensure_identifier(column) for column in values]
-    assignments = ", ".join(f"`{column}` = %s" for column in columns)
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    f"UPDATE `{table}` SET {assignments} WHERE id = %s",
-                    [values[column] for column in columns] + [row_id],
-                )
-                if cursor.rowcount == 0:
-                    _ensure_row_exists(cursor, table, row_id, "记录不存在")
-    except IntegrityError as exc:
-        raise HTTPException(status_code=409, detail="数据违反唯一约束或外键约束") from exc
-    return {"ok": True}
-
-
-@router.delete("/db/tables/{table}/rows/{row_id}")
-def admin_db_delete_row(
-    table: str,
-    row_id: int,
-    _: dict[str, Any] = Depends(require_admin_user),
-):
-    table = _ensure_table(table)
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(f"DELETE FROM `{table}` WHERE id = %s", (row_id,))
-            if cursor.rowcount == 0:
-                raise HTTPException(status_code=404, detail="记录不存在")
-    return {"ok": True}

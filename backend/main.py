@@ -2,7 +2,7 @@
 
 后端职责：
 - 提供 REST API。
-- 读取 MySQL 数据并整理响应结构。
+- 读取 SQLite 数据并整理响应结构。
 - 暴露 OpenAPI 文档。
 
 后端不再托管前端页面；前端由 frontend_server.py 单独提供静态服务。
