@@ -5,7 +5,8 @@ const yearSelect = document.querySelector('#yearSelect');
 const sortSelect = document.querySelector('#sortSelect');
 const searchInput = document.querySelector('#searchInput');
 
-let selectedCategory = '';
+const initialParams = new URLSearchParams(window.location.search);
+let selectedCategory = initialParams.get('category') || '';
 let debounceTimer = null;
 
 /**
@@ -35,12 +36,14 @@ function projectRow(project) {
 // 加载筛选元数据：分类按钮和年份下拉框。
 async function loadMeta() {
   const meta = await request('/meta');
+  if (!meta.categories.includes(selectedCategory)) selectedCategory = '';
 
   categoryList.innerHTML = [
-    `<button class="category-button active" data-category="">全部分类</button>`,
+    `<button class="category-button ${selectedCategory ? '' : 'active'}" data-category="">全部分类</button>`,
     ...meta.categories.map((category) => {
       const safeCategory = escapeHtml(category);
-      return `<button class="category-button" data-category="${safeCategory}">${safeCategory}</button>`;
+      const active = category === selectedCategory ? 'active' : '';
+      return `<button class="category-button ${active}" data-category="${safeCategory}">${safeCategory}</button>`;
     }),
   ].join('');
 

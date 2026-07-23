@@ -13,11 +13,7 @@ ProjectSort = Literal["latest", "popular"]
 
 
 def parse_json_field(value: Any, default: list | dict | None = None) -> list | dict:
-    """解析 MySQL JSON 字段。
-
-    PyMySQL 读取 JSON 字段时可能返回字符串，也可能在某些场景下已经是 Python
-    对象。这里统一兜底，避免前端收到 null 或非法结构。
-    """
+    """把数据库中的 JSON 文本统一转换为列表或对象。"""
 
     fallback = [] if default is None else default
     if value is None:

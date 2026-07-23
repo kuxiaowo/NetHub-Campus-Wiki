@@ -73,9 +73,10 @@ function formatDate(value) {
 }
 
 function renderBreadcrumb(project) {
+  const category = cleanText(project.category);
   detailBreadcrumb.innerHTML = `
     <a href="/projects.html">项目库</a>
-    ${project.category ? `<span>${escapeHtml(project.category)}</span>` : ''}
+    ${category ? `<a href="/projects.html?category=${encodeURIComponent(category)}">${escapeHtml(category)}</a>` : ''}
     <span>${escapeHtml(project.name || '项目详情')}</span>
   `;
 }
@@ -137,19 +138,12 @@ function renderHero(project) {
 }
 
 function renderIntro(project) {
-  const introImage = collectProjectMedia(project).find(isImageUrl);
-  const hasImage = Boolean(introImage);
   return `
-    <section class="card detail-intro ${hasImage ? '' : 'without-image'}">
+    <section class="card detail-intro">
       <div class="detail-section-copy">
         <h2><span></span>项目简介</h2>
         <p>${escapeHtml(project.description || '暂无项目简介。')}</p>
       </div>
-      ${hasImage ? `
-        <div class="detail-intro-image image-frame">
-          <img src="${escapeHtml(introImage)}" alt="${escapeHtml(project.name)} 项目图片" data-fallback loading="lazy" />
-        </div>
-      ` : ''}
     </section>
   `;
 }

@@ -31,14 +31,6 @@ const adminState = {
   dragState: null,
   modalDragItem: null,
   dragJustEnded: false,
-  dbTables: [],
-  dbTable: null,
-  dbSchema: [],
-  dbRows: [],
-  dbPage: 1,
-  dbPageSize: 50,
-  dbTotal: 0,
-  dbRepairing: false,
 };
 
 const adminEls = {};
@@ -54,16 +46,6 @@ function adminMessage(message, isError = false) {
 
 function adminText(value) {
   return escapeHtml(value ?? '');
-}
-
-function dbDisplayValue(value) {
-  if (value === null || value === undefined || value === '') return 'NULL';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
-}
-
-function dbCellValue(value) {
-  return dbDisplayValue(value);
 }
 
 function adminNumber(value, fallback = 0) {
@@ -601,7 +583,6 @@ function switchAdminView(view) {
   if (view === 'files') loadFiles();
   if (view === 'projects') loadProjectManagementView();
   if (view === 'resources') loadResourceManagementView();
-  if (view === 'database') loadDbTables();
 }
 
 async function loadUsers() {
@@ -1514,222 +1495,6 @@ async function deleteActivity(id) {
   return true;
 }
 
-async function loadDbTables(force = false) {
-  if (adminState.dbTables.length && !force) return;
-  const result = await adminEndpoint('/admin/db/tables');
-  adminState.dbTables = result.data;
-  adminEls.dbTableList.innerHTML = result.data.map((table) => `
-    <button class="category-button" type="button" data-db-table="${adminText(table.name)}">${adminText(table.name)}</button>
-  `).join('');
-  document.querySelectorAll('[data-db-table]').forEach((item) => {
-    item.classList.toggle('active', item.dataset.dbTable === adminState.dbTable);
-  });
-}
-
-async function selectDbTable(table) {
-  adminState.dbTable = table;
-  adminState.dbPage = 1;
-  document.querySelectorAll('[data-db-table]').forEach((item) => {
-    item.classList.toggle('active', item.dataset.dbTable === table);
-  });
-  const schema = await adminEndpoint(`/admin/db/tables/${encodeURIComponent(table)}/schema`);
-  adminState.dbSchema = schema.data;
-  adminEls.createDbRowButton.disabled = table === 'users';
-  await loadDbRows();
-}
-
-async function loadDbRows() {
-  if (!adminState.dbTable) return;
-  const query = buildQuery({ page: adminState.dbPage, pageSize: adminState.dbPageSize });
-  const result = await adminEndpoint(`/admin/db/tables/${encodeURIComponent(adminState.dbTable)}/rows${query}`);
-  adminState.dbRows = result.data;
-  adminState.dbTotal = result.total;
-  adminEls.dbTableMeta.textContent = `${adminState.dbTable} · 第 ${result.page} 页 · 共 ${result.total} 行`;
-  const columns = adminState.dbSchema.map((column) => ({
-    key: column.name,
-    label: column.readonly ? `${column.name} *` : column.name,
-    render: (row) => {
-      const value = dbCellValue(row[column.name]);
-      return `
-        <button
-          class="admin-db-cell"
-          type="button"
-          title="${adminText(value)}"
-          data-db-cell-row="${adminText(row.id)}"
-          data-db-cell-column="${adminText(column.name)}"
-        >
-          <span>${adminText(value)}</span>
-        </button>
-      `;
-    },
-  }));
-  adminEls.dbRowsTable.innerHTML = `<div class="admin-db-table-scroll">${
-    renderAdminTable(
-    columns,
-    adminState.dbRows,
-    (row) => `
-      <button class="button secondary compact" type="button" data-edit-db-row="${adminText(row.id)}">编辑</button>
-      <button class="button secondary compact danger" type="button" data-delete-db-row="${adminText(row.id)}">删除</button>
-    `,
-    )
-  }</div>`;
-  const table = adminEls.dbRowsTable.querySelector('.admin-table');
-  if (table) {
-    table.classList.add('admin-db-table');
-    table.style.minWidth = `${adminState.dbSchema.length * 120 + 100}px`;
-  }
-}
-
-function dbFields(row = {}) {
-  return adminState.dbSchema
-    .filter((column) => !column.readonly)
-    .map((column) => ({
-      name: column.name,
-      label: `${column.name} (${column.columnType})`,
-      value: row[column.name] ?? '',
-      type: ['text', 'varchar', 'enum', 'timestamp'].includes(column.dataType) ? 'text' : 'textarea',
-    }));
-}
-
-function openDbRowModal(row) {
-  const isEdit = Boolean(row?.id);
-  openAdminModal(isEdit ? '编辑记录' : '新增记录', dbFields(row), async (payload) => {
-    const body = {};
-    Object.entries(payload).forEach(([key, value]) => {
-      body[key] = value === '' ? null : value;
-    });
-    await adminEndpoint(
-      isEdit
-        ? `/admin/db/tables/${encodeURIComponent(adminState.dbTable)}/rows/${row.id}`
-        : `/admin/db/tables/${encodeURIComponent(adminState.dbTable)}/rows`,
-      {
-        method: isEdit ? 'PATCH' : 'POST',
-        body: JSON.stringify(body),
-      },
-    );
-    await loadDbRows();
-  });
-}
-
-function openDbCellModal(rowId, columnName) {
-  const row = adminState.dbRows.find((item) => String(item.id) === String(rowId));
-  const column = adminState.dbSchema.find((item) => item.name === columnName);
-  if (!row || !column) return;
-
-  const rawValue = row[column.name];
-  const value = rawValue ?? '';
-  const readonly = Boolean(column.readonly);
-  adminEls.modalTitle.textContent = `${adminState.dbTable}.${column.name}`;
-  adminEls.modalForm.innerHTML = `
-    <div class="admin-db-cell-detail">
-      <div>
-        <span>字段类型</span>
-        <strong>${adminText(column.columnType || column.dataType || 'unknown')}</strong>
-      </div>
-      <div>
-        <span>记录 ID</span>
-        <strong>${adminText(row.id)}</strong>
-      </div>
-    </div>
-    <label>
-      <span>${readonly ? '详细内容（只读）' : '详细内容（可编辑）'}</span>
-      <textarea class="input admin-db-cell-editor" name="value" rows="12" ${readonly ? 'readonly' : ''}>${adminText(value)}</textarea>
-    </label>
-    <div id="adminModalMessage" class="auth-message"></div>
-    <div class="admin-modal-actions">
-      <button class="button secondary" type="button" data-admin-modal-close>取消</button>
-      ${readonly ? '' : '<button class="button" type="submit">保存</button>'}
-    </div>
-  `;
-  adminEls.modal.classList.add('is-open');
-  adminEls.modal.setAttribute('aria-hidden', 'false');
-  adminEls.modalForm.onsubmit = async (event) => {
-    event.preventDefault();
-    if (readonly) return;
-    const formData = new FormData(adminEls.modalForm);
-    const nextValue = formData.get('value');
-    await adminEndpoint(`/admin/db/tables/${encodeURIComponent(adminState.dbTable)}/rows/${row.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ [column.name]: nextValue === '' ? null : nextValue }),
-    });
-    closeAdminModal();
-    await loadDbRows();
-  };
-}
-
-async function deleteDbRow(id) {
-  if (!window.confirm('确认删除这条数据库记录？')) return;
-  await adminEndpoint(`/admin/db/tables/${encodeURIComponent(adminState.dbTable)}/rows/${id}`, {
-    method: 'DELETE',
-  });
-  await loadDbRows();
-}
-
-function dbRepairSection(title, items, className = '') {
-  if (!items?.length) return '';
-  return `
-    <section class="admin-db-repair-section ${adminText(className)}">
-      <h4>${adminText(title)}</h4>
-      <ul>
-        ${items.map((item) => `<li>${adminText(item)}</li>`).join('')}
-      </ul>
-    </section>
-  `;
-}
-
-function renderDbRepairReport(report) {
-  const hasChanges = [
-    report.createdTables,
-    report.addedColumns,
-    report.addedIndexes,
-    report.addedConstraints,
-  ].some((items) => items?.length);
-  const summary = report.ok
-    ? (hasChanges ? '结构补全完成。' : '结构已经完整，未执行任何补全。')
-    : '结构补全完成了一部分，但存在失败项。';
-  return `
-    <div class="admin-db-repair-summary ${report.ok ? '' : 'is-error'}">${adminText(summary)}</div>
-    ${dbRepairSection('新建表', report.createdTables)}
-    ${dbRepairSection('新增字段', report.addedColumns)}
-    ${dbRepairSection('新增索引', report.addedIndexes)}
-    ${dbRepairSection('新增外键', report.addedConstraints)}
-    ${dbRepairSection('提示', report.warnings, 'is-warning')}
-    ${dbRepairSection('错误', report.errors, 'is-error')}
-  `;
-}
-
-async function repairDbSchema() {
-  if (adminState.dbRepairing) return;
-  const confirmed = window.confirm('将检查并补全白名单数据库表结构，可能执行 ALTER TABLE。建议已备份数据库后再继续。');
-  if (!confirmed) return;
-
-  adminState.dbRepairing = true;
-  adminEls.repairDbSchemaButton.disabled = true;
-  adminEls.dbRepairReport.classList.remove('is-hidden');
-  adminEls.dbRepairReport.innerHTML = '<div class="admin-db-repair-summary">正在检查并补全结构...</div>';
-  try {
-    const report = await adminEndpoint('/admin/db/repair-schema', { method: 'POST' });
-    adminEls.dbRepairReport.innerHTML = renderDbRepairReport(report);
-    try {
-      adminState.dbTables = [];
-      await loadDbTables(true);
-      if (adminState.dbTable) await selectDbTable(adminState.dbTable);
-    } catch (refreshError) {
-      adminEls.dbRepairReport.insertAdjacentHTML(
-        'beforeend',
-        dbRepairSection('刷新提示', [`结构补全报告已生成，但刷新当前表失败：${refreshError.message}`], 'is-warning'),
-      );
-    }
-  } catch (error) {
-    adminEls.dbRepairReport.innerHTML = `
-      <div class="admin-db-repair-summary is-error">${adminText(error.message)}</div>
-    `;
-  } finally {
-    adminState.dbRepairing = false;
-    adminEls.repairDbSchemaButton.disabled = false;
-  }
-}
-
 function bindAdminEvents() {
   bindSortableLists();
   document.querySelectorAll('[data-admin-view]').forEach((button) => {
@@ -1816,20 +1581,6 @@ function bindAdminEvents() {
   adminEls.photoModalDownload.addEventListener('click', downloadAdminModalPhoto);
   adminEls.photoModalPrev.addEventListener('click', () => shiftAdminPhotoModal(-1));
   adminEls.photoModalNext.addEventListener('click', () => shiftAdminPhotoModal(1));
-  adminEls.repairDbSchemaButton.addEventListener('click', repairDbSchema);
-  adminEls.createDbRowButton.addEventListener('click', () => openDbRowModal({}));
-  adminEls.dbPrevPage.addEventListener('click', () => {
-    if (adminState.dbPage > 1) {
-      adminState.dbPage -= 1;
-      loadDbRows();
-    }
-  });
-  adminEls.dbNextPage.addEventListener('click', () => {
-    if (adminState.dbPage * adminState.dbPageSize < adminState.dbTotal) {
-      adminState.dbPage += 1;
-      loadDbRows();
-    }
-  });
 
   document.addEventListener('click', (event) => {
     const target = event.target.closest('button');
@@ -1941,14 +1692,6 @@ function bindAdminEvents() {
       openActivityModal(adminState.activities.find((item) => String(item.id) === target.dataset.editActivity));
     }
     if (target.dataset.deleteActivity) deleteActivity(target.dataset.deleteActivity);
-    if (target.dataset.dbTable) selectDbTable(target.dataset.dbTable);
-    if (target.dataset.dbCellRow && target.dataset.dbCellColumn) {
-      openDbCellModal(target.dataset.dbCellRow, target.dataset.dbCellColumn);
-    }
-    if (target.dataset.editDbRow) {
-      openDbRowModal(adminState.dbRows.find((item) => String(item.id) === target.dataset.editDbRow));
-    }
-    if (target.dataset.deleteDbRow) deleteDbRow(target.dataset.deleteDbRow);
   });
 
   document.addEventListener('keydown', (event) => {
@@ -2046,14 +1789,6 @@ async function initAdmin() {
     photoModalDownload: adminQuery('#adminModalPhotoDownload'),
     photoModalPrev: adminQuery('#adminModalPhotoPrev'),
     photoModalNext: adminQuery('#adminModalPhotoNext'),
-    repairDbSchemaButton: adminQuery('#repairDbSchemaButton'),
-    createDbRowButton: adminQuery('#createDbRowButton'),
-    dbTableList: adminQuery('#dbTableList'),
-    dbTableMeta: adminQuery('#dbTableMeta'),
-    dbRowsTable: adminQuery('#dbRowsTable'),
-    dbRepairReport: adminQuery('#dbRepairReport'),
-    dbPrevPage: adminQuery('#dbPrevPage'),
-    dbNextPage: adminQuery('#dbNextPage'),
   });
   bindAdminEvents();
   const ok = await requireAdmin();

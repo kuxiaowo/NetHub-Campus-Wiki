@@ -6,7 +6,7 @@
 
 - 前端服务：静态 HTML + CSS + JavaScript，运行在 `frontend_server.py`
 - 后端服务：FastAPI + Uvicorn，运行在 `backend/main.py`
-- 数据库：MySQL 8+
+- 数据库：SQLite（Python 标准库，无需单独安装数据库服务）
 - 接口文档：`docs/API.md` 和 FastAPI 自动文档 `/docs`
 
 ## 目录结构
@@ -17,7 +17,7 @@ Campus Wiki/
 ├── backend/
 │   ├── main.py            # FastAPI 路由和 CORS 配置
 │   ├── config.py          # 环境变量配置
-│   ├── database.py        # MySQL 连接
+│   ├── database.py        # SQLite 连接与自动初始化
 │   ├── projects.py        # 项目查询和数据格式化
 │   ├── resources.py       # 资源中心和活动照片查询
 │   └── schemas.py         # API 响应模型
@@ -36,7 +36,7 @@ Campus Wiki/
 │       └── detail.js
 ├── docs/API.md            # 详细接口文档
 ├── docs/DATABASE.md       # 数据库结构文档
-├── sql/schema.sql         # MySQL 初始化脚本、示例数据和默认管理员
+├── sql/schema.sql         # SQLite 初始化脚本、示例数据和默认管理员
 └── requirements.txt
 ```
 
@@ -50,18 +50,14 @@ python3 -m pip install -r requirements.txt
 
 ### 2. 配置环境变量
 
-复制 `.env.example` 为 `.env`，按本机 MySQL 和部署地址修改：
+复制 `.env.example` 为 `.env`，按部署地址和数据库文件位置修改：
 
 ```env
 API_PORT=3100
 FRONTEND_PORT=3200
 FRONTEND_API_BASE_URL=http://127.0.0.1:3100/api
 CORS_ORIGINS=http://127.0.0.1:3200,http://localhost:3200
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_USER=campus_user
-DB_PASSWORD=campus_pass_123
-DB_NAME=campus_cas_forum
+DATABASE_PATH=data/campus_wiki.db
 AUTH_SECRET_KEY=change-this-to-a-long-random-secret
 AUTH_TOKEN_EXPIRE_MINUTES=120
 PHOTO_DIR_CACHE_MINUTES=5
@@ -76,35 +72,11 @@ PHOTO_DIR_CACHE_MINUTES=5
 
 ### 3. 初始化数据库
 
-确保 MySQL 已启动，然后在项目根目录导入示例数据：
+无需安装或启动数据库服务。后端首次启动时会自动创建
+`DATABASE_PATH` 指向的 SQLite 文件，并执行 `sql/schema.sql` 写入表结构、
+示例数据和默认管理员。
 
-```bash
-mysql -u root -p --default-character-set=utf8mb4 < sql/schema.sql
-```
-
-也可以先进入 MySQL，再使用 Linux 绝对路径导入：
-
-```bash
-mysql -u root -p --default-character-set=utf8mb4
-```
-
-进入 `mysql>` 后执行：
-
-```sql
-source /opt/campus-wiki/sql/schema.sql;
-```
-
-如果你的 MySQL 不使用默认端口 `3306`，在 `mysql` 命令中追加 `-P 你的端口`。
-
-`schema.sql` 会创建网站里的默认管理员账号，但不会创建 MySQL 数据库登录账号。后端连接 MySQL 使用的是 `.env` 里的 `DB_USER` 和 `DB_PASSWORD`，需要使用已有 MySQL 账号，或自行创建并授权：
-
-```sql
-CREATE USER 'campus_user'@'localhost' IDENTIFIED BY 'campus_pass_123';
-GRANT ALL PRIVILEGES ON campus_cas_forum.* TO 'campus_user'@'localhost';
-FLUSH PRIVILEGES;
-```
-
-然后确认 `.env` 中的 `DB_PORT`、`DB_USER`、`DB_PASSWORD` 和实际 MySQL 配置一致。如果直接使用 `root` 连接，也可以把 `.env` 改成 root 账号和密码。
+如需重新初始化本地数据，请先停止后端并备份或删除 SQLite 文件，再启动后端。
 
 ### 4. 启动后端 API 服务
 
@@ -134,10 +106,10 @@ python3 frontend_server.py
 
 ## 数据库结构
 
-当前只保留一个数据库初始化脚本：`sql/schema.sql`。该脚本会重建数据库结构、写入示例数据，并创建默认管理员。初始化后包含这些表：
+当前只保留一个数据库初始化脚本：`sql/schema.sql`。空数据库首次连接时会自动执行该脚本，写入数据库结构、示例数据和默认管理员。初始化后包含这些表：
 
 - `users`：用户账号。密码使用 PBKDF2-HMAC-SHA256 哈希保存，`role` 使用 `admin` / `user` 区分管理员和普通用户。
-- `projects`：CAS 项目。`icon` 保存项目图标图片 URL，`media` 和 `updates` 使用 MySQL JSON 字段保存链接数组和动态数组。
+- `projects`：CAS 项目。`icon` 保存项目图标图片 URL，`media` 和 `updates` 使用 JSON 文本保存链接数组和动态数组。
 - `project_categories`：CAS 项目库左侧分类。`sortOrder` 是人工排序权重，数字越小越靠前；分类排序不影响项目本身排序。
 - `resource_categories`：资源中心左侧分类。`sortOrder` 是人工排序权重，数字越小越靠前；默认 `other` 排在最下面。
 - `resources`：资源中心普通资源卡片。`category` 当前包括 `yearbook`、`other`；活动照片不写入该表，统一来自 `photo_activities`。资源中心不再使用 icon 字段，只使用 `image` 作为封面图。
@@ -195,11 +167,7 @@ http://127.0.0.1:3200/admin.html
 
 该账号用于本地示例和初始化验证，生产环境请修改密码或删除。
 
-后台只允许 `role = admin` 的用户访问。默认管理员由初始化脚本创建；如果需要把其他用户提升为管理员，可以在 MySQL 中执行：
-
-```sql
-UPDATE users SET role = 'admin' WHERE username = '你的昵称';
-```
+后台只允许 `role = admin` 的用户访问。默认管理员由初始化脚本创建；其他用户可直接通过后台“用户管理”调整为管理员。
 
 管理员登录后可以：
 
@@ -210,7 +178,6 @@ UPDATE users SET role = 'admin' WHERE username = '你的昵称';
 - 拖拽资源中心左侧分类调整分类顺序，拖拽“活动照片”分类下的左侧活动列表调整活动顺序。
 - 在资源管理中选择“活动照片”分类后，会显示左侧活动筛选、右侧活动卡片和活动照片平铺页；进入某个活动后，可在活动标题/描述区域编辑活动。
 - 普通资源和活动照片都只手动填写 URL，或浏览 `public/` 选择已有文件/文件夹；活动照片通过 `photoDir` 绑定到 `public/` 下的文件夹，后台不再单张编辑照片。
-- 通过受控数据库查看器查看和编辑白名单表。
 
 默认上传文件可以保存到：
 
@@ -222,7 +189,7 @@ public/uploads/
 
 前端静态服务会直接放行图片文件，保证照片和 Yearbook 页面可以匿名查看；会拒绝直接访问 `.pdf`、`.zip`、`.rar`、`.7z`、Office 文档等下载型文件。下载这类文件应走后端 `/api/files/{file_path}`，由登录状态校验后作为附件返回。
 
-初始化和重建数据库统一执行 `sql/schema.sql`。已运行的旧数据库如果缺少 `photo_activities.downloads` 或其他白名单结构项，请在管理员后台数据库查看器手动点击“检查并补全结构”；生产环境仍建议先备份。
+数据库查看器和在线修复结构功能已经删除。结构变更应通过版本化迁移脚本完成；当前首次建库统一执行 `sql/schema.sql`。
 
 `sortOrder` 表示人工排序权重，数字越小越靠前。后台拖拽会自动维护为 `10, 20, 30...`；当前用于 CAS 项目分类、资源分类和活动列表，不用于普通项目、普通资源卡片或单张照片卡片。
 
