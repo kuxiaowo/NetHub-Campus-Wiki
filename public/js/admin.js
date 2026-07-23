@@ -1581,6 +1581,7 @@ function bindAdminEvents() {
   adminEls.photoModalDownload.addEventListener('click', downloadAdminModalPhoto);
   adminEls.photoModalPrev.addEventListener('click', () => shiftAdminPhotoModal(-1));
   adminEls.photoModalNext.addEventListener('click', () => shiftAdminPhotoModal(1));
+
   document.addEventListener('click', (event) => {
     const target = event.target.closest('button');
     if (!target) return;
