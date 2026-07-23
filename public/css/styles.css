@@ -695,7 +695,7 @@ p { color: var(--muted); line-height: 1.8; }
 .detail-breadcrumb a:hover {
   color: var(--primary);
 }
-.detail-breadcrumb span::before {
+.detail-breadcrumb > * + *::before {
   content: ">";
   margin-right: 8px;
   color: #9aa8bc;
@@ -837,14 +837,10 @@ p { color: var(--muted); line-height: 1.8; }
 }
 .detail-intro {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 470px);
-  gap: 24px;
+  grid-template-columns: 1fr;
   align-items: center;
   padding: 8px;
   background: rgba(255, 255, 255, 0.94);
-}
-.detail-intro.without-image {
-  grid-template-columns: 1fr;
 }
 .detail-section-copy {
   padding: 14px 20px;
@@ -873,20 +869,6 @@ p { color: var(--muted); line-height: 1.8; }
   margin: 12px 0 0;
   color: #4b5f79;
   line-height: 1.9;
-}
-.detail-intro-image {
-  min-height: 130px;
-  overflow: hidden;
-  border-radius: 8px;
-  background: #eef6ff;
-}
-.detail-intro-image img {
-  width: 100%;
-  height: 100%;
-  min-height: 130px;
-  max-height: 170px;
-  display: block;
-  object-fit: cover;
 }
 .image-frame {
   position: relative;
@@ -1615,145 +1597,6 @@ p { color: var(--muted); line-height: 1.8; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.admin-db-table-scroll {
-  width: 100%;
-  overflow: auto;
-}
-.admin-db-table {
-  table-layout: fixed;
-  min-width: 980px;
-  border-collapse: separate;
-  border-spacing: 0;
-}
-.admin-db-table th,
-.admin-db-table td {
-  width: 120px;
-  max-width: 120px;
-  border-right: 1px solid #edf0f7;
-}
-.admin-db-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding: 10px 12px;
-  background: #f5f7fb;
-}
-.admin-db-table th:first-child,
-.admin-db-table td:first-child {
-  width: 60px;
-  max-width: 60px;
-}
-.admin-db-table th:last-child,
-.admin-db-table td:last-child {
-  width: 100px;
-  max-width: 100px;
-  border-right: 0;
-}
-.admin-db-cell {
-  width: 100%;
-  min-height: 34px;
-  display: flex;
-  align-items: center;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 6px 8px;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  font: inherit;
-  text-align: left;
-}
-.admin-db-cell span {
-  display: block;
-  width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.admin-db-cell:hover,
-.admin-db-cell:focus-visible {
-  border-color: #c8d4ff;
-  background: #f3f6ff;
-  outline: none;
-}
-.admin-db-repair-report {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #f8fafc;
-}
-.admin-db-repair-summary {
-  color: var(--text);
-  font-size: 14px;
-  font-weight: 800;
-}
-.admin-db-repair-summary.is-error { color: #b42318; }
-.admin-db-repair-section {
-  display: grid;
-  gap: 6px;
-}
-.admin-db-repair-section h4 {
-  margin: 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-.admin-db-repair-section ul {
-  display: grid;
-  gap: 4px;
-  margin: 0;
-  padding-left: 18px;
-}
-.admin-db-repair-section li {
-  overflow-wrap: anywhere;
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.45;
-}
-.admin-db-repair-section.is-warning li { color: #9a6700; }
-.admin-db-repair-section.is-error li { color: #b42318; }
-.admin-db-cell-detail {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-.admin-db-cell-detail div {
-  display: grid;
-  gap: 4px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #f8fafc;
-}
-.admin-db-cell-detail span {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
-}
-.admin-db-cell-detail strong {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.admin-form textarea.admin-db-cell-editor {
-  min-height: 260px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
-  line-height: 1.55;
-}
-.admin-db-layout {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
-}
-.admin-db-sidebar { display: grid; gap: 10px; box-shadow: none; }
-.admin-db-sidebar h3 { margin: 0; }
-.admin-db-content { display: grid; gap: 12px; min-width: 0; }
 .admin-file-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
@@ -1890,7 +1733,6 @@ p { color: var(--muted); line-height: 1.8; }
     width: 100%;
   }
   .admin-split,
-  .admin-db-layout,
   .admin-file-layout,
   .admin-detail-grid { grid-template-columns: 1fr; }
   .admin-detail-head { flex-direction: column; }
