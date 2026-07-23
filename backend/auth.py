@@ -8,13 +8,12 @@ import hmac
 import json
 import os
 import re
+from sqlite3 import IntegrityError
 import time
 from typing import Any, Literal
 
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pymysql.err import IntegrityError
-
 from backend.config import settings
 from backend.database import get_db_connection
 
@@ -121,9 +120,7 @@ def create_user(username: str, password: str, display_name: str | None = None) -
                 cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
                 row = cursor.fetchone()
     except IntegrityError as exc:
-        if exc.args and exc.args[0] == 1062:
-            raise HTTPException(status_code=409, detail="昵称已存在") from exc
-        raise
+        raise HTTPException(status_code=409, detail="昵称已存在") from exc
 
     return format_user(row)
 
@@ -149,9 +146,7 @@ def update_username(user_id: int, username: str) -> dict[str, Any]:
                 cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
                 row = cursor.fetchone()
     except IntegrityError as exc:
-        if exc.args and exc.args[0] == 1062:
-            raise HTTPException(status_code=409, detail="昵称已存在") from exc
-        raise
+        raise HTTPException(status_code=409, detail="昵称已存在") from exc
 
     return format_user(row)
 
