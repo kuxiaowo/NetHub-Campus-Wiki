@@ -150,6 +150,60 @@ curl -X PATCH http://127.0.0.1:3100/api/auth/me \
 - `409 Conflict`：昵称已存在。
 - `422 Unprocessable Entity`：昵称格式不符合要求。
 
+## 私信 API
+
+以下接口全部需要登录。私信是严格的一对一会话，只有会话双方可以查询和发送消息。
+用户公开摘要只包含 `id`、`username` 和 `displayName`。
+
+### GET /api/users/search
+
+按昵称或姓名搜索可私信用户。查询参数 `q` 必填，不返回当前用户和已禁用账号。
+
+### GET /api/messages/conversations
+
+返回当前用户的会话列表，按最近消息时间倒序。每项包括：
+
+- `id`：会话 ID。
+- `otherUser`：对方的公开用户摘要。
+- `lastMessage`：最后一条消息，没有消息时为 `null`。
+- `unreadCount`：当前会话未读消息数。
+- `updatedAt`：会话最后更新时间。
+
+### POST /api/messages/conversations
+
+创建或取得与指定用户的会话。请求体：
+
+```json
+{"userId": 2}
+```
+
+同一对用户重复调用会返回同一个会话。不能给自己创建会话。
+
+### GET /api/messages/conversations/{conversation_id}/messages
+
+返回会话消息，按时间正序。支持 `beforeId` 游标和 `limit`（1–100，默认 50）。
+消息包含 `id`、`conversationId`、`senderId`、`content`、`createdAt`、`readAt` 和
+相对于当前用户计算的 `isMine`。
+
+### POST /api/messages/conversations/{conversation_id}/messages
+
+发送文本消息。请求体：
+
+```json
+{"content":"你好，想了解一下你们的 CAS 项目。"}
+```
+
+正文去除首尾空白后必须为 1–2000 字。对方账号被禁用后不能继续发送。
+
+### POST /api/messages/conversations/{conversation_id}/read
+
+把该会话内由对方发送的未读消息标记为已读，返回当前账号剩余总未读数。
+前端传递可选查询参数 `upToId`，只标记该消息 ID 及之前的内容，避免轮询期间新到消息被提前标记。
+
+### GET /api/messages/unread-count
+
+返回所有会话的总未读消息数：`{"unreadCount": 3}`。
+
 ## GET /api/health
 
 检查 API 服务和数据库连接状态。
@@ -268,6 +322,7 @@ curl "http://127.0.0.1:3100/api/projects?category=科技创新&year=2026&sort=po
 | `name` | `string` | 项目名称 |
 | `leader` | `string` | 负责人 |
 | `members` | `string` | 成员描述 |
+| `memberProfiles` | `ProjectMember[]` | 独立成员记录及可选账号关联 |
 | `category` | `string` | 项目分类 |
 | `year` | `number` | 项目年份 |
 | `icon` | `string` | 项目图标图片 URL |
@@ -282,6 +337,9 @@ curl "http://127.0.0.1:3100/api/projects?category=科技创新&year=2026&sort=po
 | `createdAt` | `string | null` | 创建时间 |
 | `updatedAt` | `string | null` | 更新时间 |
 
+`ProjectMember` 包含 `id`、`displayName`、`role`、`sortOrder` 和 `user`。
+`user` 尚未关联时为 `null`；关联后只返回用户的 `id`、`username`、`displayName`。
+
 ### 响应示例
 
 ```json
@@ -292,6 +350,9 @@ curl "http://127.0.0.1:3100/api/projects?category=科技创新&year=2026&sort=po
       "name": "校园噪音地图",
       "leader": "李明",
       "members": "李明, 王小雨, Chen Alex",
+      "memberProfiles": [
+        {"id": 1, "displayName": "李明", "role": "leader", "sortOrder": 0, "user": null}
+      ],
       "category": "科技创新",
       "year": 2026,
       "icon": "https://picsum.photos/seed/noise-map-icon/300/300",
@@ -340,6 +401,9 @@ curl http://127.0.0.1:3100/api/projects/1
     "name": "校园噪音地图",
     "leader": "李明",
     "members": "李明, 王小雨, Chen Alex",
+    "memberProfiles": [
+      {"id": 1, "displayName": "李明", "role": "leader", "sortOrder": 0, "user": null}
+    ],
     "category": "科技创新",
     "year": 2026,
     "icon": "https://picsum.photos/seed/noise-map-icon/300/300",
@@ -636,8 +700,9 @@ curl http://127.0.0.1:3100/api/resources/meta
 - `GET /api/admin/projects`：查询后台 CAS 项目列表，支持 `search`、`category`、`year`、`sort`。
 - `POST /api/admin/projects`：创建 CAS 项目。
 - `PATCH /api/admin/projects/{project_id}`：更新 CAS 项目。
+- `PATCH /api/admin/project-members/{member_id}`：关联或解除成员的站内账号。请求体为 `{"userId":2}`；传 `null` 表示解除关联。
 
-CAS 项目写接口字段包括：`name`、`leader`、`members`、`category`、`year`、`icon`、`description`、`media`、`casCreativity`、`casActivity`、`casService`、`popularity`、`updates`。其中 `media` 和 `updates` 是字符串数组，后端保存为 JSON 文本；管理员在后台项目详情视图中直接拖拽 `media` 排序，拖动结束后自动保存，保存后的数组顺序就是正式详情页媒体展示顺序。编辑弹窗只修改项目基础信息和动态，正式前台详情页不提供编辑或排序能力。
+CAS 项目写接口字段包括：`name`、`leader`、`members`、`category`、`year`、`icon`、`description`、`media`、`casCreativity`、`casActivity`、`casService`、`popularity`、`updates`。其中 `media` 和 `updates` 是字符串数组，后端保存为 JSON 文本；`leader` 与 `members` 会同步到独立的 `project_members` 记录。成员姓名不依赖账号，管理员可在成员注册后通过成员关联接口补充 `userId`。管理员在后台项目详情视图中直接拖拽 `media` 排序，拖动结束后自动保存，保存后的数组顺序就是正式详情页媒体展示顺序。编辑弹窗只修改项目基础信息和动态，正式前台详情页不提供编辑或排序能力。
 
 `sortOrder` 是分类人工排序权重，数字越小越靠前。当前只用于 CAS 项目分类，不控制项目本身排序；项目仍按 `latest` 或 `popular` 排序。
 

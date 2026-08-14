@@ -13,7 +13,9 @@ DATABASE_PATH=data/campus_wiki.db
 
 相对路径以项目根目录为基准，也可以配置绝对路径。后端首次连接一个空数据库时，
 自动执行 `sql/schema.sql`，创建表、索引、外键、触发器、示例数据和默认管理员。
-脚本最后设置 `PRAGMA user_version = 1`，后端以此判断数据库是否已经初始化。
+脚本最后设置 `PRAGMA user_version = 2`，后端以此判断数据库是否已经初始化。
+已经运行的版本 1 数据库会自动执行 `sql/migrations/002_private_messages_and_project_members.sql`，
+保留原有数据并补充私信与项目成员表。
 
 运行参数：
 
@@ -28,9 +30,10 @@ DATABASE_PATH=data/campus_wiki.db
 ## 表关系
 
 ```text
-users
+users 1 ──── n direct_conversations n ──── 1 users
+direct_conversations 1 ──── n direct_messages
 
-projects
+projects 1 ──── n project_members n ──── 0..1 users
 project_categories
 
 resources
@@ -50,11 +53,31 @@ photo_activities 1 ──── n photo_items
 - `is_active` 只能为 `0` 或 `1`。
 - 新注册账号固定为普通用户；管理员通过后台用户管理调整角色。
 
+### `direct_conversations`
+
+保存一对一会话。`user_low_id` 和 `user_high_id` 始终按用户 ID 从小到大保存，
+唯一约束保证任意两个用户之间只存在一个会话。不能创建与自己的会话。
+
+### `direct_messages`
+
+保存私信正文、发送者、创建时间和 `read_at`。正文去除首尾空白后必须为
+1–2000 字；读取和发送前均会校验当前用户是否属于对应会话。
+
 ### `projects`
 
 保存 CAS 项目。`media` 和 `updates` 使用 JSON 字符串存储数组，数据访问层负责
 将其转换为接口中的数组。`cas_creativity`、`cas_activity`、`cas_service` 使用
 `0/1` 表示布尔值。
+
+### `project_members`
+
+保存项目成员的独立记录：
+
+- `display_name` 是项目内展示姓名，不依赖账号是否存在。
+- `role` 为 `leader` 或 `member`。
+- `user_id` 可以为 `NULL`；成员注册后再由管理员关联。
+- 删除项目会级联删除成员；删除用户只会把 `user_id` 设为 `NULL`，不会删除成员。
+- 同一个账号在同一个项目中最多关联一个成员记录。
 
 ### `project_categories`
 
@@ -90,6 +113,8 @@ resource_url -> resourceUrl
 sort_order   -> sortOrder
 image_url    -> src
 photo_dir    -> photoDir
+read_at      -> readAt
+user_id      -> user.id
 ```
 
 数据库只保存文件 URL 或目录 URL，不保存图片、PDF 或压缩包二进制。

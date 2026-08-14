@@ -5,9 +5,10 @@
 """
 
 import json
+import re
 from typing import Any, Literal
 
-from backend.database import get_db_connection
+from backend.database import Cursor, get_db_connection
 
 ProjectSort = Literal["latest", "popular"]
 
@@ -26,7 +27,118 @@ def parse_json_field(value: Any, default: list | dict | None = None) -> list | d
         return fallback
 
 
-def format_project(row: dict[str, Any]) -> dict[str, Any]:
+def format_project_member(row: dict[str, Any]) -> dict[str, Any]:
+    linked_user = None
+    if row.get("user_id") is not None:
+        linked_user = {
+            "id": row["user_id"],
+            "username": row.get("linked_username"),
+            "displayName": row.get("linked_display_name"),
+        }
+    return {
+        "id": row["id"],
+        "displayName": row["display_name"],
+        "role": row["role"],
+        "sortOrder": row.get("sort_order", 0),
+        "user": linked_user,
+    }
+
+
+def _member_profiles_for_projects(project_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
+    if not project_ids:
+        return {}
+    placeholders = ", ".join(["%s"] * len(project_ids))
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT
+                  member.*,
+                  linked_user.username AS linked_username,
+                  linked_user.display_name AS linked_display_name
+                FROM project_members member
+                LEFT JOIN users linked_user ON linked_user.id = member.user_id
+                WHERE member.project_id IN ({placeholders})
+                ORDER BY member.project_id, member.sort_order, member.id
+                """,
+                project_ids,
+            )
+            rows = cursor.fetchall()
+    result = {project_id: [] for project_id in project_ids}
+    for row in rows:
+        result.setdefault(row["project_id"], []).append(format_project_member(row))
+    return result
+
+
+def list_project_members(project_id: int) -> list[dict[str, Any]]:
+    return _member_profiles_for_projects([project_id]).get(project_id, [])
+
+
+def sync_project_members(
+    cursor: Cursor,
+    project_id: int,
+    leader: str,
+    members: str,
+) -> None:
+    """同步兼容字段与独立成员记录，并尽量保留已经建立的账号关联。"""
+
+    desired: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    def add_member(name: str, role: str) -> None:
+        clean_name = name.strip()
+        key = clean_name.casefold()
+        if not clean_name or key in seen:
+            return
+        seen.add(key)
+        desired.append((clean_name, role))
+
+    add_member(leader, "leader")
+    for member_name in re.split(r"[,，、\n]", members or ""):
+        add_member(member_name, "member")
+
+    cursor.execute("SELECT * FROM project_members WHERE project_id = %s", (project_id,))
+    existing_rows = cursor.fetchall()
+    existing_by_name = {row["display_name"].strip().casefold(): row for row in existing_rows}
+    retained_ids: list[int] = []
+
+    for index, (display_name, role) in enumerate(desired):
+        existing = existing_by_name.get(display_name.casefold())
+        sort_order = index * 10
+        if existing:
+            cursor.execute(
+                """
+                UPDATE project_members
+                SET display_name = %s, role = %s, sort_order = %s
+                WHERE id = %s
+                """,
+                (display_name, role, sort_order, existing["id"]),
+            )
+            retained_ids.append(existing["id"])
+        else:
+            cursor.execute(
+                """
+                INSERT INTO project_members (project_id, display_name, role, sort_order)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (project_id, display_name, role, sort_order),
+            )
+            retained_ids.append(cursor.lastrowid)
+
+    if retained_ids:
+        placeholders = ", ".join(["%s"] * len(retained_ids))
+        cursor.execute(
+            f"DELETE FROM project_members WHERE project_id = %s AND id NOT IN ({placeholders})",
+            [project_id, *retained_ids],
+        )
+    else:
+        cursor.execute("DELETE FROM project_members WHERE project_id = %s", (project_id,))
+
+
+def format_project(
+    row: dict[str, Any],
+    member_profiles: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """把数据库行转换为前端约定的 Project JSON。
 
     数据库字段使用 snake_case，前端接口使用更贴近 JavaScript 的 camelCase。
@@ -38,6 +150,7 @@ def format_project(row: dict[str, Any]) -> dict[str, Any]:
         "name": row["name"],
         "leader": row["leader"],
         "members": row["members"],
+        "memberProfiles": member_profiles or [],
         "category": row["category"],
         "year": row["year"],
         "icon": row.get("icon") or "https://picsum.photos/seed/cas-project/300/300",
@@ -112,7 +225,8 @@ def list_projects(
             cursor.execute(sql, params)
             rows = cursor.fetchall()
 
-    return [format_project(row) for row in rows]
+    member_profiles = _member_profiles_for_projects([row["id"] for row in rows])
+    return [format_project(row, member_profiles.get(row["id"], [])) for row in rows]
 
 
 def get_project(project_id: int) -> dict[str, Any] | None:
@@ -123,4 +237,4 @@ def get_project(project_id: int) -> dict[str, Any] | None:
             cursor.execute("SELECT * FROM projects WHERE id = %s LIMIT 1", (project_id,))
             row = cursor.fetchone()
 
-    return None if row is None else format_project(row)
+    return None if row is None else format_project(row, list_project_members(project_id))

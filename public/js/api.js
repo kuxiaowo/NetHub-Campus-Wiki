@@ -50,11 +50,13 @@ function getStoredUser() {
 function saveAuthSession(token, user) {
   window.localStorage.setItem(AUTH_TOKEN_KEY, token);
   window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  window.dispatchEvent(new CustomEvent('auth:changed', { detail: { user } }));
 }
 
 function clearAuthSession() {
   window.localStorage.removeItem(AUTH_TOKEN_KEY);
   window.localStorage.removeItem(AUTH_USER_KEY);
+  window.dispatchEvent(new CustomEvent('auth:changed', { detail: { user: null } }));
 }
 
 function roleLabel(role) {
@@ -106,6 +108,48 @@ async function refreshCurrentUser() {
     clearAuthSession();
     return null;
   }
+}
+
+async function searchMessageUsers(query) {
+  const params = new URLSearchParams({ q: String(query || '').trim() });
+  return request(`/users/search?${params.toString()}`);
+}
+
+async function fetchMessageConversations() {
+  return request('/messages/conversations');
+}
+
+async function createMessageConversation(userId) {
+  return request('/messages/conversations', {
+    method: 'POST',
+    body: JSON.stringify({ userId: Number(userId) }),
+  });
+}
+
+async function fetchConversationMessages(conversationId, options = {}) {
+  const params = new URLSearchParams();
+  if (options.beforeId) params.set('beforeId', options.beforeId);
+  if (options.limit) params.set('limit', options.limit);
+  const query = params.toString();
+  return request(`/messages/conversations/${encodeURIComponent(conversationId)}/messages${query ? `?${query}` : ''}`);
+}
+
+async function sendConversationMessage(conversationId, content) {
+  return request(`/messages/conversations/${encodeURIComponent(conversationId)}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  });
+}
+
+async function markMessageConversationRead(conversationId, upToId) {
+  const params = new URLSearchParams();
+  if (upToId) params.set('upToId', upToId);
+  const query = params.toString();
+  return request(`/messages/conversations/${encodeURIComponent(conversationId)}/read${query ? `?${query}` : ''}`, { method: 'POST' });
+}
+
+async function fetchUnreadMessageCount() {
+  return request('/messages/unread-count');
 }
 
 /**
@@ -322,11 +366,29 @@ function initAuthNav() {
     }
 
     authArea.innerHTML = `
+      <a class="auth-message-entry ${window.location.pathname.endsWith('/messages.html') ? 'active' : ''}" href="/messages.html">
+        私信
+        <span class="auth-message-badge is-hidden" data-message-badge>0</span>
+      </a>
       <button class="auth-avatar" type="button" data-open-auth aria-label="打开账号面板">
         ${escapeHtml(userInitial(user))}
       </button>
     `;
     authArea.querySelector('[data-open-auth]').addEventListener('click', (event) => openAuthModal('login', event.currentTarget));
+    refreshUnreadBadge();
+  }
+
+  async function refreshUnreadBadge() {
+    const badge = authArea.querySelector('[data-message-badge]');
+    if (!badge || !getAuthToken()) return;
+    try {
+      const result = await fetchUnreadMessageCount();
+      const count = Number(result.unreadCount || 0);
+      badge.textContent = count > 99 ? '99+' : String(count);
+      badge.classList.toggle('is-hidden', count < 1);
+    } catch {
+      badge.classList.add('is-hidden');
+    }
   }
 
   function renderAccountState() {
@@ -574,6 +636,8 @@ function initAuthNav() {
 
   renderUser(getStoredUser());
   refreshCurrentUser().then(renderUser);
+  window.setInterval(refreshUnreadBadge, 15000);
+  window.addEventListener('messages:changed', refreshUnreadBadge);
 }
 
 function projectIconImage(project) {

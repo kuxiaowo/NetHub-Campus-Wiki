@@ -1,6 +1,6 @@
 # Campus Wiki 校园论坛 + CAS 项目库
 
-这是一个前后端分离的校园项目展示原型，包含首页公告、CAS 项目库、项目筛选、资源中心、活动照片和项目详情。
+这是一个前后端分离的校园平台，包含首页公告、CAS 项目库、项目筛选、资源中心、活动照片、项目详情和一对一私信。
 
 ## 技术栈
 
@@ -18,6 +18,7 @@ Campus Wiki/
 │   ├── main.py            # FastAPI 路由和 CORS 配置
 │   ├── config.py          # 环境变量配置
 │   ├── database.py        # SQLite 连接与自动初始化
+│   ├── messages.py        # 私信会话、消息和未读状态
 │   ├── projects.py        # 项目查询和数据格式化
 │   ├── resources.py       # 资源中心和活动照片查询
 │   └── schemas.py         # API 响应模型
@@ -26,6 +27,7 @@ Campus Wiki/
 │   ├── projects.html      # CAS 项目库
 │   ├── resources.html     # 资源中心
 │   ├── detail.html        # 项目详情
+│   ├── messages.html      # 私信中心
 │   ├── css/styles.css
 │   └── js/
 │       ├── config.js      # 前端 API 地址配置
@@ -33,6 +35,7 @@ Campus Wiki/
 │       ├── index.js
 │       ├── projects.js
 │       ├── resources.js
+│       ├── messages.js
 │       └── detail.js
 ├── docs/API.md            # 详细接口文档
 ├── docs/DATABASE.md       # 数据库结构文档
@@ -101,6 +104,7 @@ python3 frontend_server.py
 
 - 首页：http://127.0.0.1:3200/
 - CAS 项目库：http://127.0.0.1:3200/projects.html
+- 私信中心：http://127.0.0.1:3200/messages.html
 
 如果后端端口或域名变化，修改 `.env` 中的 `FRONTEND_API_BASE_URL`，然后重启前端服务。后端的 `CORS_ORIGINS` 也要包含当前前端页面的来源，否则浏览器会拦截跨域请求。
 
@@ -109,14 +113,19 @@ python3 frontend_server.py
 当前只保留一个数据库初始化脚本：`sql/schema.sql`。空数据库首次连接时会自动执行该脚本，写入数据库结构、示例数据和默认管理员。初始化后包含这些表：
 
 - `users`：用户账号。密码使用 PBKDF2-HMAC-SHA256 哈希保存，`role` 使用 `admin` / `user` 区分管理员和普通用户。
+- `direct_conversations`：两个用户之间唯一的一对一会话。
+- `direct_messages`：会话消息、发送者、发送时间和已读时间。
 - `projects`：CAS 项目。`icon` 保存项目图标图片 URL，`media` 和 `updates` 使用 JSON 文本保存链接数组和动态数组。
+- `project_members`：独立的 CAS 成员记录。`display_name` 始终保留项目内姓名，`user_id` 可空并可在账号注册后由管理员关联。
 - `project_categories`：CAS 项目库左侧分类。`sortOrder` 是人工排序权重，数字越小越靠前；分类排序不影响项目本身排序。
 - `resource_categories`：资源中心左侧分类。`sortOrder` 是人工排序权重，数字越小越靠前；默认 `other` 排在最下面。
 - `resources`：资源中心普通资源卡片。`category` 当前包括 `yearbook`、`other`；活动照片不写入该表，统一来自 `photo_activities`。资源中心不再使用 icon 字段，只使用 `image` 作为封面图。
 - `photo_activities`：活动照片分组。`description` 是必填活动简介，用于“全部活动”卡片展示和关键词搜索；活动卡片不再使用 icon 字段；`sortOrder` 控制左侧活动列表顺序；`downloads` 统计整场活动的照片下载次数。
 - `photo_items`：单张活动照片。通过 `activity_id` 关联 `photo_activities.id`，删除活动时照片记录会级联删除。
 
-用户系统提供开放注册、登录和当前用户接口。注册账号默认是普通用户；默认管理员由 `sql/schema.sql` 初始化创建。
+用户系统提供开放注册、登录、当前用户和一对一私信。注册账号默认是普通用户；默认管理员由 `sql/schema.sql` 初始化创建。私信只允许会话双方读取，支持会话列表、用户搜索、未读数、已读状态和 3 秒前端轮询；当前只支持最长 2000 字的文本消息。
+
+CAS 成员和站内账号分开保存：未注册的成员仍会正常显示；注册后，管理员可在项目详情后台把成员记录关联到对应账号。关联成功后，公开项目详情会显示站内昵称和“发私信”入口。修改项目负责人或成员文本时，系统会同步成员记录，并尽量保留姓名未变化成员的账号关联。
 
 资源中心采用“查看公开、下载需登录”的权限模型：未登录用户可以浏览资源列表、查看活动照片、打开照片放大预览和阅读 Yearbook 图片页面；点击普通资源文件、Yearbook PDF、活动照片压缩包或单张照片下载时必须登录。前端未登录点击下载会弹出 `抱歉，需要登陆` 并阻止下载。
 
@@ -135,7 +144,7 @@ Yearbook 资源使用 `resources.resource_url` 指向 `public/` 下的一个目�
 - 环境差异通过 `.env` 配置；前端运行时的 `/js/config.js` 由 `frontend_server.py` 根据 `.env` 生成，不把数据库账号或后端地址写死到业务代码中。
 - API 响应统一使用 JSON；项目列表和详情都返回 `{ "data": ... }`。
 - 需要登录的接口使用 `Authorization: Bearer <accessToken>`；前端会把登录 token 保存在浏览器本地存储中。浏览器原生下载链接不能附加请求头时，前端会把本地 `public/` 文件 URL 转成 `/api/files/...?...token=...` 形式的受保护下载地址。
-- 数据库访问集中在 `backend/database.py`、`backend/auth.py`、`backend/projects.py` 和 `backend/resources.py`，路由层不直接拼装业务数据。
+- 数据库访问集中在 `backend/database.py`、`backend/auth.py`、`backend/messages.py`、`backend/projects.py` 和 `backend/resources.py`，路由层不直接拼装业务数据。
 - CSS 使用稳定尺寸和明确布局，导航位于网站名右侧，移动端自动换行。
 - 更详细的团队代码规范见 [docs/CODE_STYLE.md](docs/CODE_STYLE.md)。
 
@@ -174,6 +183,7 @@ http://127.0.0.1:3200/admin.html
 - 查看、创建和编辑用户，并调整 `admin/user` 角色。
 - 在文件管理栏目浏览 `public/` 目录，并选择目标文件夹上传文件。
 - 新建和编辑 CAS 项目；项目行点击进入后台内部详情视图，详情视图提供编辑按钮和 `media` 拖拽排序，媒体拖动结束后自动保存；正式前台详情页只负责展示。拖拽 CAS 项目库左侧分类调整分类顺序，分类顺序会同步影响前台项目库。
+- 在 CAS 项目后台详情中，把负责人或成员关联到已注册账号；成员尚未注册时保持“暂未关联”即可。
 - 新建、编辑和删除资源中心资源；后台资源管理直接采用前台资源中心的筛选条、左侧分类和右侧内容布局。
 - 拖拽资源中心左侧分类调整分类顺序，拖拽“活动照片”分类下的左侧活动列表调整活动顺序。
 - 在资源管理中选择“活动照片”分类后，会显示左侧活动筛选、右侧活动卡片和活动照片平铺页；进入某个活动后，可在活动标题/描述区域编辑活动。

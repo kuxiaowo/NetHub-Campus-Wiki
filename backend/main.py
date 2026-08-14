@@ -34,6 +34,15 @@ from backend.auth import (
     update_username,
 )
 from backend.database import get_db_connection
+from backend.messages import (
+    get_or_create_conversation,
+    get_unread_count,
+    list_conversations,
+    list_messages,
+    mark_conversation_read,
+    search_users,
+    send_message,
+)
 from backend.projects import get_project, list_meta, list_projects
 from backend.resources import (
     YearbookResourceError,
@@ -48,9 +57,15 @@ from backend.resources import (
 from backend.schemas import (
     AnnouncementsResponse,
     ChangePasswordRequest,
+    ConversationCreateRequest,
+    ConversationListResponse,
+    ConversationResponse,
     HealthResponse,
     LoginRequest,
     LoginResponse,
+    MessageCreateRequest,
+    MessageListResponse,
+    MessageResponse,
     MetaResponse,
     PhotoActivityListResponse,
     PhotoActivityDetailResponse,
@@ -62,7 +77,9 @@ from backend.schemas import (
     ResourceMetaResponse,
     RegisterRequest,
     UpdateCurrentUserRequest,
+    UnreadCountResponse,
     User,
+    UserSearchResponse,
     YearbookDetailResponse,
 )
 
@@ -79,11 +96,12 @@ app = FastAPI(
         "校园论坛与 CAS 项目库后端 API。后端只负责数据接口和数据库访问，"
         "前端由独立静态服务提供。"
     ),
-    version="1.1.0",
+    version="1.2.0",
     contact={"name": "Campus Wiki Team"},
     openapi_tags=[
         {"name": "system", "description": "服务状态与运行信息。"},
         {"name": "auth", "description": "用户注册、登录和当前用户接口。"},
+        {"name": "messages", "description": "一对一私信、会话和未读消息接口。"},
         {"name": "content", "description": "首页内容接口。"},
         {"name": "projects", "description": "CAS 项目库查询接口。"},
         {"name": "resources", "description": "资源中心和活动照片查询接口。"},
@@ -216,6 +234,82 @@ def change_password(payload: ChangePasswordRequest, user: dict = Depends(get_cur
         current_password=payload.currentPassword,
         new_password=payload.newPassword,
     )
+
+
+@app.get("/api/users/search", response_model=UserSearchResponse, tags=["messages"])
+def user_search(
+    q: str = Query(min_length=1, max_length=80, description="按昵称或姓名搜索可私信用户。"),
+    user: dict = Depends(get_current_user),
+):
+    """搜索除自己以外的已启用账号。"""
+
+    return {"data": search_users(user["id"], q)}
+
+
+@app.get("/api/messages/conversations", response_model=ConversationListResponse, tags=["messages"])
+def message_conversations(user: dict = Depends(get_current_user)):
+    return {"data": list_conversations(user["id"])}
+
+
+@app.post("/api/messages/conversations", response_model=ConversationResponse, tags=["messages"])
+def create_message_conversation(
+    payload: ConversationCreateRequest,
+    user: dict = Depends(get_current_user),
+):
+    return {"data": get_or_create_conversation(user["id"], payload.userId)}
+
+
+@app.get("/api/messages/unread-count", response_model=UnreadCountResponse, tags=["messages"])
+def unread_message_count(user: dict = Depends(get_current_user)):
+    return {"unreadCount": get_unread_count(user["id"])}
+
+
+@app.get(
+    "/api/messages/conversations/{conversation_id}/messages",
+    response_model=MessageListResponse,
+    tags=["messages"],
+)
+def conversation_messages(
+    conversation_id: int,
+    before_id: int | None = Query(default=None, alias="beforeId", gt=0),
+    limit: int = Query(default=50, ge=1, le=100),
+    user: dict = Depends(get_current_user),
+):
+    return {
+        "data": list_messages(
+            conversation_id,
+            user["id"],
+            before_id=before_id,
+            limit=limit,
+        )
+    }
+
+
+@app.post(
+    "/api/messages/conversations/{conversation_id}/messages",
+    response_model=MessageResponse,
+    tags=["messages"],
+)
+def create_conversation_message(
+    conversation_id: int,
+    payload: MessageCreateRequest,
+    user: dict = Depends(get_current_user),
+):
+    return {"data": send_message(conversation_id, user["id"], payload.content)}
+
+
+@app.post(
+    "/api/messages/conversations/{conversation_id}/read",
+    response_model=UnreadCountResponse,
+    tags=["messages"],
+)
+def read_conversation(
+    conversation_id: int,
+    up_to_id: int | None = Query(default=None, alias="upToId", gt=0),
+    user: dict = Depends(get_current_user),
+):
+    mark_conversation_read(conversation_id, user["id"], up_to_message_id=up_to_id)
+    return {"unreadCount": get_unread_count(user["id"])}
 
 
 @app.get("/api/meta", response_model=MetaResponse, tags=["projects"])

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>私信 - NetHub</title>
+  <link rel="stylesheet" href="/css/styles.css?v=messages1" />
+</head>
+<body class="messages-body">
+  <header class="site-header">
+    <nav class="navbar container">
+      <a class="brand detail-brand" href="/index.html">
+        <span class="brand-mark">N</span>
+        <span>
+          <strong>NetHub</strong>
+          <small>Campus Wiki</small>
+        </span>
+      </a>
+      <div class="nav-links" aria-label="主导航">
+        <a href="/index.html">首页</a>
+        <a href="/projects.html">CAS 项目库</a>
+        <a href="/resources.html">资源中心</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="container messages-page">
+    <section id="messagesLoginGate" class="card messages-gate is-hidden">
+      <h1>登录后查看私信</h1>
+      <p>私信只对会话双方可见。请先从右上角登录账号。</p>
+      <a class="button secondary" href="/index.html">返回首页</a>
+    </section>
+
+    <section id="messagesApp" class="messages-shell is-hidden" aria-label="私信中心">
+      <aside class="messages-sidebar">
+        <div class="messages-sidebar-head">
+          <div>
+            <p class="eyebrow">Direct Messages</p>
+            <h1>私信</h1>
+          </div>
+        </div>
+        <div class="message-user-search">
+          <label class="sr-only" for="messageUserSearch">搜索用户发起私信</label>
+          <input id="messageUserSearch" class="input" type="search" placeholder="搜索昵称或姓名" autocomplete="off" />
+          <div id="messageUserResults" class="message-user-results is-hidden"></div>
+        </div>
+        <div id="conversationList" class="conversation-list" aria-live="polite"></div>
+      </aside>
+
+      <section class="chat-panel">
+        <div id="chatEmpty" class="chat-empty">
+          <div class="chat-empty-mark">私</div>
+          <h2>选择一位用户开始聊天</h2>
+          <p>可以从左侧搜索用户，或打开已有会话。</p>
+        </div>
+
+        <div id="chatActive" class="chat-active is-hidden">
+          <header id="chatHeader" class="chat-header"></header>
+          <div id="messageList" class="message-list" aria-live="polite"></div>
+          <form id="messageComposer" class="message-composer">
+            <label class="sr-only" for="messageContent">输入消息</label>
+            <textarea id="messageContent" class="input" rows="2" maxlength="2000" placeholder="输入消息，Enter 发送，Shift + Enter 换行"></textarea>
+            <div class="message-composer-actions">
+              <span id="messageComposerStatus" aria-live="polite"></span>
+              <button class="button compact" type="submit">发送</button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script src="/js/config.js"></script>
+  <script src="/js/api.js?v=messages1"></script>
+  <script src="/js/messages.js?v=messages1"></script>
+</body>
+</html>

@@ -792,6 +792,23 @@ function adminProjectDetail(project) {
       <p>${adminText(project.description)}</p>
     </section>
     <section>
+      <h2>成员账号关联</h2>
+      <p>成员姓名独立保留；账号可以稍后关联，也可以随时解除关联。</p>
+      <div class="admin-member-links">
+        ${(project.memberProfiles || []).map((member) => `
+          <div class="admin-member-link-row">
+            <strong>${adminText(member.displayName)} · ${member.role === 'leader' ? '负责人' : '成员'}</strong>
+            <span>${member.user
+              ? `已关联 ${adminText(member.user.displayName || member.user.username)} (@${adminText(member.user.username)})`
+              : '暂未关联站内账号'}</span>
+            <button class="button secondary compact" type="button" data-link-project-member="${adminText(member.id)}">
+              ${member.user ? '更改关联' : '关联账号'}
+            </button>
+          </div>
+        `).join('') || '<div class="empty">请先在“编辑项目”中填写负责人和成员。</div>'}
+      </div>
+    </section>
+    <section>
       <div class="admin-media-toolbar">
         <h2>照片 / 视频</h2>
         <span class="admin-media-note">拖动后自动保存</span>
@@ -813,6 +830,42 @@ function adminProjectDetail(project) {
 function findAdminProject(projectId) {
   return adminState.projects.find((item) => String(item.id) === String(projectId))
     || (String(adminState.currentProject?.id) === String(projectId) ? adminState.currentProject : null);
+}
+
+async function openProjectMemberLinkModal(memberId) {
+  const project = adminState.currentProject;
+  const member = project?.memberProfiles?.find((item) => String(item.id) === String(memberId));
+  if (!project || !member) return;
+
+  const result = await adminEndpoint('/admin/users?isActive=true');
+  const users = result.data || [];
+  openAdminModal(`关联账号：${member.displayName}`, [
+    {
+      name: 'userId',
+      label: '站内账号',
+      type: 'select',
+      value: member.user?.id || '',
+      options: [
+        { value: '', label: '暂不关联 / 解除关联' },
+        ...users.map((user) => ({
+          value: user.id,
+          label: `${user.displayName || user.username} (@${user.username})`,
+        })),
+      ],
+    },
+  ], async (payload) => {
+    const updatedMember = await adminEndpoint(`/admin/project-members/${member.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ userId: payload.userId ? Number(payload.userId) : null }),
+    });
+    project.memberProfiles = project.memberProfiles.map((item) => (
+      item.id === updatedMember.id ? updatedMember : item
+    ));
+    adminState.projects = adminState.projects.map((item) => (
+      item.id === project.id ? project : item
+    ));
+    showProjectDetailView(project);
+  });
 }
 
 async function saveProjectMediaOrder() {
@@ -1643,6 +1696,10 @@ function bindAdminEvents() {
     if (target.dataset.editProject) {
       const project = findAdminProject(target.dataset.editProject);
       if (project) openProjectModal(project);
+    }
+    if (target.dataset.linkProjectMember) {
+      openProjectMemberLinkModal(target.dataset.linkProjectMember)
+        .catch((error) => window.alert(error.message));
     }
     if (target.dataset.adminResourceCategory !== undefined) {
       selectResourceCategory(target.dataset.adminResourceCategory);

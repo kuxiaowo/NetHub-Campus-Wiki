@@ -351,6 +351,7 @@ function renderFeed(project) {
 function normalizeMembers(project) {
   const parsed = tryJson(project.members);
   const memberSources = [
+    project.memberProfiles,
     parsed,
     project.memberList,
     project.memberContacts,
@@ -363,11 +364,12 @@ function normalizeMembers(project) {
   let members;
   const memberFromObject = (member) => ({
     name: firstFilled(member.name, member.displayName, member.username),
-    role: cleanText(member.role),
+    role: member.role === 'leader' ? '负责人' : (member.role === 'member' ? '成员' : cleanText(member.role)),
     avatar: safeDetailUrl(firstFilled(member.avatar, member.photo, member.image)),
     phone: firstFilled(member.phone, member.tel, member.mobile),
     email: firstFilled(member.email, member.mail),
     info: [member.className, member.class, member.grade, member.major, member.school].map(cleanText).filter(Boolean).join(' · '),
+    user: member.user && typeof member.user === 'object' ? member.user : null,
   });
 
   if (Array.isArray(memberSources)) {
@@ -407,6 +409,7 @@ function normalizeMembers(project) {
 
 function renderMembers(project) {
   const members = normalizeMembers(project);
+  const currentUser = getStoredUser();
   const collapsed = members.length > 5;
   return `
     <aside class="detail-panel member-panel">
@@ -429,6 +432,14 @@ function renderMembers(project) {
                 <div class="member-contact">
                   ${member.phone ? `<a href="tel:${escapeHtml(member.phone)}">电话 ${escapeHtml(member.phone)}</a>` : ''}
                   ${member.email ? `<a href="mailto:${escapeHtml(member.email)}">邮箱 ${escapeHtml(member.email)}</a>` : ''}
+                </div>
+                <div class="member-account-state">
+                  ${member.user ? `
+                    <span>已关联 @${escapeHtml(member.user.username)}</span>
+                    ${Number(currentUser?.id) === Number(member.user.id)
+                      ? '<span>（本人）</span>'
+                      : `<a class="member-message-link" href="/messages.html?user=${encodeURIComponent(member.user.id)}">发私信</a>`}
+                  ` : '<span>暂未关联站内账号</span>'}
                 </div>
               </div>
             </article>

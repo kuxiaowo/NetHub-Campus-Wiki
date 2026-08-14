@@ -13,6 +13,7 @@ from typing import Any
 from backend.config import PROJECT_ROOT, get_database_path
 
 _SCHEMA_PATH = PROJECT_ROOT / "sql" / "schema.sql"
+_MIGRATIONS_DIR = PROJECT_ROOT / "sql" / "migrations"
 _INITIALIZE_LOCK = threading.Lock()
 _INITIALIZED_DATABASES: set[Path] = set()
 
@@ -126,6 +127,20 @@ def _initialize_database(database_path: Path) -> None:
             if user_version == 0:
                 connection.executescript(_SCHEMA_PATH.read_text(encoding="utf-8"))
                 connection.commit()
+            else:
+                migration_paths = sorted(_MIGRATIONS_DIR.glob("[0-9][0-9][0-9]_*.sql"))
+                for migration_path in migration_paths:
+                    migration_version = int(migration_path.name.split("_", 1)[0])
+                    if migration_version <= user_version:
+                        continue
+                    connection.executescript(migration_path.read_text(encoding="utf-8"))
+                    migrated_version = connection.execute("PRAGMA user_version").fetchone()["user_version"]
+                    if migrated_version != migration_version:
+                        raise RuntimeError(
+                            f"迁移 {migration_path.name} 未把 user_version 更新为 {migration_version}"
+                        )
+                    connection.commit()
+                    user_version = migrated_version
             _INITIALIZED_DATABASES.add(resolved_path)
         finally:
             connection.close()

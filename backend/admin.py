@@ -23,7 +23,7 @@ from backend.auth import (
     validate_username,
 )
 from backend.database import get_db_connection
-from backend.projects import format_project
+from backend.projects import format_project, format_project_member, list_project_members, sync_project_members
 from backend.resources import format_resource, photo_archive_url, yearbook_cover_url
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -152,7 +152,7 @@ def _fetch_project(project_id: int) -> dict[str, Any]:
             row = cursor.fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    return format_project(row)
+    return format_project(row, list_project_members(project_id))
 
 
 def _format_photo_item(row: dict[str, Any]) -> dict[str, Any]:
@@ -386,7 +386,7 @@ def admin_list_projects(
         with conn.cursor() as cursor:
             cursor.execute(f"SELECT * FROM projects {where_sql} ORDER BY {order_by}", params)
             rows = cursor.fetchall()
-    return {"data": [format_project(row) for row in rows]}
+    return {"data": [format_project(row, list_project_members(row["id"])) for row in rows]}
 
 
 @router.post("/projects")
@@ -422,6 +422,12 @@ def admin_create_project(payload: dict[str, Any], _: dict[str, Any] = Depends(re
                 ),
             )
             project_id = cursor.lastrowid
+            sync_project_members(
+                cursor,
+                project_id,
+                str(payload["leader"]),
+                str(payload["members"]),
+            )
     return _fetch_project(project_id)
 
 
@@ -475,7 +481,62 @@ def admin_update_project(
             cursor.execute(f"UPDATE projects SET {', '.join(updates)} WHERE id = %s", params)
             if cursor.rowcount == 0:
                 _ensure_row_exists(cursor, "projects", project_id, "项目不存在")
+            if "leader" in payload or "members" in payload:
+                cursor.execute("SELECT leader, members FROM projects WHERE id = %s", (project_id,))
+                project_row = cursor.fetchone()
+                sync_project_members(
+                    cursor,
+                    project_id,
+                    str(project_row["leader"]),
+                    str(project_row["members"]),
+                )
     return _fetch_project(project_id)
+
+
+@router.patch("/project-members/{member_id}")
+def admin_update_project_member_link(
+    member_id: int,
+    payload: dict[str, Any],
+    _: dict[str, Any] = Depends(require_admin_user),
+):
+    if set(payload) != {"userId"}:
+        raise HTTPException(status_code=422, detail="只能修改成员关联账号")
+
+    raw_user_id = payload.get("userId")
+    user_id = None if raw_user_id is None or raw_user_id == "" else _normalize_int(raw_user_id, "userId")
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT id FROM project_members WHERE id = %s", (member_id,))
+                if cursor.fetchone() is None:
+                    raise HTTPException(status_code=404, detail="项目成员不存在")
+                if user_id is not None:
+                    cursor.execute(
+                        "SELECT id FROM users WHERE id = %s AND is_active = 1 LIMIT 1",
+                        (user_id,),
+                    )
+                    if cursor.fetchone() is None:
+                        raise HTTPException(status_code=404, detail="用户不存在或账号未启用")
+                cursor.execute(
+                    "UPDATE project_members SET user_id = %s WHERE id = %s",
+                    (user_id, member_id),
+                )
+                cursor.execute(
+                    """
+                    SELECT
+                      member.*,
+                      linked_user.username AS linked_username,
+                      linked_user.display_name AS linked_display_name
+                    FROM project_members member
+                    LEFT JOIN users linked_user ON linked_user.id = member.user_id
+                    WHERE member.id = %s
+                    """,
+                    (member_id,),
+                )
+                row = cursor.fetchone()
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="该账号已经关联到这个项目的其他成员") from exc
+    return format_project_member(row)
 
 
 @router.get("/users")

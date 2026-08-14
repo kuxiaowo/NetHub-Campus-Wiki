@@ -37,6 +37,18 @@ class User(BaseModel):
     createdAt: datetime | None = None
 
 
+class PublicUser(BaseModel):
+    """私信和成员关联场景可公开使用的精简用户信息。"""
+
+    id: int
+    username: str
+    displayName: str | None = None
+
+
+class UserSearchResponse(BaseModel):
+    data: list[PublicUser]
+
+
 class RegisterRequest(BaseModel):
     """用户注册请求。"""
 
@@ -88,6 +100,16 @@ class CasFlags(BaseModel):
     service: bool = Field(description="是否包含 Service。")
 
 
+class ProjectMember(BaseModel):
+    """CAS 项目成员；即使尚未关联注册账号也会独立存在。"""
+
+    id: int
+    displayName: str
+    role: str = Field(pattern="^(leader|member)$")
+    sortOrder: int
+    user: PublicUser | None = None
+
+
 class Project(BaseModel):
     """项目对象。
 
@@ -101,6 +123,15 @@ class Project(BaseModel):
                 "name": "校园噪音地图",
                 "leader": "李明",
                 "members": "李明, 王小雨, Chen Alex",
+                "memberProfiles": [
+                    {
+                        "id": 1,
+                        "displayName": "李明",
+                        "role": "leader",
+                        "sortOrder": 0,
+                        "user": None,
+                    }
+                ],
                 "category": "科技创新",
                 "year": 2026,
                 "icon": "https://picsum.photos/seed/noise-map-icon/300/300",
@@ -119,6 +150,7 @@ class Project(BaseModel):
     name: str
     leader: str
     members: str
+    memberProfiles: list[ProjectMember]
     category: str
     year: int
     icon: str
@@ -141,6 +173,52 @@ class ProjectDetailResponse(BaseModel):
     """项目详情响应。"""
 
     data: Project = Field(description="指定 ID 的项目。")
+
+
+class ConversationCreateRequest(BaseModel):
+    userId: int = Field(gt=0)
+
+
+class MessageCreateRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=2000)
+
+
+class DirectMessage(BaseModel):
+    id: int
+    conversationId: int
+    senderId: int
+    content: str
+    createdAt: datetime | None = None
+    readAt: datetime | None = None
+    isMine: bool
+
+
+class ConversationSummary(BaseModel):
+    id: int
+    otherUser: PublicUser
+    lastMessage: DirectMessage | None = None
+    unreadCount: int
+    updatedAt: datetime | None = None
+
+
+class ConversationListResponse(BaseModel):
+    data: list[ConversationSummary]
+
+
+class ConversationResponse(BaseModel):
+    data: ConversationSummary
+
+
+class MessageListResponse(BaseModel):
+    data: list[DirectMessage]
+
+
+class MessageResponse(BaseModel):
+    data: DirectMessage
+
+
+class UnreadCountResponse(BaseModel):
+    unreadCount: int
 
 
 class ResourceCategory(BaseModel):
