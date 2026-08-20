@@ -17,6 +17,58 @@ def format_public_user(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def get_user_profile(user_id: int) -> dict[str, Any]:
+    """返回已启用账号的公开资料及其关联的 CAS 项目。"""
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, username, display_name
+                FROM users
+                WHERE id = %s AND is_active = 1
+                LIMIT 1
+                """,
+                (user_id,),
+            )
+            user = cursor.fetchone()
+            if user is None:
+                raise HTTPException(status_code=404, detail="用户不存在或账号不可用")
+
+            cursor.execute(
+                """
+                SELECT
+                  project.id,
+                  project.name,
+                  project.category,
+                  project.year,
+                  member.display_name AS member_name,
+                  member.role AS member_role
+                FROM project_members member
+                JOIN projects project ON project.id = member.project_id
+                WHERE member.user_id = %s
+                ORDER BY project.year DESC, project.id DESC
+                """,
+                (user_id,),
+            )
+            projects = cursor.fetchall()
+
+    return {
+        **format_public_user(user),
+        "projects": [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "category": row["category"],
+                "year": row["year"],
+                "memberName": row["member_name"],
+                "memberRole": row["member_role"],
+            }
+            for row in projects
+        ],
+    }
+
+
 def search_users(viewer_user_id: int, query: str, limit: int = 20) -> list[dict[str, Any]]:
     keyword = query.strip()
     if not keyword:

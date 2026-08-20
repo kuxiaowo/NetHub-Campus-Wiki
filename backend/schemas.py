@@ -49,6 +49,25 @@ class UserSearchResponse(BaseModel):
     data: list[PublicUser]
 
 
+class UserProfileProject(BaseModel):
+    """用户在一个 CAS 项目中的公开身份。"""
+
+    id: int
+    name: str
+    category: str
+    year: int
+    memberName: str
+    memberRole: str = Field(pattern="^(leader|member)$")
+
+
+class UserProfile(PublicUser):
+    projects: list[UserProfileProject]
+
+
+class UserProfileResponse(BaseModel):
+    data: UserProfile
+
+
 class RegisterRequest(BaseModel):
     """用户注册请求。"""
 

@@ -409,7 +409,6 @@ function normalizeMembers(project) {
 
 function renderMembers(project) {
   const members = normalizeMembers(project);
-  const currentUser = getStoredUser();
   const collapsed = members.length > 5;
   return `
     <aside class="detail-panel member-panel">
@@ -420,12 +419,26 @@ function renderMembers(project) {
         <div class="member-list">
           ${members.map((member, index) => `
             <article class="member-card ${collapsed && index >= 5 ? 'is-collapsed' : ''}">
-              <span class="member-avatar" data-initial="${initials(member.name)}">
-                ${member.avatar ? `<img src="${escapeHtml(member.avatar)}" alt="${escapeHtml(member.name)}" data-fallback loading="lazy" />` : ''}
-              </span>
+              ${member.user ? `
+                <a
+                  class="member-profile-avatar"
+                  href="/profile.html?user=${encodeURIComponent(member.user.id)}"
+                  aria-label="查看 ${escapeHtml(member.name)} 的个人主页"
+                >
+                  <span class="member-avatar" data-initial="${initials(member.name)}">
+                    ${member.avatar ? `<img src="${escapeHtml(member.avatar)}" alt="${escapeHtml(member.name)}" data-fallback loading="lazy" />` : ''}
+                  </span>
+                </a>
+              ` : `
+                <span class="member-avatar" data-initial="${initials(member.name)}">
+                  ${member.avatar ? `<img src="${escapeHtml(member.avatar)}" alt="${escapeHtml(member.name)}" data-fallback loading="lazy" />` : ''}
+                </span>
+              `}
               <div class="member-body">
                 <div class="member-title">
-                  <strong>${escapeHtml(member.name)}</strong>
+                  ${member.user
+                    ? `<a class="member-profile-name" href="/profile.html?user=${encodeURIComponent(member.user.id)}">${escapeHtml(member.name)}</a>`
+                    : `<strong>${escapeHtml(member.name)}</strong>`}
                   ${member.role ? `<span>${escapeHtml(member.role)}</span>` : ''}
                 </div>
                 ${member.info ? `<p>${escapeHtml(member.info)}</p>` : ''}
@@ -434,12 +447,9 @@ function renderMembers(project) {
                   ${member.email ? `<a href="mailto:${escapeHtml(member.email)}">邮箱 ${escapeHtml(member.email)}</a>` : ''}
                 </div>
                 <div class="member-account-state">
-                  ${member.user ? `
-                    <span>已关联 @${escapeHtml(member.user.username)}</span>
-                    ${Number(currentUser?.id) === Number(member.user.id)
-                      ? '<span>（本人）</span>'
-                      : `<a class="member-message-link" href="/messages.html?user=${encodeURIComponent(member.user.id)}">发私信</a>`}
-                  ` : '<span>暂未关联站内账号</span>'}
+                  ${member.user
+                    ? `<span>站内账号 @${escapeHtml(member.user.username)}</span>`
+                    : '<span>暂未关联站内账号</span>'}
                 </div>
               </div>
             </article>

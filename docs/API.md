@@ -152,12 +152,18 @@ curl -X PATCH http://127.0.0.1:3100/api/auth/me \
 
 ## 私信 API
 
-以下接口全部需要登录。私信是严格的一对一会话，只有会话双方可以查询和发送消息。
-用户公开摘要只包含 `id`、`username` 和 `displayName`。
+除公开个人主页接口外，以下接口都需要登录。私信是严格的一对一会话，只有会话
+双方可以查询和发送消息。用户公开摘要只包含 `id`、`username` 和 `displayName`。
 
 ### GET /api/users/search
 
 按昵称或姓名搜索可私信用户。查询参数 `q` 必填，不返回当前用户和已禁用账号。
+
+### GET /api/users/{user_id}/profile
+
+返回已启用账号的公开个人主页资料，包括 `id`、`username`、`displayName` 和已关联
+CAS 项目 `projects`。每个项目包含项目 ID、名称、分类、年份以及该用户在项目中的
+成员姓名和身份。项目详情页通过此接口实现“成员头像/姓名 → 个人主页 → 发消息”。
 
 ### GET /api/messages/conversations
 

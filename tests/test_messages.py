@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 import backend.database as database
 from backend.messages import (
+    get_user_profile,
     get_or_create_conversation,
     get_unread_count,
     list_messages,
@@ -39,6 +40,14 @@ class DirectMessageTests(unittest.TestCase):
                     ("student_c", "test", "学生丙"),
                 )
                 self.third_user_id = cursor.lastrowid
+                cursor.execute(
+                    """
+                    UPDATE project_members
+                    SET user_id = %s
+                    WHERE project_id = 1 AND role = 'leader'
+                    """,
+                    (self.first_user_id,),
+                )
 
     def tearDown(self) -> None:
         database._INITIALIZED_DATABASES.clear()
@@ -80,6 +89,16 @@ class DirectMessageTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as content_error:
             send_message(conversation["id"], self.first_user_id, "   ")
         self.assertEqual(content_error.exception.status_code, 422)
+
+    def test_linked_user_profile_contains_cas_project(self) -> None:
+        profile = get_user_profile(self.first_user_id)
+        self.assertEqual(profile["username"], "student_a")
+        self.assertEqual(profile["projects"][0]["id"], 1)
+        self.assertEqual(profile["projects"][0]["memberRole"], "leader")
+
+        with self.assertRaises(HTTPException) as missing_error:
+            get_user_profile(999999)
+        self.assertEqual(missing_error.exception.status_code, 404)
 
 
 if __name__ == "__main__":

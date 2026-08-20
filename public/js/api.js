@@ -115,6 +115,10 @@ async function searchMessageUsers(query) {
   return request(`/users/search?${params.toString()}`);
 }
 
+async function fetchUserProfile(userId) {
+  return request(`/users/${encodeURIComponent(userId)}/profile`);
+}
+
 async function fetchMessageConversations() {
   return request('/messages/conversations');
 }
@@ -366,9 +370,19 @@ function initAuthNav() {
     }
 
     authArea.innerHTML = `
-      <a class="auth-message-entry ${window.location.pathname.endsWith('/messages.html') ? 'active' : ''}" href="/messages.html">
-        私信
-        <span class="auth-message-badge is-hidden" data-message-badge>0</span>
+      <a
+        class="auth-message-entry ${window.location.pathname.endsWith('/messages.html') ? 'active' : ''}"
+        href="/messages.html"
+        aria-label="消息"
+      >
+        <span class="auth-message-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false">
+            <rect x="3.25" y="5.25" width="17.5" height="13.5" rx="2.5"></rect>
+            <path d="m4.5 7 6.1 5a2.2 2.2 0 0 0 2.8 0l6.1-5"></path>
+          </svg>
+        </span>
+        <span class="auth-message-label">消息</span>
+        <span class="auth-message-badge is-hidden" data-message-badge aria-hidden="true">0</span>
       </a>
       <button class="auth-avatar" type="button" data-open-auth aria-label="打开账号面板">
         ${escapeHtml(userInitial(user))}
@@ -380,14 +394,17 @@ function initAuthNav() {
 
   async function refreshUnreadBadge() {
     const badge = authArea.querySelector('[data-message-badge]');
+    const entry = authArea.querySelector('.auth-message-entry');
     if (!badge || !getAuthToken()) return;
     try {
       const result = await fetchUnreadMessageCount();
       const count = Number(result.unreadCount || 0);
       badge.textContent = count > 99 ? '99+' : String(count);
       badge.classList.toggle('is-hidden', count < 1);
+      entry?.setAttribute('aria-label', count > 0 ? `消息，${count} 条未读` : '消息');
     } catch {
       badge.classList.add('is-hidden');
+      entry?.setAttribute('aria-label', '消息');
     }
   }
 

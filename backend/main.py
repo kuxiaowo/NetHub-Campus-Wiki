@@ -35,6 +35,7 @@ from backend.auth import (
 )
 from backend.database import get_db_connection
 from backend.messages import (
+    get_user_profile,
     get_or_create_conversation,
     get_unread_count,
     list_conversations,
@@ -79,6 +80,7 @@ from backend.schemas import (
     UpdateCurrentUserRequest,
     UnreadCountResponse,
     User,
+    UserProfileResponse,
     UserSearchResponse,
     YearbookDetailResponse,
 )
@@ -244,6 +246,13 @@ def user_search(
     """搜索除自己以外的已启用账号。"""
 
     return {"data": search_users(user["id"], q)}
+
+
+@app.get("/api/users/{user_id}/profile", response_model=UserProfileResponse, tags=["messages"])
+def user_profile(user_id: int):
+    """返回账号的公开资料和已关联 CAS 项目。"""
+
+    return {"data": get_user_profile(user_id)}
 
 
 @app.get("/api/messages/conversations", response_model=ConversationListResponse, tags=["messages"])

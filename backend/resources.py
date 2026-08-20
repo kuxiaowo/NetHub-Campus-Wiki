@@ -6,6 +6,7 @@
 
 import re
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -25,6 +26,17 @@ THUMB_MAX_SIZE = (640, 640)
 _PHOTO_DIR_CACHE: dict[str, dict[str, Any]] = {}
 _HOT_TRACK: dict[tuple[str, int, int], float] = {}
 HOT_THROTTLE_SECONDS = 5.0
+
+
+def _sqlite_datetime_timestamp(value: str | None) -> float:
+    """把 SQLite 的 ISO 时间文本转换为可用于降序排列的时间戳。"""
+
+    if not value:
+        return 0
+    try:
+        return datetime.fromisoformat(value).timestamp()
+    except ValueError:
+        return 0
 
 
 class YearbookResourceError(Exception):
@@ -524,7 +536,7 @@ def list_photo_activities(
             key=lambda item: (
                 item["sortOrder"],
                 -item["photoCount"] if sort == "photoCount" else -item["downloads"],
-                -(item["createdAt"].timestamp() if item["createdAt"] else 0),
+                -_sqlite_datetime_timestamp(item["createdAt"]),
             )
         )
     return result

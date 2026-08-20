@@ -27,6 +27,7 @@ Campus Wiki/
 │   ├── projects.html      # CAS 项目库
 │   ├── resources.html     # 资源中心
 │   ├── detail.html        # 项目详情
+│   ├── profile.html       # 关联成员个人主页
 │   ├── messages.html      # 私信中心
 │   ├── css/styles.css
 │   └── js/
@@ -35,6 +36,7 @@ Campus Wiki/
 │       ├── index.js
 │       ├── projects.js
 │       ├── resources.js
+│       ├── profile.js
 │       ├── messages.js
 │       └── detail.js
 ├── docs/API.md            # 详细接口文档
@@ -54,6 +56,18 @@ python3 -m pip install -r requirements.txt
 ### 2. 配置环境变量
 
 复制 `.env.example` 为 `.env`，按部署地址和数据库文件位置修改：
+
+Linux / macOS：
+
+```bash
+cp .env.example .env
+```
+
+Windows PowerShell：
+
+```powershell
+Copy-Item .env.example .env
+```
 
 ```env
 API_PORT=3100
@@ -84,8 +98,11 @@ PHOTO_DIR_CACHE_MINUTES=5
 ### 4. 启动后端 API 服务
 
 ```bash
-uvicorn backend.main:app --host 0.0.0.0 --port 3100 --reload
+python3 -m backend.main
 ```
+
+该命令会读取项目根目录 `.env` 中的 `API_PORT`；配置文件和相对数据库路径都以
+项目根目录为准，不再依赖调试器的当前工作目录。
 
 后端地址：
 
@@ -104,9 +121,14 @@ python3 frontend_server.py
 
 - 首页：http://127.0.0.1:3200/
 - CAS 项目库：http://127.0.0.1:3200/projects.html
+- 成员个人主页：http://127.0.0.1:3200/profile.html?user=2
 - 私信中心：http://127.0.0.1:3200/messages.html
 
 如果后端端口或域名变化，修改 `.env` 中的 `FRONTEND_API_BASE_URL`，然后重启前端服务。后端的 `CORS_ORIGINS` 也要包含当前前端页面的来源，否则浏览器会拦截跨域请求。
+
+使用 VS Code 时，可在“运行和调试”中选择 `Campus Wiki: 前后端` 一次启动两个
+服务；两个启动项都会使用项目根目录及同一份 `.env`，不会再把后端端口硬编码在
+调试配置中。
 
 ## 数据库结构
 
@@ -125,7 +147,7 @@ python3 frontend_server.py
 
 用户系统提供开放注册、登录、当前用户和一对一私信。注册账号默认是普通用户；默认管理员由 `sql/schema.sql` 初始化创建。私信只允许会话双方读取，支持会话列表、用户搜索、未读数、已读状态和 3 秒前端轮询；当前只支持最长 2000 字的文本消息。
 
-CAS 成员和站内账号分开保存：未注册的成员仍会正常显示；注册后，管理员可在项目详情后台把成员记录关联到对应账号。关联成功后，公开项目详情会显示站内昵称和“发私信”入口。修改项目负责人或成员文本时，系统会同步成员记录，并尽量保留姓名未变化成员的账号关联。
+CAS 成员和站内账号分开保存：未注册的成员仍会正常显示；注册后，管理员可在项目详情后台把成员记录关联到对应账号。关联成功后，公开项目详情中的头像和姓名会进入个人主页，再由个人主页发起消息。修改项目负责人或成员文本时，系统会同步成员记录，并尽量保留姓名未变化成员的账号关联。
 
 资源中心采用“查看公开、下载需登录”的权限模型：未登录用户可以浏览资源列表、查看活动照片、打开照片放大预览和阅读 Yearbook 图片页面；点击普通资源文件、Yearbook PDF、活动照片压缩包或单张照片下载时必须登录。前端未登录点击下载会弹出 `抱歉，需要登陆` 并阻止下载。
 
