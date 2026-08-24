@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 _DATABASE_TEMP_DIR = tempfile.TemporaryDirectory()
 os.environ["DATABASE_PATH"] = str(Path(_DATABASE_TEMP_DIR.name) / "campus_wiki_test.db")
-os.environ["AUTH_SECRET_KEY"] = "test-secret-key"
+os.environ["AUTH_SECRET_KEY"] = "test-secret-key-with-at-least-32-bytes"
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

@@ -8,6 +8,7 @@
 后端不再托管前端页面；前端由 frontend_server.py 单独提供静态服务。
 """
 
+from contextlib import asynccontextmanager
 import mimetypes
 import re
 import sys
@@ -27,7 +28,7 @@ from backend.announcements import router as announcements_router
 from backend.comments import router as comments_router
 from backend.messaging import router as messaging_router
 from backend.social import router as social_router
-from backend.config import settings
+from backend.config import settings, validate_runtime_settings
 from backend.auth import (
     authenticate_user,
     change_user_password,
@@ -71,6 +72,15 @@ from backend.schemas import (
     YearbookDetailResponse,
 )
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """启动即校验安全配置，避免服务带着弱密钥监听端口。"""
+
+    validate_runtime_settings()
+    yield
+
+
 # FastAPI 实例集中声明接口元信息，/docs 会根据这些内容生成接口文档。
 app = FastAPI(
     title="Campus Wiki API",
@@ -79,6 +89,7 @@ app = FastAPI(
         "前端由独立静态服务提供。"
     ),
     version="1.1.0",
+    lifespan=lifespan,
     contact={"name": "Campus Wiki Team"},
     openapi_tags=[
         {"name": "system", "description": "服务状态与运行信息。"},

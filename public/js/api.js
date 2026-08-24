@@ -306,7 +306,7 @@ function authDialogTemplate() {
           </label>
           <label>
             <span class="sr-only">密码</span>
-            <input class="input" name="password" type="password" autocomplete="current-password" placeholder="密码" required minlength="8" />
+            <input class="input" name="password" type="password" autocomplete="current-password" placeholder="密码" required minlength="8" maxlength="128" />
           </label>
           <button class="button auth-submit" type="submit">登录</button>
         </form>
@@ -321,22 +321,22 @@ function authDialogTemplate() {
           </label>
           <label>
             <span class="sr-only">密码</span>
-            <input class="input" name="password" type="password" autocomplete="new-password" placeholder="密码（至少 8 位）" required minlength="8" />
+            <input class="input" name="password" type="password" autocomplete="new-password" placeholder="密码（8-128 位）" required minlength="8" maxlength="128" />
           </label>
           <button class="button auth-submit" type="submit">注册并登录</button>
         </form>
         <form id="authPasswordForm" class="auth-form is-hidden">
           <label>
             <span class="sr-only">原密码</span>
-            <input class="input" name="currentPassword" type="password" autocomplete="current-password" placeholder="原密码" required minlength="8" />
+            <input class="input" name="currentPassword" type="password" autocomplete="current-password" placeholder="原密码" required minlength="8" maxlength="128" />
           </label>
           <label>
             <span class="sr-only">新密码</span>
-            <input class="input" name="newPassword" type="password" autocomplete="new-password" placeholder="新密码（至少 8 位）" required minlength="8" />
+            <input class="input" name="newPassword" type="password" autocomplete="new-password" placeholder="新密码（8-128 位）" required minlength="8" maxlength="128" />
           </label>
           <label>
             <span class="sr-only">确认新密码</span>
-            <input class="input" name="confirmPassword" type="password" autocomplete="new-password" placeholder="确认新密码" required minlength="8" />
+            <input class="input" name="confirmPassword" type="password" autocomplete="new-password" placeholder="确认新密码" required minlength="8" maxlength="128" />
           </label>
           <button class="button auth-submit" type="submit">修改密码</button>
         </form>

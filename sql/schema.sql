@@ -115,15 +115,6 @@ WHEN NEW.updated_at = OLD.updated_at BEGIN
   UPDATE photo_activities SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
-INSERT INTO users (username, password_hash, display_name, role, is_active)
-VALUES (
-  'kuxiaowo',
-  'pbkdf2_sha256$260000$sFsreGUvs4sl9blJnDz7-A$pmlfVc0l5Y6jtu13kNneITspjRGRZKeQiZAc7g8gASw',
-  '庞正心',
-  'admin',
-  1
-);
-
 INSERT INTO projects
   (name, leader, members, category, year, icon, description, media,
    cas_creativity, cas_activity, cas_service, popularity, updates)

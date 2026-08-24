@@ -418,7 +418,7 @@ function openAdminModal(title, fields, onSubmit) {
         <label>
           <span>${adminText(field.label)}</span>
           <div class="admin-input-row">
-            <input class="input" name="${adminText(field.name)}" type="${adminText(field.type || 'text')}" value="${adminText(value)}" ${field.required ? 'required' : ''}>
+            <input class="input" name="${adminText(field.name)}" type="${adminText(field.type || 'text')}" value="${adminText(value)}" ${field.required ? 'required' : ''} ${field.minLength ? `minlength="${adminText(field.minLength)}"` : ''} ${field.maxLength ? `maxlength="${adminText(field.maxLength)}"` : ''}>
             ${browseButton}
           </div>
         </label>
@@ -890,7 +890,7 @@ function userFields(user = {}) {
   return [
     { name: 'username', label: '昵称', value: user.username, required: true },
     { name: 'displayName', label: '姓名', value: user.displayName || '' },
-    { name: 'password', label: '密码', type: 'password', required: true },
+    { name: 'password', label: '密码（8-128 位）', type: 'password', required: true, minLength: 8, maxLength: 128 },
     ...permissionFields,
   ];
 }

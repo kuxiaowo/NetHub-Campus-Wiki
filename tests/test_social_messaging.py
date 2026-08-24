@@ -18,11 +18,12 @@ from PIL import Image
 
 _TEMP_DIR = tempfile.TemporaryDirectory()
 os.environ["DATABASE_PATH"] = str(Path(_TEMP_DIR.name) / "campus_wiki_test.db")
-os.environ["AUTH_SECRET_KEY"] = "test-secret-key"
+os.environ["AUTH_SECRET_KEY"] = "test-secret-key-with-at-least-32-bytes"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
 from backend.main import app  # noqa: E402
+from backend.bootstrap_admin import create_initial_admin  # noqa: E402
 from backend.database import get_db_connection  # noqa: E402
 
 
@@ -38,8 +39,9 @@ class SocialMessagingFlowTest(unittest.TestCase):
         upload_buffer = io.BytesIO()
         Image.new("RGB", (10, 10), "purple").save(upload_buffer, format="PNG")
         cls.upload_photo = upload_buffer.getvalue()
+        create_initial_admin("test_admin", "test-admin-password-123", "Test Admin")
         cls.client = TestClient(app)
-        cls.admin_token = cls._login("kuxiaowo", "12345678")
+        cls.admin_token = cls._login("test_admin", "test-admin-password-123")
         cls.alice = cls._register("alice_user", "Alice")
         cls.bob = cls._register("bob_user", "Bob")
         cls.charlie = cls._register("charlie_user", "Charlie")
@@ -73,6 +75,63 @@ class SocialMessagingFlowTest(unittest.TestCase):
     @staticmethod
     def _headers(token: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {token}"}
+
+    def test_00_password_length_limits_cover_all_auth_endpoints(self) -> None:
+        maximum_password = "a" * 128
+        replacement_password = "b" * 128
+        oversized_password = "c" * 129
+
+        registered = self.client.post(
+            "/api/auth/register",
+            json={
+                "username": "max_password_user",
+                "password": maximum_password,
+                "displayName": "Password Limit",
+            },
+        )
+        self.assertEqual(registered.status_code, 200, registered.text)
+
+        login = self.client.post(
+            "/api/auth/login",
+            json={"username": "max_password_user", "password": maximum_password},
+        )
+        self.assertEqual(login.status_code, 200, login.text)
+        token = login.json()["accessToken"]
+
+        changed = self.client.patch(
+            "/api/auth/password",
+            headers=self._headers(token),
+            json={"currentPassword": maximum_password, "newPassword": replacement_password},
+        )
+        self.assertEqual(changed.status_code, 200, changed.text)
+
+        rejected_requests = [
+            self.client.post(
+                "/api/auth/register",
+                json={"username": "oversized_register", "password": oversized_password},
+            ),
+            self.client.post(
+                "/api/auth/login",
+                json={"username": "max_password_user", "password": oversized_password},
+            ),
+            self.client.patch(
+                "/api/auth/password",
+                headers=self._headers(token),
+                json={"currentPassword": oversized_password, "newPassword": replacement_password},
+            ),
+            self.client.patch(
+                "/api/auth/password",
+                headers=self._headers(token),
+                json={"currentPassword": replacement_password, "newPassword": oversized_password},
+            ),
+            self.client.post(
+                "/api/admin/users",
+                headers=self._headers(self.admin_token),
+                json={"username": "oversized_admin", "password": oversized_password},
+            ),
+        ]
+        for response in rejected_requests:
+            self.assertEqual(response.status_code, 422, response.text)
 
     def test_00_resource_types_are_fixed_in_code(self) -> None:
         expected = [
@@ -228,7 +287,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         with get_db_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("PRAGMA user_version")
-                self.assertEqual(cursor.fetchone()["user_version"], 8)
+                self.assertEqual(cursor.fetchone()["user_version"], 9)
                 cursor.execute("PRAGMA table_info(conversation_members)")
                 member_columns = {column["name"] for column in cursor.fetchall()}
                 self.assertNotIn("request_status", member_columns)

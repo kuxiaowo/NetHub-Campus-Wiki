@@ -11,6 +11,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.auth_policy import PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH
+
 
 class HealthResponse(BaseModel):
     """健康检查响应。"""
@@ -44,7 +46,7 @@ class RegisterRequest(BaseModel):
     """用户注册请求。"""
 
     username: str = Field(min_length=3, max_length=32)
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
     displayName: str | None = Field(default=None, max_length=80)
 
 
@@ -52,14 +54,14 @@ class LoginRequest(BaseModel):
     """用户登录请求。"""
 
     username: str
-    password: str
+    password: str = Field(max_length=PASSWORD_MAX_LENGTH)
 
 
 class ChangePasswordRequest(BaseModel):
     """当前用户修改密码请求。"""
 
-    currentPassword: str
-    newPassword: str = Field(min_length=8)
+    currentPassword: str = Field(max_length=PASSWORD_MAX_LENGTH)
+    newPassword: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
 
 
 class UpdateCurrentUserRequest(BaseModel):
