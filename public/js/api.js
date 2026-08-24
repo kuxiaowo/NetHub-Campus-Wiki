@@ -27,9 +27,16 @@ async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    const detail = Array.isArray(error.detail)
-      ? error.detail.map((item) => item.msg).filter(Boolean).join('；')
-      : error.detail;
+    let detail = error.detail;
+    if (Array.isArray(detail)) {
+      detail = detail.map((item) => item.msg).filter(Boolean).join('；');
+    } else if (detail && typeof detail === 'object') {
+      const issueItems = Array.isArray(detail.errors) ? detail.errors : detail.warnings;
+      const issueText = Array.isArray(issueItems)
+        ? issueItems.map((item) => `${item.path || 'document'}：${item.message || '格式不正确'}`).join('\n')
+        : '';
+      detail = [detail.message, issueText].filter(Boolean).join('\n');
+    }
     throw new Error(detail || error.message || `请求失败：${response.status}`);
   }
   return response.json();

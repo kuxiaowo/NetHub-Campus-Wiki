@@ -740,6 +740,234 @@ class SocialMessagingFlowTest(unittest.TestCase):
             ["/CAS/test/activity-1.jpg", "/CAS/test/activity-2.jpg"],
         )
 
+    def test_10_admin_json_import_export(self) -> None:
+        document = {
+            "format": "nethub-campus-wiki-data",
+            "version": 1,
+            "projects": [
+                {
+                    "name": "JSON 导入 CAS",
+                    "category": "导入测试",
+                    "year": 2026,
+                    "icon": "https://example.com/project-icon.png",
+                    "description": "通过统一 JSON 导入的测试项目。",
+                    "cas": {"creativity": True, "activity": False, "service": True},
+                    "popularity": 17,
+                    "members": [
+                        {
+                            "name": "负责人甲",
+                            "role": "leader",
+                            "contactType": "wechat",
+                            "contactValue": "json_leader",
+                        },
+                        {"name": "成员乙", "role": "member", "contactType": None, "contactValue": None},
+                    ],
+                    "updates": [
+                        {
+                            "content": "第一条导入动态",
+                            "images": ["https://example.com/activity.png"],
+                        }
+                    ],
+                }
+            ],
+            "resources": [
+                {
+                    "title": "JSON 导入资源",
+                    "description": "普通资源导入测试。",
+                    "year": 2026,
+                    "category": "other",
+                    "label": "会被规范化",
+                    "hot": 8,
+                    "downloads": 9,
+                    "image": "https://example.com/resource-cover.png",
+                    "resourceUrl": "https://example.com/resource.pdf",
+                }
+            ],
+            "photoActivities": [
+                {
+                    "activity": "JSON 导入照片活动",
+                    "description": "照片活动导入测试。",
+                    "year": 2026,
+                    "hot": 6,
+                    "downloads": 7,
+                    "sortOrder": 30,
+                    "photoDir": None,
+                    "photos": [
+                        {
+                            "title": "测试照片",
+                            "src": "https://example.com/photo.jpg",
+                            "sortOrder": 10,
+                        }
+                    ],
+                }
+            ],
+        }
+        preview = self.client.post(
+            "/api/admin/data-import/preview",
+            headers=self._headers(self.admin_token),
+            json=document,
+        )
+        self.assertEqual(preview.status_code, 200, preview.text)
+        self.assertEqual(
+            preview.json()["summary"],
+            {
+                "projects": 1,
+                "members": 2,
+                "updates": 1,
+                "resources": 1,
+                "photoActivities": 1,
+                "photos": 1,
+            },
+        )
+        self.assertEqual(preview.json()["warnings"], [])
+
+        first_import = self.client.post(
+            "/api/admin/data-import",
+            headers=self._headers(self.admin_token),
+            json=document,
+        )
+        self.assertEqual(first_import.status_code, 200, first_import.text)
+        first_created = first_import.json()["created"]
+        project_id = first_created["projects"][0]["id"]
+        resource_id = first_created["resources"][0]["id"]
+        activity_id = first_created["photoActivities"][0]["id"]
+
+        second_import = self.client.post(
+            "/api/admin/data-import",
+            headers=self._headers(self.admin_token),
+            json=document,
+        )
+        self.assertEqual(second_import.status_code, 200, second_import.text)
+        second_created = second_import.json()["created"]
+        self.assertNotEqual(project_id, second_created["projects"][0]["id"])
+        self.assertNotEqual(resource_id, second_created["resources"][0]["id"])
+        self.assertNotEqual(activity_id, second_created["photoActivities"][0]["id"])
+
+        project_export = self.client.get(
+            f"/api/admin/projects/{project_id}/export",
+            headers=self._headers(self.admin_token),
+        )
+        self.assertEqual(project_export.status_code, 200, project_export.text)
+        self.assertIn("attachment", project_export.headers["content-disposition"])
+        exported_project = project_export.json()
+        self.assertEqual(len(exported_project["projects"]), 1)
+        self.assertEqual(exported_project["resources"], [])
+        self.assertEqual(exported_project["projects"][0]["popularity"], 17)
+        self.assertEqual(exported_project["projects"][0]["members"][0]["contactValue"], "json_leader")
+        self.assertNotIn("id", exported_project["projects"][0])
+
+        resource_export = self.client.get(
+            f"/api/admin/resources/{resource_id}/export",
+            headers=self._headers(self.admin_token),
+        )
+        self.assertEqual(resource_export.status_code, 200, resource_export.text)
+        self.assertEqual(resource_export.json()["resources"][0]["label"], "其他资源")
+        self.assertEqual(resource_export.json()["resources"][0]["hot"], 8)
+
+        activity_export = self.client.get(
+            f"/api/admin/photo-activities/{activity_id}/export",
+            headers=self._headers(self.admin_token),
+        )
+        self.assertEqual(activity_export.status_code, 200, activity_export.text)
+        self.assertEqual(activity_export.json()["photoActivities"][0]["photos"][0]["title"], "测试照片")
+
+        all_export = self.client.get(
+            "/api/admin/data-export",
+            headers=self._headers(self.admin_token),
+        )
+        self.assertEqual(all_export.status_code, 200, all_export.text)
+        self.assertEqual(all_export.json()["format"], "nethub-campus-wiki-data")
+        self.assertGreaterEqual(len(all_export.json()["projects"]), 2)
+        self.assertGreaterEqual(len(all_export.json()["resources"]), 2)
+        self.assertGreaterEqual(len(all_export.json()["photoActivities"]), 2)
+
+        warning_document = {
+            "format": "nethub-campus-wiki-data",
+            "version": 1,
+            "projects": [],
+            "resources": [
+                {
+                    "title": "缺失路径资源",
+                    "description": "用于验证路径预警。",
+                    "year": 2026,
+                    "category": "other",
+                    "label": "其他资源",
+                    "hot": 0,
+                    "downloads": 0,
+                    "image": "/uploads/json-import/missing-cover.png",
+                    "resourceUrl": "/uploads/json-import/missing-resource.pdf",
+                }
+            ],
+            "photoActivities": [],
+        }
+        warning_preview = self.client.post(
+            "/api/admin/data-import/preview",
+            headers=self._headers(self.admin_token),
+            json=warning_document,
+        )
+        self.assertEqual(warning_preview.status_code, 200, warning_preview.text)
+        self.assertEqual(len(warning_preview.json()["warnings"]), 2)
+        refused = self.client.post(
+            "/api/admin/data-import",
+            headers=self._headers(self.admin_token),
+            json=warning_document,
+        )
+        self.assertEqual(refused.status_code, 409, refused.text)
+        confirmed = self.client.post(
+            "/api/admin/data-import?confirmWarnings=true",
+            headers=self._headers(self.admin_token),
+            json=warning_document,
+        )
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) AS total FROM projects")
+                projects_before_invalid = cursor.fetchone()["total"]
+        invalid_document = {
+            **document,
+            "projects": [document["projects"][0], {"name": "字段不完整"}],
+            "resources": [],
+            "photoActivities": [],
+        }
+        invalid = self.client.post(
+            "/api/admin/data-import?confirmWarnings=true",
+            headers=self._headers(self.admin_token),
+            json=invalid_document,
+        )
+        self.assertEqual(invalid.status_code, 422, invalid.text)
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) AS total FROM projects")
+                self.assertEqual(cursor.fetchone()["total"], projects_before_invalid)
+
+        external_directory_document = {
+            **document,
+            "projects": [],
+            "resources": [],
+            "photoActivities": [
+                {
+                    **document["photoActivities"][0],
+                    "photoDir": "https://example.com/photos/",
+                    "photos": [],
+                }
+            ],
+        }
+        external_directory = self.client.post(
+            "/api/admin/data-import/preview",
+            headers=self._headers(self.admin_token),
+            json=external_directory_document,
+        )
+        self.assertEqual(external_directory.status_code, 422, external_directory.text)
+        self.assertIn("public", external_directory.text)
+
+        template = self.client.get(
+            "/api/admin/data-template",
+            headers=self._headers(self.admin_token),
+        )
+        self.assertEqual(template.status_code, 200, template.text)
+        self.assertEqual(template.json()["version"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

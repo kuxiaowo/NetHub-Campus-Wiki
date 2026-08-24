@@ -1559,6 +1559,73 @@ button:disabled,
 .admin-workspace { display: grid; gap: 18px; }
 .admin-view { display: none; min-width: 0; }
 .admin-view.active { display: grid; gap: 16px; }
+.admin-transfer-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.admin-transfer-card {
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+}
+.admin-transfer-card h3,
+.admin-transfer-card p { margin: 0; }
+.admin-transfer-card > p {
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+.admin-transfer-file {
+  display: grid;
+  gap: 8px;
+  color: var(--text-main);
+  font-weight: 800;
+}
+.admin-transfer-result {
+  min-height: 92px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+.admin-transfer-result > p { margin: 0; }
+.admin-transfer-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.admin-transfer-summary span {
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.admin-transfer-summary strong {
+  color: var(--text-main);
+  font-size: 20px;
+}
+.admin-transfer-warning {
+  margin: 12px 0 0;
+  padding: 12px 12px 12px 30px;
+  border: 1px solid #f5d38a;
+  border-radius: 8px;
+  background: #fff9e8;
+  color: #8a5a00;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.admin-transfer-error {
+  color: #b42318;
+  white-space: pre-wrap;
+}
+.admin-transfer-success {
+  color: #166534;
+  font-weight: 800;
+}
 .admin-section-head {
   display: flex;
   justify-content: space-between;
@@ -2730,6 +2797,8 @@ button:disabled,
 .admin-table-link { color: var(--primary); font-weight: 800; white-space: nowrap; }
 
 @media (max-width: 760px) {
+  .admin-transfer-grid { grid-template-columns: 1fr; }
+  .admin-transfer-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .announcement-list-hero,
   .resource-detail-card,
   .resource-detail-card.is-video-resource { grid-template-columns: 1fr; }

@@ -62,6 +62,25 @@ class FrontendServerTest(unittest.TestCase):
         self.assertEqual(content_type, "application/javascript")
         self.assertIn(b"http://127.0.0.1:33100/api", body)
 
+    def test_admin_json_transfer_assets_are_served(self) -> None:
+        status, body, content_type = self.fetch("/admin.html")
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "text/html")
+        self.assertIn(b'data-admin-view="transfer"', body)
+        self.assertIn(b'id="exportAllDataButton"', body)
+        self.assertIn(b'id="dataImportInput"', body)
+        self.assertIn(b'id="previewDataImportButton"', body)
+        self.assertIn(b'id="confirmDataImportButton"', body)
+
+        status, body, content_type = self.fetch("/js/admin.js")
+        self.assertEqual(status, 200)
+        self.assertIn(content_type, {"application/javascript", "text/javascript"})
+        self.assertIn(b"/admin/data-import/preview", body)
+        self.assertIn(b"/admin/data-export", body)
+        self.assertIn(b"data-export-project", body)
+        self.assertIn(b"data-export-resource", body)
+        self.assertIn(b"data-export-photo-activity", body)
+
     def test_teacher_video_navigation_and_rendering_assets(self) -> None:
         for path in (
             "/index.html",

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import JSONResponse
 from backend.auth import (
     create_user,
     format_user,
@@ -23,6 +24,14 @@ from backend.auth import (
     validate_username,
 )
 from backend.database import get_db_connection
+from backend.data_transfer import (
+    TransferValidationError,
+    export_transfer_document,
+    import_transfer_document,
+    transfer_summary,
+    transfer_template,
+    validate_transfer_document,
+)
 from backend.projects import (
     format_project,
     list_project_members,
@@ -405,6 +414,85 @@ def _apply_reorder(cursor: Any, table: str, items: list[dict[str, int]], missing
             f"UPDATE `{table}` SET sort_order = %s WHERE id = %s",
             (item["sortOrder"], item["id"]),
         )
+
+
+def _download_json(document: dict[str, Any], filename: str) -> JSONResponse:
+    return JSONResponse(
+        content=document,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _validated_transfer(payload: Any) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    try:
+        return validate_transfer_document(payload)
+    except TransferValidationError as error:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "JSON 导入验证失败", "errors": error.errors},
+        ) from error
+
+
+@router.get("/data-export")
+def admin_export_all(_: dict[str, Any] = Depends(require_admin_user)):
+    return _download_json(export_transfer_document(), "nethub-data-export.json")
+
+
+@router.get("/data-template")
+def admin_export_template(_: dict[str, Any] = Depends(require_admin_user)):
+    return _download_json(transfer_template(), "nethub-data-template.json")
+
+
+@router.get("/projects/{project_id}/export")
+def admin_export_project(project_id: int, _: dict[str, Any] = Depends(require_admin_user)):
+    try:
+        document = export_transfer_document(project_id=project_id)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return _download_json(document, f"nethub-project-{project_id}.json")
+
+
+@router.get("/resources/{resource_id}/export")
+def admin_export_resource(resource_id: int, _: dict[str, Any] = Depends(require_admin_user)):
+    try:
+        document = export_transfer_document(resource_id=resource_id)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return _download_json(document, f"nethub-resource-{resource_id}.json")
+
+
+@router.get("/photo-activities/{activity_id}/export")
+def admin_export_photo_activity(activity_id: int, _: dict[str, Any] = Depends(require_admin_user)):
+    try:
+        document = export_transfer_document(activity_id=activity_id)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return _download_json(document, f"nethub-photo-activity-{activity_id}.json")
+
+
+@router.post("/data-import/preview")
+def admin_preview_data_import(
+    payload: dict[str, Any],
+    _: dict[str, Any] = Depends(require_admin_user),
+):
+    document, warnings = _validated_transfer(payload)
+    return {"ok": True, "summary": transfer_summary(document), "warnings": warnings}
+
+
+@router.post("/data-import")
+def admin_import_data(
+    payload: dict[str, Any],
+    confirm_warnings: bool = Query(default=False, alias="confirmWarnings"),
+    _: dict[str, Any] = Depends(require_admin_user),
+):
+    document, warnings = _validated_transfer(payload)
+    if warnings and not confirm_warnings:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "存在缺失或类型不符的站内路径，请确认预警后再导入", "warnings": warnings},
+        )
+    result = import_transfer_document(document)
+    return {"ok": True, **result, "warnings": warnings}
 
 
 @router.get("/resource-categories")

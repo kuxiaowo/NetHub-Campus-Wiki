@@ -721,6 +721,33 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 所有管理后台接口都以 `/api/admin` 开头，并且必须携带 `Authorization: Bearer <accessToken>`。只有 `role` 为 `admin` 的用户可以访问。未登录返回 `401 Unauthorized`，普通用户返回 `403 Forbidden`。
 
+### JSON 数据导入/导出
+
+JSON 迁移覆盖 CAS 项目（含成员联系方式与动态）、普通资源、活动照片及其旧版单张照片记录。路径字段只保存 `public/` 下的 URL（如 `/CAS/ride/icon.png`）或 `http(s)` URL，不传输图片、PDF、视频或压缩包本身。`yearbook.resourceUrl` 和活动的 `photoDir` 必须使用 `public/` 站内目录；图片、视频及普通资源地址可使用外部 `http(s)` URL。数据库 ID、用户账号绑定及创建/更新时间不会导出。
+
+- `GET /api/admin/data-export`：整体导出全部项目和资源。
+- `GET /api/admin/data-template`：下载包含三类数据示例的模板。
+- `GET /api/admin/projects/{project_id}/export`：单独导出一个 CAS 项目。
+- `GET /api/admin/resources/{resource_id}/export`：单独导出一个普通资源。
+- `GET /api/admin/photo-activities/{activity_id}/export`：单独导出一个照片活动。
+- `POST /api/admin/data-import/preview`：只验证并返回数量汇总和路径预警，不写数据库。
+- `POST /api/admin/data-import?confirmWarnings=true`：整批写入；存在路径预警时必须传 `confirmWarnings=true`。
+
+导入文件使用统一信封，因此可以把单个项目/资源放在对应数组中，也可以一次放入多个不同类型的数据：
+
+```json
+{
+  "format": "nethub-campus-wiki-data",
+  "version": 1,
+  "exportedAt": "2026-08-24T12:00:00Z",
+  "projects": [],
+  "resources": [],
+  "photoActivities": []
+}
+```
+
+预检成功返回 `summary`（项目、成员、动态、普通资源、照片活动和照片条目数量）及 `warnings`。字段错误、未知字段或格式版本不支持时返回 `422`，且不写入任何记录；站内路径不存在或类型不符时预检仍成功，但正式导入未确认预警会返回 `409`。每次成功导入都创建新记录，重复导入同一文件会继续新增，不做去重或覆盖。整批导入在一个数据库事务内执行，数据库写入失败会全部回滚。
+
 ### 用户管理
 
 - `GET /api/admin/users`：查询用户列表，支持 `search`、`role`、`isActive`。

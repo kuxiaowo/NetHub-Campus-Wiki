@@ -34,6 +34,8 @@ const adminState = {
   dragState: null,
   modalDragItem: null,
   dragJustEnded: false,
+  importDocument: null,
+  importPreview: null,
 };
 
 const adminEls = {};
@@ -58,6 +60,123 @@ function adminNumber(value, fallback = 0) {
 
 function adminEndpoint(path, options = {}) {
   return request(path, options);
+}
+
+async function downloadAdminJson(path, filename) {
+  const documentData = await adminEndpoint(path);
+  const blob = new Blob([`${JSON.stringify(documentData, null, 2)}\n`], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+const TRANSFER_SUMMARY_LABELS = {
+  projects: 'CAS 项目',
+  members: '项目成员',
+  updates: '项目动态',
+  resources: '普通资源',
+  photoActivities: '照片活动',
+  photos: '照片条目',
+};
+
+function transferSummaryMarkup(summary = {}) {
+  return `
+    <div class="admin-transfer-summary">
+      ${Object.entries(TRANSFER_SUMMARY_LABELS).map(([key, label]) => `
+        <span><strong>${adminText(summary[key] || 0)}</strong>${adminText(label)}</span>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderImportPreview(preview) {
+  const warnings = Array.isArray(preview.warnings) ? preview.warnings : [];
+  adminEls.dataImportResult.innerHTML = `
+    ${transferSummaryMarkup(preview.summary)}
+    ${warnings.length ? `
+      <ul class="admin-transfer-warning">
+        ${warnings.map((item) => `<li><strong>${adminText(item.path)}</strong>：${adminText(item.message)}</li>`).join('')}
+      </ul>
+    ` : '<p class="admin-transfer-success">检查通过，没有发现缺失的站内路径。</p>'}
+  `;
+  adminEls.confirmDataImportButton.textContent = warnings.length ? '确认预警并导入' : '确认导入';
+  adminEls.confirmDataImportButton.classList.remove('is-hidden');
+  adminEls.confirmDataImportButton.disabled = false;
+}
+
+function resetImportPreview(message = '请选择由本站导出或按照模板编写的 JSON 文件。') {
+  adminState.importDocument = null;
+  adminState.importPreview = null;
+  adminEls.confirmDataImportButton.classList.add('is-hidden');
+  adminEls.confirmDataImportButton.disabled = true;
+  adminEls.previewDataImportButton.disabled = !adminEls.dataImportInput.files?.length;
+  adminEls.dataImportResult.innerHTML = `<p class="admin-muted">${adminText(message)}</p>`;
+}
+
+async function previewDataImport() {
+  const file = adminEls.dataImportInput.files?.[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    resetImportPreview('JSON 文件不能超过 5 MB。资源文件应通过路径引用，不要写成 Base64。');
+    adminEls.previewDataImportButton.disabled = true;
+    adminEls.dataImportResult.querySelector('p')?.classList.add('admin-transfer-error');
+    return;
+  }
+  adminEls.previewDataImportButton.disabled = true;
+  adminEls.confirmDataImportButton.classList.add('is-hidden');
+  adminEls.dataImportResult.innerHTML = '<p class="admin-muted">正在解析并检查 JSON...</p>';
+  try {
+    const documentData = JSON.parse(await file.text());
+    const preview = await adminEndpoint('/admin/data-import/preview', {
+      method: 'POST',
+      body: JSON.stringify(documentData),
+    });
+    adminState.importDocument = documentData;
+    adminState.importPreview = preview;
+    renderImportPreview(preview);
+  } catch (error) {
+    adminState.importDocument = null;
+    adminState.importPreview = null;
+    adminEls.dataImportResult.innerHTML = `<p class="admin-transfer-error">${adminText(error.message)}</p>`;
+  } finally {
+    adminEls.previewDataImportButton.disabled = false;
+  }
+}
+
+async function confirmDataImport() {
+  if (!adminState.importDocument || !adminState.importPreview) return;
+  const summary = adminState.importPreview.summary || {};
+  const total = Number(summary.projects || 0) + Number(summary.resources || 0) + Number(summary.photoActivities || 0);
+  if (!window.confirm(`确认新增 ${total} 条项目/资源记录？再次导入同一文件仍会继续新增。`)) return;
+  const hasWarnings = Boolean(adminState.importPreview.warnings?.length);
+  adminEls.confirmDataImportButton.disabled = true;
+  adminEls.previewDataImportButton.disabled = true;
+  adminEls.dataImportResult.insertAdjacentHTML('beforeend', '<p class="admin-muted">正在整批导入...</p>');
+  try {
+    const result = await adminEndpoint(`/admin/data-import?confirmWarnings=${hasWarnings ? 'true' : 'false'}`, {
+      method: 'POST',
+      body: JSON.stringify(adminState.importDocument),
+    });
+    adminEls.dataImportResult.innerHTML = `
+      <p class="admin-transfer-success">导入完成。所有记录已作为新数据写入。</p>
+      ${transferSummaryMarkup(result.summary)}
+      <p class="admin-muted">若需再次导入，请重新点击“检查并预览”。</p>
+    `;
+    adminState.importPreview = null;
+    adminEls.confirmDataImportButton.classList.add('is-hidden');
+    adminState.projectMetaLoaded = false;
+    adminState.resourceMetaLoaded = false;
+  } catch (error) {
+    adminEls.dataImportResult.innerHTML = `<p class="admin-transfer-error">${adminText(error.message)}</p>`;
+    adminEls.confirmDataImportButton.disabled = false;
+  } finally {
+    adminEls.previewDataImportButton.disabled = false;
+  }
 }
 
 function buildQuery(params) {
@@ -953,6 +1072,7 @@ function adminProjectDetail(project) {
       </div>
       <div class="admin-detail-actions">
         <button class="button secondary compact" type="button" data-back-project-list>返回列表</button>
+        <button class="button secondary compact" type="button" data-export-project="${adminText(project.id)}">导出 JSON</button>
         <button class="button compact" type="button" data-edit-project="${adminText(project.id)}">编辑基本信息</button>
       </div>
     </div>
@@ -1564,7 +1684,8 @@ function openResourceModal(resource) {
     if (actions) {
       actions.insertAdjacentHTML(
         'afterbegin',
-        `<button class="button secondary danger" type="button" data-delete-resource-from-modal="${adminText(resource.id)}">删除资源</button>`,
+        `<button class="button secondary danger" type="button" data-delete-resource-from-modal="${adminText(resource.id)}">删除资源</button>
+         <button class="button secondary" type="button" data-export-resource="${adminText(resource.id)}">导出 JSON</button>`,
       );
     }
   }
@@ -1827,7 +1948,8 @@ function openActivityModal(activity) {
     if (actions) {
       actions.insertAdjacentHTML(
         'afterbegin',
-        `<button class="button secondary danger" type="button" data-delete-activity-from-modal="${adminText(activity.id)}">删除活动</button>`,
+        `<button class="button secondary danger" type="button" data-delete-activity-from-modal="${adminText(activity.id)}">删除活动</button>
+         <button class="button secondary" type="button" data-export-photo-activity="${adminText(activity.id)}">导出 JSON</button>`,
       );
     }
   }
@@ -1856,6 +1978,20 @@ function bindAdminEvents() {
     clearAuthSession();
     window.location.href = '/index.html';
   });
+  adminEls.exportAllDataButton.addEventListener('click', () => {
+    downloadAdminJson('/admin/data-export', 'nethub-data.json')
+      .catch((error) => window.alert(error.message));
+  });
+  adminEls.downloadDataTemplateButton.addEventListener('click', () => {
+    downloadAdminJson('/admin/data-template', 'nethub-data-template.json')
+      .catch((error) => window.alert(error.message));
+  });
+  adminEls.dataImportInput.addEventListener('change', () => {
+    const file = adminEls.dataImportInput.files?.[0];
+    resetImportPreview(file ? `已选择：${file.name}。请先检查并预览。` : undefined);
+  });
+  adminEls.previewDataImportButton.addEventListener('click', previewDataImport);
+  adminEls.confirmDataImportButton.addEventListener('click', confirmDataImport);
   adminEls.fileUpButton.addEventListener('click', () => loadFiles(parentPublicPath(adminState.filePath)));
   adminEls.uploadButton.addEventListener('click', uploadToCurrentDirectory);
 
@@ -2081,12 +2217,24 @@ function bindAdminEvents() {
       const project = findAdminProject(target.dataset.editProjectUpdates);
       if (project) openProjectUpdatesModal(project);
     }
+    if (target.dataset.exportProject) {
+      downloadAdminJson(
+        `/admin/projects/${target.dataset.exportProject}/export`,
+        `nethub-project-${target.dataset.exportProject}.json`,
+      ).catch((error) => window.alert(error.message));
+    }
     if (target.dataset.adminResourceCategory !== undefined) {
       selectResourceCategory(target.dataset.adminResourceCategory);
       loadResourceManagementView();
     }
     if (target.dataset.editResource) {
       openResourceModal(adminState.resources.find((item) => String(item.id) === target.dataset.editResource));
+    }
+    if (target.dataset.exportResource) {
+      downloadAdminJson(
+        `/admin/resources/${target.dataset.exportResource}/export`,
+        `nethub-resource-${target.dataset.exportResource}.json`,
+      ).catch((error) => window.alert(error.message));
     }
     if (target.dataset.adminYearbookResourceId) {
       openAdminYearbook(Number(target.dataset.adminYearbookResourceId));
@@ -2127,6 +2275,12 @@ function bindAdminEvents() {
     }
     if (target.dataset.editActivity) {
       openActivityModal(adminState.activities.find((item) => String(item.id) === target.dataset.editActivity));
+    }
+    if (target.dataset.exportPhotoActivity) {
+      downloadAdminJson(
+        `/admin/photo-activities/${target.dataset.exportPhotoActivity}/export`,
+        `nethub-photo-activity-${target.dataset.exportPhotoActivity}.json`,
+      ).catch((error) => window.alert(error.message));
     }
     if (target.dataset.deleteActivity) deleteActivity(target.dataset.deleteActivity);
   });
@@ -2177,6 +2331,12 @@ async function initAdmin() {
     uploadInput: adminQuery('#adminUploadInput'),
     uploadButton: adminQuery('#adminUploadButton'),
     uploadMessage: adminQuery('#adminUploadMessage'),
+    exportAllDataButton: adminQuery('#exportAllDataButton'),
+    downloadDataTemplateButton: adminQuery('#downloadDataTemplateButton'),
+    dataImportInput: adminQuery('#dataImportInput'),
+    previewDataImportButton: adminQuery('#previewDataImportButton'),
+    confirmDataImportButton: adminQuery('#confirmDataImportButton'),
+    dataImportResult: adminQuery('#dataImportResult'),
     createUserButton: adminQuery('#createUserButton'),
     refreshUsers: adminQuery('#refreshUsers'),
     userSearch: adminQuery('#userSearch'),

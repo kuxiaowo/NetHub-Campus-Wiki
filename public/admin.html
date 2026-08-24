@@ -21,6 +21,7 @@
         <button class="admin-nav-item active" type="button" data-admin-view="users" aria-pressed="true">用户管理</button>
         <button class="admin-nav-item" type="button" data-admin-view="people" aria-pressed="false">人员与认领</button>
         <button class="admin-nav-item" type="button" data-admin-view="files" aria-pressed="false">文件管理</button>
+        <button class="admin-nav-item" type="button" data-admin-view="transfer" aria-pressed="false">数据导入/导出</button>
         <button class="admin-nav-item" type="button" data-admin-view="projects" aria-pressed="false">CAS 项目管理</button>
         <button class="admin-nav-item" type="button" data-admin-view="resources" aria-pressed="false">资源管理</button>
         <button class="admin-nav-item" type="button" data-admin-view="community" aria-pressed="false">公告与留言</button>
@@ -122,6 +123,42 @@
               <button id="adminUploadButton" class="button compact" type="button">上传文件</button>
               <div id="adminUploadMessage" class="auth-message" aria-live="polite"></div>
             </aside>
+          </div>
+        </section>
+
+        <section class="admin-view" data-admin-panel="transfer">
+          <div class="admin-section-head">
+            <div>
+              <h2>数据导入/导出</h2>
+              <p>迁移 CAS 项目、普通资源和活动照片。JSON 只保存资源路径，不包含图片、PDF 或视频文件本身。</p>
+            </div>
+          </div>
+
+          <div class="admin-transfer-grid">
+            <section class="card admin-transfer-card">
+              <h3>导出数据</h3>
+              <p>整体导出会把当前全部项目、成员联系方式、动态、资源、活动照片及统计值写入一个 JSON 文件。</p>
+              <div class="admin-detail-actions">
+                <button id="exportAllDataButton" class="button" type="button">导出全部数据</button>
+                <button id="downloadDataTemplateButton" class="button secondary" type="button">下载 JSON 模板</button>
+              </div>
+            </section>
+
+            <section class="card admin-transfer-card">
+              <h3>导入 JSON</h3>
+              <p>每次导入都会创建新记录，不会覆盖或合并已有数据。单个文件最大 5 MB。</p>
+              <label class="admin-transfer-file">
+                <span>选择 JSON 文件</span>
+                <input id="dataImportInput" class="input" type="file" accept="application/json,.json" />
+              </label>
+              <div class="admin-detail-actions">
+                <button id="previewDataImportButton" class="button secondary" type="button" disabled>检查并预览</button>
+                <button id="confirmDataImportButton" class="button is-hidden" type="button" disabled>确认导入</button>
+              </div>
+              <div id="dataImportResult" class="admin-transfer-result" aria-live="polite">
+                <p class="admin-muted">请选择由本站导出或按照模板编写的 JSON 文件。</p>
+              </div>
+            </section>
           </div>
         </section>
 
@@ -354,6 +391,6 @@
 
   <script src="/js/config.js"></script>
   <script src="/js/api.js?v=nethub-social3"></script>
-  <script src="/js/admin.js?v=nethub-comments1"></script>
+  <script src="/js/admin.js?v=nethub-transfer1"></script>
 </body>
 </html>
