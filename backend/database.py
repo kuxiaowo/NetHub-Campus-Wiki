@@ -7,11 +7,18 @@
 import sqlite3
 import threading
 import re
+import json
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
 from backend.config import PROJECT_ROOT, get_database_path
+from backend.project_assets import (
+    ProjectAssetError,
+    infer_asset_dir,
+    normalize_asset_dir,
+    normalize_project_updates,
+)
 
 _SCHEMA_PATH = PROJECT_ROOT / "sql" / "schema.sql"
 _MIGRATIONS_PATH = PROJECT_ROOT / "sql" / "migrations"
@@ -188,6 +195,49 @@ def _backfill_project_members(connection: sqlite3.Connection) -> None:
             )
 
 
+def _backfill_project_assets(connection: sqlite3.Connection) -> None:
+    """Upgrade legacy CAS asset URLs after migration 008 added ``asset_dir``."""
+
+    columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(projects)").fetchall()
+    }
+    if "asset_dir" not in columns:
+        return
+
+    projects = connection.execute(
+        "SELECT id, icon, updates, asset_dir FROM projects ORDER BY id"
+    ).fetchall()
+    for project in projects:
+        raw_asset_dir = project["asset_dir"]
+        asset_dir = None
+        if raw_asset_dir:
+            try:
+                asset_dir = normalize_asset_dir(raw_asset_dir)
+            except ProjectAssetError:
+                asset_dir = None
+        if asset_dir is None:
+            asset_dir = infer_asset_dir(project["icon"], project["updates"])
+
+        try:
+            updates = normalize_project_updates(
+                project["updates"],
+                asset_dir,
+                allow_legacy=True,
+            )
+        except ProjectAssetError:
+            # Preserve malformed legacy content for the compatibility formatter;
+            # an administrator can repair it after assigning an asset directory.
+            continue
+
+        serialized = json.dumps(updates, ensure_ascii=False)
+        if asset_dir != raw_asset_dir or serialized != (project["updates"] or "[]"):
+            connection.execute(
+                "UPDATE projects SET asset_dir = ?, updates = ? WHERE id = ?",
+                (asset_dir, serialized, project["id"]),
+            )
+
+
 def _initialize_database(database_path: Path) -> None:
     resolved_path = database_path.resolve()
     if resolved_path in _INITIALIZED_DATABASES:
@@ -219,6 +269,7 @@ def _initialize_database(database_path: Path) -> None:
                 user_version = migrated_version
 
             _backfill_project_members(connection)
+            _backfill_project_assets(connection)
             connection.commit()
             _INITIALIZED_DATABASES.add(resolved_path)
         finally:

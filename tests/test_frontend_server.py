@@ -92,6 +92,10 @@ class FrontendServerTest(unittest.TestCase):
         self.assertIn(b"data-export-project", body)
         self.assertIn(b"data-export-resource", body)
         self.assertIn(b"data-export-photo-activity", body)
+        self.assertIn(b"name: 'assetDir'", body)
+        self.assertIn(b"data-project-update-photos", body)
+        self.assertIn(b"/updates/reorder", body)
+        self.assertIn(b"data-browse-relative-to", body)
         project_detail = body.split(b"function adminProjectDetail", 1)[1].split(
             b"function findAdminProject", 1
         )[0]

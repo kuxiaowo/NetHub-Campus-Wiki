@@ -385,7 +385,7 @@ function openAdminModal(title, fields, onSubmit) {
       }
       if (field.type === 'textarea') {
         const browseButton = field.browse
-          ? `<button class="button secondary compact" type="button" data-browse-target="${adminText(field.name)}" data-browse-mode="${adminText(field.browse)}">浏览</button>`
+          ? `<button class="button secondary compact" type="button" data-browse-target="${adminText(field.name)}" data-browse-mode="${adminText(field.browse)}" data-browse-root="${adminText(field.browseRoot || '')}" data-browse-relative-to="${adminText(field.browseRelativeTo || '')}">浏览</button>`
           : '';
         return `
           <label>
@@ -412,7 +412,7 @@ function openAdminModal(title, fields, onSubmit) {
         `;
       }
       const browseButton = field.browse
-        ? `<button class="button secondary compact" type="button" data-browse-target="${adminText(field.name)}" data-browse-mode="${adminText(field.browse)}">浏览</button>`
+        ? `<button class="button secondary compact" type="button" data-browse-target="${adminText(field.name)}" data-browse-mode="${adminText(field.browse)}" data-browse-root="${adminText(field.browseRoot || '')}" data-browse-relative-to="${adminText(field.browseRelativeTo || '')}">浏览</button>`
         : '';
       return `
         <label>
@@ -523,8 +523,11 @@ function renderFileRows(items, { selectable = false, mode = 'fileOrFolder' } = {
     ],
     rows,
     (row) => {
-      const canChoose = selectable
-        && ((row.type === 'file' && mode !== 'folder') || (row.type === 'folder' && mode !== 'file'));
+      const isSupportedImage = /\.(jpe?g|png|webp|gif|avif)$/i.test(row.name || '');
+      const canChoose = selectable && (
+        (row.type === 'file' && mode !== 'folder' && (mode !== 'image' || isSupportedImage))
+        || (row.type === 'folder' && mode !== 'file' && mode !== 'image')
+      );
       return canChoose
         ? `<button class="button secondary compact" type="button" data-pick-file-url="${adminText(row.url)}">选择</button>`
         : '';
@@ -566,20 +569,27 @@ async function uploadToCurrentDirectory() {
   }
 }
 
-async function openFilePicker(inputName, mode) {
+function normalizedPickerPath(path) {
+  return String(path || '').replace(/^\/+|\/+$/g, '');
+}
+
+async function openFilePicker(inputName, mode, root = '', relativeTo = '') {
+  const normalizedRoot = normalizedPickerPath(root);
   adminState.picker = {
     target: adminEls.modalForm.elements[inputName],
     mode,
-    path: '',
+    path: normalizedRoot,
+    root: normalizedRoot,
+    relativeTo: publicFolderUrl(normalizedPickerPath(relativeTo)),
     items: [],
   };
   adminEls.filePickerTitle.textContent = mode === 'file'
     ? '选择文件'
-    : (mode === 'folder' ? '选择文件夹' : '选择文件或文件夹');
-  adminEls.pickCurrentFolder.classList.toggle('is-hidden', mode === 'file');
+    : (mode === 'image' ? '选择项目图片' : (mode === 'folder' ? '选择文件夹' : '选择文件或文件夹'));
+  adminEls.pickCurrentFolder.classList.toggle('is-hidden', mode === 'file' || mode === 'image');
   adminEls.filePickerModal.classList.add('is-open');
   adminEls.filePickerModal.setAttribute('aria-hidden', 'false');
-  await loadPickerFiles('');
+  await loadPickerFiles(normalizedRoot);
 }
 
 async function loadPickerFiles(path = adminState.picker?.path || '') {
@@ -596,11 +606,15 @@ async function loadPickerFiles(path = adminState.picker?.path || '') {
 
 function chooseFileUrl(url) {
   const target = adminState.picker?.target;
+  const relativeTo = adminState.picker?.relativeTo;
+  const selectedValue = relativeTo && relativeTo !== '/' && url.startsWith(relativeTo)
+    ? url.slice(relativeTo.length)
+    : url;
   if (target?.tagName === 'TEXTAREA') {
     const currentValue = target.value.trimEnd();
-    target.value = currentValue ? `${currentValue}\n${url}` : url;
+    target.value = currentValue ? `${currentValue}\n${selectedValue}` : selectedValue;
   } else if (target) {
-    target.value = url;
+    target.value = selectedValue;
   }
   adminState.picker = null;
   closeFilePicker();
@@ -993,14 +1007,22 @@ function normalizeAdminProjectUpdates(rawUpdates) {
     if (item && typeof item === 'object') {
       const rawImages = item.images || item.photos || [];
       return {
+        id: String(item.id || '').trim(),
         content: String(item.content || item.text || item.body || '').trim(),
         images: (Array.isArray(rawImages) ? rawImages : linesToList(rawImages))
           .map((image) => String(image || '').trim())
           .filter(Boolean),
       };
     }
-    return { content: String(item || '').trim(), images: [] };
+    return { id: '', content: String(item || '').trim(), images: [] };
   }).filter((item) => item.content || item.images.length);
+}
+
+function projectAssetUrl(project, path) {
+  const value = String(path || '').trim();
+  if (!value || value.startsWith('/') || /^https?:\/\//i.test(value)) return value;
+  const root = String(project.assetDir || '').replace(/\/+$/, '');
+  return root ? `${root}/${value}` : value;
 }
 
 function adminProjectUpdates(project) {
@@ -1016,7 +1038,7 @@ function adminProjectUpdates(project) {
             ${visibleImages.length ? `
               <div class="admin-project-update-photos">
                 ${visibleImages.map((image, index) => `
-                  <img src="${adminText(safeExternalUrl(image))}" alt="动态照片 ${index + 1}" loading="lazy">
+                  <img src="${adminText(safeExternalUrl(projectAssetUrl(project, image)))}" alt="动态照片 ${index + 1}" loading="lazy">
                 `).join('')}
                 ${update.images.length > visibleImages.length ? `<span>+${update.images.length - visibleImages.length}</span>` : ''}
               </div>
@@ -1056,6 +1078,8 @@ function adminProjectDetail(project) {
     <section>
       <h2>项目简介</h2>
       <p>${adminText(project.description)}</p>
+      <p class="admin-muted">资源目录：${adminText(project.assetDir || '尚未配置')}</p>
+      ${project.assetDirWarning ? `<p class="admin-transfer-warning">${adminText(project.assetDirWarning)}</p>` : ''}
     </section>
     <section>
       <div class="admin-media-toolbar">
@@ -1084,7 +1108,14 @@ function projectBasicFields(project = {}) {
     { name: 'name', label: '项目名称', value: project.name, required: true },
     { name: 'category', label: '分类', value: project.category, required: true },
     { name: 'year', label: '年份', value: project.year || new Date().getFullYear(), type: 'number', required: true },
-    { name: 'icon', label: '图标 URL', value: project.icon || '', browse: 'file' },
+    {
+      name: 'assetDir',
+      label: '项目资源目录',
+      value: project.assetDir || '',
+      required: true,
+      browse: 'folder',
+      browseRoot: '/CAS/',
+    },
     { name: 'description', label: '简介', value: project.description, type: 'textarea', required: true },
     { name: 'casCreativity', label: 'CAS Creativity', value: project.cas?.creativity, type: 'checkbox' },
     { name: 'casActivity', label: 'CAS Activity', value: project.cas?.activity, type: 'checkbox' },
@@ -1123,12 +1154,16 @@ function openProjectModal(project = {}) {
 
 let projectUpdateEditorSequence = 0;
 
-function projectUpdateEditorItem(update = {}) {
-  const normalized = normalizeAdminProjectUpdates([update])[0] || { content: '', images: [] };
+function projectUpdateEditorItem(update = {}, project = adminState.currentProject || {}) {
+  const normalized = normalizeAdminProjectUpdates([update])[0] || {
+    id: String(update.id || ''),
+    content: String(update.content || ''),
+    images: Array.isArray(update.images) ? update.images : [],
+  };
   projectUpdateEditorSequence += 1;
   const imageFieldName = `projectUpdateImages${projectUpdateEditorSequence}`;
   return `
-    <div class="admin-project-update-editor-item admin-sortable-list-item" draggable="true" data-sortable-list-item data-project-update-editor-item>
+    <div class="admin-project-update-editor-item admin-sortable-list-item" draggable="true" data-sortable-list-item data-project-update-editor-item data-update-id="${adminText(normalized.id || '')}">
       <span class="admin-sortable-list-handle">拖动</span>
       <div class="admin-project-update-editor-fields">
         <label>
@@ -1136,11 +1171,16 @@ function projectUpdateEditorItem(update = {}) {
           <textarea class="input" rows="4" data-project-update-content>${adminText(normalized.content)}</textarea>
         </label>
         <label>
-          <span>本条动态的照片 URL（一行一张）</span>
+          <span>已有照片的相对路径（一行一张）</span>
           <div class="admin-input-row">
             <textarea class="input" rows="3" name="${imageFieldName}" data-project-update-images>${adminText(normalized.images.join('\n'))}</textarea>
-            <button class="button secondary compact" type="button" data-browse-target="${imageFieldName}" data-browse-mode="file">浏览</button>
+            <button class="button secondary compact" type="button" data-browse-target="${imageFieldName}" data-browse-mode="image" data-browse-root="${adminText(project.assetDir || '/CAS/')}" data-browse-relative-to="${adminText(project.assetDir || '')}">浏览</button>
           </div>
+        </label>
+        <label>
+          <span>上传新照片</span>
+          <input class="input" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" multiple data-project-update-photos>
+          <small class="admin-muted" data-project-update-photo-count>尚未选择新照片</small>
         </label>
       </div>
       <button class="button secondary compact danger" type="button" data-remove-project-update>删除</button>
@@ -1152,9 +1192,9 @@ function openProjectUpdatesModal(project) {
   const updates = normalizeAdminProjectUpdates(project.updates);
   adminEls.modalTitle.textContent = '管理项目动态与照片';
   adminEls.modalForm.innerHTML = `
-    <p class="admin-form-note">每条动态单独填写内容和照片；照片只属于当前这条动态。动态可以只有文字或只有照片。</p>
+    <p class="admin-form-note">动态可以只有文字或只有照片。上传的新照片会自动保存到当前项目的 updates/动态ID/ 目录；也可以浏览项目目录内已有图片并记录相对路径。</p>
     <div class="admin-project-update-editor-list" data-project-update-editor>
-      ${updates.length ? updates.map(projectUpdateEditorItem).join('') : projectUpdateEditorItem()}
+      ${updates.length ? updates.map((update) => projectUpdateEditorItem(update, project)).join('') : projectUpdateEditorItem({}, project)}
     </div>
     <button class="button secondary compact" type="button" data-add-project-update>新增动态</button>
     <div id="adminModalMessage" class="auth-message"></div>
@@ -1171,21 +1211,65 @@ function openProjectUpdatesModal(project) {
     message.textContent = '正在保存...';
     message.classList.remove('error');
     try {
-      const updatesPayload = [...adminEls.modalForm.querySelectorAll('[data-project-update-editor-item]')]
-        .map((row) => ({
-          content: row.querySelector('[data-project-update-content]').value.trim(),
-          images: linesToList(row.querySelector('[data-project-update-images]').value),
-        }))
-        .filter((item) => item.content || item.images.length);
-      const saved = await adminEndpoint(`/admin/projects/${project.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ updates: updatesPayload }),
-      });
+      const rows = [...adminEls.modalForm.querySelectorAll('[data-project-update-editor-item]')];
+      const existingIds = new Set(updates.map((update) => update.id).filter(Boolean));
+      const retainedExistingIds = new Set(
+        rows.map((row) => row.dataset.updateId).filter((id) => id && (
+          row.querySelector('[data-project-update-content]').value.trim()
+          || linesToList(row.querySelector('[data-project-update-images]').value).length
+          || row.querySelector('[data-project-update-photos]').files.length
+        )),
+      );
+      let saved = project;
+      for (const updateId of existingIds) {
+        if (!retainedExistingIds.has(updateId)) {
+          saved = await adminEndpoint(`/admin/projects/${project.id}/updates/${encodeURIComponent(updateId)}`, {
+            method: 'DELETE',
+          });
+        }
+      }
+
+      const finalIds = [];
+      for (const row of rows) {
+        const content = row.querySelector('[data-project-update-content]').value.trim();
+        const imagePaths = linesToList(row.querySelector('[data-project-update-images]').value);
+        const photoFiles = [...row.querySelector('[data-project-update-photos]').files];
+        if (!content && !imagePaths.length && !photoFiles.length) continue;
+        const body = new FormData();
+        body.append('content', content);
+        body.append('images', JSON.stringify(imagePaths));
+        photoFiles.forEach((file) => body.append('photos', file));
+        const currentId = row.dataset.updateId;
+        const beforeIds = new Set(normalizeAdminProjectUpdates(saved.updates).map((update) => update.id));
+        saved = await adminEndpoint(
+          currentId
+            ? `/admin/projects/${project.id}/updates/${encodeURIComponent(currentId)}`
+            : `/admin/projects/${project.id}/updates`,
+          { method: currentId ? 'PATCH' : 'POST', body },
+        );
+        const savedUpdates = normalizeAdminProjectUpdates(saved.updates);
+        const resolvedId = currentId || savedUpdates.find((update) => !beforeIds.has(update.id))?.id;
+        if (!resolvedId) throw new Error('新增动态后未返回动态 ID');
+        row.dataset.updateId = resolvedId;
+        finalIds.push(resolvedId);
+      }
+      if (finalIds.length > 1) {
+        saved = await adminEndpoint(`/admin/projects/${project.id}/updates/reorder`, {
+          method: 'PATCH',
+          body: JSON.stringify({ updateIds: finalIds }),
+        });
+      }
       updateAdminProjectState(saved);
       closeAdminModal();
     } catch (error) {
-      message.textContent = error.message;
-      message.classList.add('error');
+      try {
+        const refreshed = await adminEndpoint(`/admin/projects/${project.id}`);
+        updateAdminProjectState(refreshed);
+      } catch (_) {
+        // Preserve the original save error when refresh also fails.
+      }
+      window.alert(`动态保存未全部完成：${error.message}\n已重新载入服务器上的最新数据。`);
+      closeAdminModal();
     }
   };
 }
@@ -1946,7 +2030,14 @@ function bindAdminEvents() {
     if (target.dataset.adminModalClose !== undefined) closeAdminModal();
     if (target.dataset.filePickerClose !== undefined) closeFilePicker();
     if (target.dataset.adminPhotoModalClose !== undefined) closeAdminPhotoModal();
-    if (target.dataset.browseTarget) openFilePicker(target.dataset.browseTarget, target.dataset.browseMode);
+    if (target.dataset.browseTarget) {
+      openFilePicker(
+        target.dataset.browseTarget,
+        target.dataset.browseMode,
+        target.dataset.browseRoot,
+        target.dataset.browseRelativeTo,
+      );
+    }
     if (target.dataset.openFileFolder) {
       if (adminState.picker) {
         loadPickerFiles(target.dataset.openFileFolder);
@@ -1955,7 +2046,10 @@ function bindAdminEvents() {
       }
     }
     if (target.dataset.pickerUp !== undefined && adminState.picker) {
-      loadPickerFiles(parentPublicPath(adminState.picker.path));
+      const parent = parentPublicPath(adminState.picker.path);
+      const root = adminState.picker.root || '';
+      const nextPath = !root || parent === root || parent.startsWith(`${root}/`) ? parent : root;
+      loadPickerFiles(nextPath);
     }
     if (target.dataset.pickCurrentFolder !== undefined && adminState.picker) {
       chooseFileUrl(publicFolderUrl(adminState.picker.path));
@@ -1991,7 +2085,7 @@ function bindAdminEvents() {
     }
     if (target.dataset.addProjectUpdate !== undefined) {
       const list = adminEls.modalForm.querySelector('[data-project-update-editor]');
-      if (list) list.insertAdjacentHTML('beforeend', projectUpdateEditorItem());
+      if (list) list.insertAdjacentHTML('beforeend', projectUpdateEditorItem({}, adminState.currentProject));
     }
     if (target.dataset.removeProjectUpdate !== undefined) {
       const item = target.closest('[data-project-update-editor-item]');
@@ -2129,6 +2223,14 @@ function bindAdminEvents() {
       ).catch((error) => window.alert(error.message));
     }
     if (target.dataset.deleteActivity) deleteActivity(target.dataset.deleteActivity);
+  });
+
+  document.addEventListener('change', (event) => {
+    if (!event.target.matches('[data-project-update-photos]')) return;
+    const count = event.target.files?.length || 0;
+    const label = event.target.closest('[data-project-update-editor-item]')
+      ?.querySelector('[data-project-update-photo-count]');
+    if (label) label.textContent = count ? `已选择 ${count} 张新照片` : '尚未选择新照片';
   });
 
   document.addEventListener('keydown', (event) => {

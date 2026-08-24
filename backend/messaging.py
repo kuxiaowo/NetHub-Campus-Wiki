@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSock
 
 from backend.auth import get_current_user
 from backend.database import get_db_connection
+from backend.project_assets import project_icon_url
 
 router = APIRouter(prefix="/api", tags=["messages"])
 
@@ -124,7 +125,7 @@ def _message_dict(row: dict[str, Any]) -> dict[str, Any]:
         project = {
             "id": row["project_id"],
             "name": row["project_name"],
-            "icon": row.get("project_icon"),
+            "icon": project_icon_url(row.get("project_asset_dir"), row.get("project_icon")),
             "year": row.get("project_year"),
         }
     return {
@@ -155,6 +156,7 @@ def _fetch_message(cursor: Any, message_id: int) -> dict[str, Any]:
           u.avatar_url AS sender_avatar_url,
           p.name AS project_name,
           p.icon AS project_icon,
+          p.asset_dir AS project_asset_dir,
           p.year AS project_year
         FROM messages m
         JOIN users u ON u.id = m.sender_id
@@ -368,6 +370,7 @@ def list_messages(
                   u.avatar_url AS sender_avatar_url,
                   p.name AS project_name,
                   p.icon AS project_icon,
+                  p.asset_dir AS project_asset_dir,
                   p.year AS project_year
                 FROM messages m
                 JOIN users u ON u.id = m.sender_id

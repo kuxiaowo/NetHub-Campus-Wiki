@@ -58,8 +58,9 @@ resources ─────┘       │
 
 ### `projects`
 
-保存 CAS 项目。`updates` 使用 JSON 字符串存储结构化动态数组，每项包含
-`content` 和属于该动态的 `images` 数组，数据访问层负责将其转换为接口对象。
+保存 CAS 项目。`asset_dir` 保存 `/CAS/` 下的项目资源目录。`updates` 使用 JSON
+字符串存储结构化动态数组，每项包含稳定 `id`、`content` 和属于该动态的相对
+`images` 数组；公共数据访问层会把相对路径解析为完整 URL。
 `media` 是旧版项目级媒体字段，仅保留用于接口结构兼容，新后台不再写入，前台也不展示。
 `cas_creativity`、`cas_activity`、`cas_service` 使用
 `0/1` 表示布尔值。`leader` 和 `members` 是供旧接口及列表展示使用的摘要字段；
@@ -115,12 +116,13 @@ resources ─────┘       │
 created_at   -> createdAt
 updated_at   -> updatedAt
 resource_url -> resourceUrl
+asset_dir    -> assetDir
 sort_order   -> sortOrder
 image_url    -> src
 photo_dir    -> photoDir
 ```
 
-数据库只保存文件 URL 或目录 URL，不保存图片、PDF 或压缩包二进制。
+数据库只保存文件 URL、目录 URL 或相对于 CAS 项目目录的路径，不保存图片、PDF 或压缩包二进制。
 
 ## JSON 数据迁移
 
@@ -162,4 +164,4 @@ SQLite 数据库及对应的 `public/` 资源目录。
 
 不要通过姓名自动把 `people` 绑定到 `users`。旧文本数据迁移会为每个项目创建独立人员档案，之后只能由管理员在对应 CAS 项目详情的成员区域选择账号完成绑定。
 
-数据库结构通过 `sql/migrations` 目录中的连续编号脚本升级。每个脚本必须在事务中执行并更新 `PRAGMA user_version`；后端检测到版本缺口时会拒绝启动，避免跳版本造成半套结构。当前最新版本为 7：002 增加用户关系、人员认领和私信，003 增加公告与通用留言，004 移除旧资源分类表，005 为项目成员关系增加联系方式，006 取消消息请求状态并统一私信会话，007 增加回复与点赞通知。
+数据库结构通过 `sql/migrations` 目录中的连续编号脚本升级。每个脚本必须在事务中执行并更新 `PRAGMA user_version`；后端检测到版本缺口时会拒绝启动，避免跳版本造成半套结构。当前最新版本为 8：002 增加用户关系、人员认领和私信，003 增加公告与通用留言，004 移除旧资源分类表，005 为项目成员关系增加联系方式，006 取消消息请求状态并统一私信会话，007 增加回复与点赞通知，008 增加 CAS 项目资源目录并迁移旧图标和动态图片路径。

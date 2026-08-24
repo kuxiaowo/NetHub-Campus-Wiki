@@ -1,6 +1,8 @@
 /* 全局设计变量：颜色、阴影、圆角在这里集中维护，避免页面里到处写散值。 */
 :root {
-  --page-bg: #f4f8fc;
+  --page-bg:
+    radial-gradient(circle at 14% -8%, rgba(255, 255, 255, .98) 0%, rgba(255, 255, 255, 0) 38%),
+    linear-gradient(135deg, #f8fbff 0%, #edf6ff 44%, #deedff 100%);
   --surface: #ffffff;
   --surface-soft: #f8fbff;
   --primary: #2563eb;

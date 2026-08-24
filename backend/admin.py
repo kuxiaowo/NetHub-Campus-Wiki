@@ -15,6 +15,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse
+from PIL import Image, UnidentifiedImageError
 from backend.auth import (
     create_user,
     format_user,
@@ -36,6 +37,15 @@ from backend.projects import (
     format_project,
     list_project_members,
     replace_project_members,
+)
+from backend.project_assets import (
+    IMAGE_SUFFIXES as PROJECT_IMAGE_SUFFIXES,
+    ProjectAssetError,
+    asset_dir_path,
+    new_update_id,
+    normalize_asset_dir,
+    normalize_project_updates,
+    normalize_relative_image_path,
 )
 from backend.resource_types import (
     ResourceTypeDefinition,
@@ -69,6 +79,7 @@ ALLOWED_UPLOAD_EXTENSIONS = {
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
 WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:/")
 WINDOWS_FILENAME_RESERVED_CHARS = re.compile(r'[\x00-\x1f<>:"|?*]')
+MAX_PROJECT_PHOTO_BYTES = 50 * 1024 * 1024
 
 
 def require_admin_user(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
@@ -170,7 +181,7 @@ def _fetch_project(project_id: int) -> dict[str, Any]:
             row = cursor.fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    return format_project(row, list_project_members(project_id))
+    return format_project(row, list_project_members(project_id), admin=True)
 
 
 def _format_photo_item(row: dict[str, Any]) -> dict[str, Any]:
@@ -251,42 +262,135 @@ def _json_list(value: Any, field_name: str) -> str:
     return json.dumps(clean_items, ensure_ascii=False)
 
 
-def _project_updates_json(value: Any) -> str:
+def _normalize_project_asset_dir(value: Any, *, require_exists: bool = True) -> str:
+    try:
+        return normalize_asset_dir(value, require_exists=require_exists)
+    except ProjectAssetError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+def _project_updates_json(
+    value: Any,
+    asset_dir: str | None,
+    *,
+    require_files: bool = True,
+) -> str:
     if not isinstance(value, list):
         raise HTTPException(status_code=422, detail="updates 必须是数组")
-
-    clean_updates: list[dict[str, Any]] = []
-    for index, item in enumerate(value, start=1):
-        if isinstance(item, str):
-            content = item.strip()
-            images: list[str] = []
-        elif isinstance(item, dict):
-            unknown = sorted(set(item) - {"content", "images"})
-            if unknown:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"第 {index} 条动态包含不支持的字段：{', '.join(unknown)}",
-                )
-            content = str(item.get("content") or "").strip()
-            raw_images = item.get("images", [])
-            if not isinstance(raw_images, list):
-                raise HTTPException(status_code=422, detail=f"第 {index} 条动态的 images 必须是数组")
-            images = []
-            seen_images: set[str] = set()
-            for image in raw_images:
-                clean_image = str(image or "").strip()
-                if not clean_image or clean_image in seen_images:
-                    continue
-                seen_images.add(clean_image)
-                images.append(clean_image)
-        else:
-            raise HTTPException(status_code=422, detail=f"第 {index} 条动态格式不正确")
-
-        if not content and not images:
-            continue
-        clean_updates.append({"content": content, "images": images})
-
+    try:
+        clean_updates = normalize_project_updates(
+            value,
+            asset_dir,
+            require_files=require_files,
+            allow_legacy=not bool(asset_dir),
+        )
+    except ProjectAssetError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     return json.dumps(clean_updates, ensure_ascii=False)
+
+
+def _project_update_images_form(value: str, asset_dir: str) -> list[str]:
+    try:
+        raw_images = json.loads(value or "[]")
+    except json.JSONDecodeError as error:
+        raise HTTPException(status_code=422, detail="images 必须是 JSON 数组") from error
+    if not isinstance(raw_images, list):
+        raise HTTPException(status_code=422, detail="images 必须是 JSON 数组")
+    images: list[str] = []
+    seen: set[str] = set()
+    for raw_image in raw_images:
+        try:
+            image = normalize_relative_image_path(
+                raw_image,
+                asset_dir,
+                require_exists=True,
+            )
+        except ProjectAssetError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        if image not in seen:
+            images.append(image)
+            seen.add(image)
+    return images
+
+
+def _cleanup_project_photo_files(paths: list[Path]) -> None:
+    parents = {path.parent for path in paths}
+    for path in paths:
+        path.unlink(missing_ok=True)
+    for parent in sorted(parents, key=lambda item: len(item.parts), reverse=True):
+        try:
+            parent.rmdir()
+            parent.parent.rmdir()
+        except OSError:
+            pass
+
+
+def _available_project_photo_path(directory: Path, filename: str) -> Path:
+    safe_name = _safe_upload_filename(filename)
+    suffix = Path(safe_name).suffix.lower()
+    if suffix not in PROJECT_IMAGE_SUFFIXES:
+        raise HTTPException(status_code=422, detail="动态照片格式不支持")
+    stem = Path(safe_name).stem.strip() or "photo"
+    candidate = directory / f"{stem}{suffix}"
+    sequence = 2
+    while candidate.exists():
+        candidate = directory / f"{stem}-{sequence}{suffix}"
+        sequence += 1
+    return candidate
+
+
+async def _store_project_update_photos(
+    uploads: list[UploadFile],
+    asset_dir: str,
+    update_id: str,
+) -> tuple[list[str], list[Path]]:
+    if not uploads:
+        return [], []
+    root = asset_dir_path(asset_dir, require_exists=True)
+    target_dir = root / "updates" / update_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    created: list[Path] = []
+    relative_paths: list[str] = []
+    try:
+        for upload in uploads:
+            target = _available_project_photo_path(target_dir, upload.filename or "")
+            size = 0
+            with target.open("xb") as output:
+                created.append(target)
+                while chunk := await upload.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > MAX_PROJECT_PHOTO_BYTES:
+                        raise HTTPException(status_code=413, detail="单张动态照片不能超过 50MB")
+                    output.write(chunk)
+            try:
+                with Image.open(target) as image:
+                    image.verify()
+            except (OSError, UnidentifiedImageError) as error:
+                raise HTTPException(status_code=422, detail=f"不是有效图片：{upload.filename}") from error
+            relative_paths.append(target.relative_to(root).as_posix())
+    except Exception:
+        _cleanup_project_photo_files(created)
+        raise
+    return relative_paths, created
+
+
+def _project_row_and_updates(project_id: int) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM projects WHERE id = %s LIMIT 1", (project_id,))
+            row = cursor.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    asset_dir = row.get("asset_dir")
+    if not asset_dir:
+        raise HTTPException(status_code=422, detail="请先为项目配置资源目录")
+    normalized_dir = _normalize_project_asset_dir(asset_dir)
+    try:
+        updates = normalize_project_updates(row.get("updates"), normalized_dir, allow_legacy=True)
+    except ProjectAssetError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    row["asset_dir"] = normalized_dir
+    return row, updates
 
 
 def _normalize_bool(value: Any) -> int:
@@ -566,7 +670,7 @@ def admin_list_projects(
         with conn.cursor() as cursor:
             cursor.execute(f"SELECT * FROM projects {where_sql} ORDER BY {order_by}", params)
             rows = cursor.fetchall()
-    return {"data": [format_project(row) for row in rows]}
+    return {"data": [format_project(row, admin=True) for row in rows]}
 
 
 @router.get("/projects/{project_id}")
@@ -580,7 +684,7 @@ def admin_create_project(payload: dict[str, Any], _: dict[str, Any] = Depends(re
         "name",
         "category",
         "year",
-        "icon",
+        "assetDir",
         "description",
         "casCreativity",
         "casActivity",
@@ -589,19 +693,20 @@ def admin_create_project(payload: dict[str, Any], _: dict[str, Any] = Depends(re
     unknown = sorted(set(payload) - allowed_fields)
     if unknown:
         raise HTTPException(status_code=422, detail=f"首次创建不接受字段：{', '.join(unknown)}")
-    required = ["name", "category", "year", "description"]
+    required = ["name", "category", "year", "assetDir", "description"]
     missing = [field for field in required if payload.get(field) in {None, ""}]
     if missing:
         raise HTTPException(status_code=422, detail=f"缺少字段：{', '.join(missing)}")
+    asset_dir = _normalize_project_asset_dir(payload["assetDir"])
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             _ensure_project_category(cursor, payload["category"])
             cursor.execute(
                 """
                 INSERT INTO projects
-                  (name, leader, members, category, year, icon, description, media,
+                  (name, leader, members, category, year, icon, asset_dir, description, media,
                    cas_creativity, cas_activity, cas_service, popularity, updates)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, NULL, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     payload["name"],
@@ -609,7 +714,7 @@ def admin_create_project(payload: dict[str, Any], _: dict[str, Any] = Depends(re
                     "",
                     payload["category"],
                     _normalize_int(payload["year"], "year"),
-                    payload.get("icon") or None,
+                    asset_dir,
                     payload["description"],
                     _json_list([], "media"),
                     _normalize_bool(payload.get("casCreativity")),
@@ -639,6 +744,124 @@ def admin_replace_project_members(
     return _fetch_project(project_id)
 
 
+@router.post("/projects/{project_id}/updates")
+async def admin_create_project_update(
+    project_id: int,
+    content: str = Form(default=""),
+    images: str = Form(default="[]"),
+    photos: list[UploadFile] | None = File(default=None),
+    _: dict[str, Any] = Depends(require_admin_user),
+):
+    row, updates = _project_row_and_updates(project_id)
+    clean_content = content.strip()
+    retained_images = _project_update_images_form(images, row["asset_dir"])
+    update_id = new_update_id()
+    uploaded_images, created_files = await _store_project_update_photos(
+        photos or [], row["asset_dir"], update_id
+    )
+    all_images = [*retained_images, *uploaded_images]
+    if not clean_content and not all_images:
+        _cleanup_project_photo_files(created_files)
+        raise HTTPException(status_code=422, detail="动态内容和图片不能同时为空")
+    updates.append({"id": update_id, "content": clean_content, "images": all_images})
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE projects SET updates = %s WHERE id = %s",
+                    (json.dumps(updates, ensure_ascii=False), project_id),
+                )
+                if cursor.rowcount == 0:
+                    raise HTTPException(status_code=404, detail="项目不存在")
+    except Exception:
+        _cleanup_project_photo_files(created_files)
+        raise
+    return _fetch_project(project_id)
+
+
+@router.patch("/projects/{project_id}/updates/reorder")
+def admin_reorder_project_updates(
+    project_id: int,
+    payload: dict[str, Any],
+    _: dict[str, Any] = Depends(require_admin_user),
+):
+    _, updates = _project_row_and_updates(project_id)
+    update_ids = payload.get("updateIds")
+    if not isinstance(update_ids, list) or any(not isinstance(item, str) for item in update_ids):
+        raise HTTPException(status_code=422, detail="updateIds 必须是字符串数组")
+    if len(update_ids) != len(set(update_ids)):
+        raise HTTPException(status_code=422, detail="updateIds 不能重复")
+    current = {update["id"]: update for update in updates}
+    if set(update_ids) != set(current):
+        raise HTTPException(status_code=422, detail="updateIds 必须完整包含当前项目的全部动态")
+    reordered = [current[update_id] for update_id in update_ids]
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "UPDATE projects SET updates = %s WHERE id = %s",
+                (json.dumps(reordered, ensure_ascii=False), project_id),
+            )
+    return _fetch_project(project_id)
+
+
+@router.patch("/projects/{project_id}/updates/{update_id}")
+async def admin_update_project_update(
+    project_id: int,
+    update_id: str,
+    content: str = Form(default=""),
+    images: str = Form(default="[]"),
+    photos: list[UploadFile] | None = File(default=None),
+    _: dict[str, Any] = Depends(require_admin_user),
+):
+    row, updates = _project_row_and_updates(project_id)
+    target = next((item for item in updates if item["id"] == update_id), None)
+    if target is None:
+        raise HTTPException(status_code=404, detail="项目动态不存在")
+    clean_content = content.strip()
+    retained_images = _project_update_images_form(images, row["asset_dir"])
+    uploaded_images, created_files = await _store_project_update_photos(
+        photos or [], row["asset_dir"], update_id
+    )
+    all_images = [*retained_images, *uploaded_images]
+    if not clean_content and not all_images:
+        _cleanup_project_photo_files(created_files)
+        raise HTTPException(status_code=422, detail="动态内容和图片不能同时为空")
+    target["content"] = clean_content
+    target["images"] = all_images
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE projects SET updates = %s WHERE id = %s",
+                    (json.dumps(updates, ensure_ascii=False), project_id),
+                )
+                if cursor.rowcount == 0:
+                    raise HTTPException(status_code=404, detail="项目不存在")
+    except Exception:
+        _cleanup_project_photo_files(created_files)
+        raise
+    return _fetch_project(project_id)
+
+
+@router.delete("/projects/{project_id}/updates/{update_id}")
+def admin_delete_project_update(
+    project_id: int,
+    update_id: str,
+    _: dict[str, Any] = Depends(require_admin_user),
+):
+    _, updates = _project_row_and_updates(project_id)
+    retained = [update for update in updates if update["id"] != update_id]
+    if len(retained) == len(updates):
+        raise HTTPException(status_code=404, detail="项目动态不存在")
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "UPDATE projects SET updates = %s WHERE id = %s",
+                (json.dumps(retained, ensure_ascii=False), project_id),
+            )
+    return _fetch_project(project_id)
+
+
 @router.patch("/projects/{project_id}")
 def admin_update_project(
     project_id: int,
@@ -649,7 +872,7 @@ def admin_update_project(
         "name": "name",
         "category": "category",
         "year": "year",
-        "icon": "icon",
+        "assetDir": "asset_dir",
         "description": "description",
         "casCreativity": "cas_creativity",
         "casActivity": "cas_activity",
@@ -671,6 +894,24 @@ def admin_update_project(
     params: list[Any] = []
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM projects WHERE id = %s LIMIT 1", (project_id,))
+            current = cursor.fetchone()
+            if current is None:
+                raise HTTPException(status_code=404, detail="项目不存在")
+            next_asset_dir = current.get("asset_dir")
+            if "assetDir" in payload:
+                next_asset_dir = _normalize_project_asset_dir(payload["assetDir"])
+                payload["assetDir"] = next_asset_dir
+                if "updates" not in payload:
+                    # Changing the root must not silently break stored relative paths.
+                    _project_updates_json(
+                        normalize_project_updates(
+                            current.get("updates"),
+                            current.get("asset_dir"),
+                            allow_legacy=True,
+                        ),
+                        next_asset_dir,
+                    )
             if "category" in payload:
                 _ensure_project_category(cursor, payload["category"])
             for api_field, column in field_map.items():
@@ -682,9 +923,7 @@ def admin_update_project(
                 if api_field in {"casCreativity", "casActivity", "casService"}:
                     value = _normalize_bool(value)
                 if api_field == "updates":
-                    value = _project_updates_json(value)
-                if api_field == "icon" and value == "":
-                    value = None
+                    value = _project_updates_json(value, next_asset_dir)
                 updates.append(f"{column} = %s")
                 params.append(value)
             if not updates:

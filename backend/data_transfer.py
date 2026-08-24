@@ -11,16 +11,24 @@ import json
 import re
 import secrets
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from backend.config import PROJECT_ROOT
 from backend.database import get_db_connection
+from backend.project_assets import (
+    ProjectAssetError,
+    infer_asset_dir,
+    new_update_id,
+    normalize_asset_dir,
+    normalize_project_updates,
+    normalize_relative_image_path,
+)
 from backend.resource_types import get_resource_type
 
 
 TRANSFER_FORMAT = "nethub-campus-wiki-data"
-TRANSFER_VERSION = 1
+TRANSFER_VERSION = 2
 MAX_IMPORT_BYTES = 5 * 1024 * 1024
 PUBLIC_DIR = PROJECT_ROOT / "public"
 WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:[/\\]")
@@ -189,26 +197,35 @@ def _normalize_update(
     path: str,
     errors: list[dict[str, str]],
     warnings: list[dict[str, str]],
+    asset_dir: str | None,
 ) -> dict[str, Any]:
     item = _object(value, path, errors)
-    _unknown_fields(item, {"content", "images"}, path, errors)
+    _unknown_fields(item, {"id", "content", "images"}, path, errors)
+    update_id = _text(item.get("id"), f"{path}.id", errors) or new_update_id()
+    if not re.fullmatch(r"[a-f0-9]{32}", update_id):
+        errors.append(_issue(f"{path}.id", "必须是 32 位小写十六进制字符串"))
+        update_id = new_update_id()
     content = _text(item.get("content"), f"{path}.content", errors)
     images = []
     seen: set[str] = set()
     for index, raw_image in enumerate(_array(item.get("images", []), f"{path}.images", errors)):
-        image = _normalize_asset_url(
-            raw_image,
-            f"{path}.images[{index}]",
-            errors,
-            warnings,
-            required=True,
-        )
+        if not asset_dir:
+            errors.append(_issue(f"{path}.images[{index}]", "项目缺少 assetDir"))
+            continue
+        try:
+            image = normalize_relative_image_path(raw_image, asset_dir)
+        except ProjectAssetError as error:
+            errors.append(_issue(f"{path}.images[{index}]", str(error)))
+            continue
+        target = PUBLIC_DIR / asset_dir.strip("/") / Path(*PurePosixPath(image).parts)
+        if not target.is_file():
+            warnings.append(_issue(f"{path}.images[{index}]", f"动态图片不存在：{image}"))
         if image and image not in seen:
             images.append(image)
             seen.add(image)
     if not content and not images:
         errors.append(_issue(path, "动态内容和图片不能同时为空"))
-    return {"content": content, "images": images}
+    return {"id": update_id, "content": content, "images": images}
 
 
 def _normalize_project(
@@ -216,11 +233,18 @@ def _normalize_project(
     path: str,
     errors: list[dict[str, str]],
     warnings: list[dict[str, str]],
+    version: int,
 ) -> dict[str, Any]:
     item = _object(value, path, errors)
+    allowed_fields = {
+        "name", "category", "year", "assetDir", "description", "cas",
+        "popularity", "members", "updates",
+    }
+    if version == 1:
+        allowed_fields.add("icon")
     _unknown_fields(
         item,
-        {"name", "category", "year", "icon", "description", "cas", "popularity", "members", "updates"},
+        allowed_fields,
         path,
         errors,
     )
@@ -235,15 +259,33 @@ def _normalize_project(
         errors.append(_issue(f"{path}.members", "成员姓名不能重复"))
     if sum(member["role"] == "leader" for member in members) > 1:
         errors.append(_issue(f"{path}.members", "最多只能有一名负责人"))
+    asset_dir: str | None = None
+    if version == 1:
+        asset_dir = infer_asset_dir(item.get("icon"), item.get("updates"))
+        if asset_dir:
+            warnings.append(_issue(f"{path}.assetDir", f"已从 v1 路径推断为 {asset_dir}"))
+        else:
+            errors.append(_issue(f"{path}.assetDir", "无法从 v1 的 icon 或动态图片推断 CAS 项目目录"))
+    else:
+        raw_asset_dir = _text(item.get("assetDir"), f"{path}.assetDir", errors, required=True)
+        if raw_asset_dir:
+            try:
+                asset_dir = normalize_asset_dir(raw_asset_dir)
+            except ProjectAssetError as error:
+                errors.append(_issue(f"{path}.assetDir", str(error)))
+            else:
+                target = PUBLIC_DIR / asset_dir.strip("/")
+                if not target.is_dir():
+                    warnings.append(_issue(f"{path}.assetDir", f"站内目录不存在：{asset_dir}"))
     updates = [
-        _normalize_update(update, f"{path}.updates[{index}]", errors, warnings)
+        _normalize_update(update, f"{path}.updates[{index}]", errors, warnings, asset_dir)
         for index, update in enumerate(_array(item.get("updates", []), f"{path}.updates", errors))
     ]
     return {
         "name": _text(item.get("name"), f"{path}.name", errors, required=True),
         "category": _text(item.get("category"), f"{path}.category", errors, required=True),
         "year": _integer(item.get("year"), f"{path}.year", errors, minimum=1900),
-        "icon": _normalize_asset_url(item.get("icon"), f"{path}.icon", errors, warnings),
+        "assetDir": asset_dir,
         "description": _text(item.get("description"), f"{path}.description", errors, required=True),
         "cas": {
             "creativity": _boolean(cas.get("creativity"), f"{path}.cas.creativity", errors),
@@ -383,15 +425,17 @@ def validate_transfer_document(payload: Any) -> tuple[dict[str, Any], list[dict[
     )
     if document.get("format") != TRANSFER_FORMAT:
         errors.append(_issue("format", f"必须是 {TRANSFER_FORMAT}"))
-    if document.get("version") != TRANSFER_VERSION:
-        errors.append(_issue("version", f"当前只支持版本 {TRANSFER_VERSION}"))
+    version = document.get("version")
+    if version not in {1, TRANSFER_VERSION}:
+        errors.append(_issue("version", f"当前支持版本 1 和 {TRANSFER_VERSION}"))
+        version = TRANSFER_VERSION
 
     encoded_size = len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
     if encoded_size > MAX_IMPORT_BYTES:
         errors.append(_issue("document", "JSON 文件不能超过 5 MB；请只保存路径，不要嵌入 Base64 文件"))
 
     projects = [
-        _normalize_project(project, f"projects[{index}]", errors, warnings)
+        _normalize_project(project, f"projects[{index}]", errors, warnings, int(version))
         for index, project in enumerate(_array(document.get("projects", []), "projects", errors))
     ]
     resources = [
@@ -415,24 +459,11 @@ def validate_transfer_document(payload: Any) -> tuple[dict[str, Any], list[dict[
     }, warnings
 
 
-def _parse_updates(value: Any) -> list[dict[str, Any]]:
-    if isinstance(value, list):
-        raw = value
-    else:
-        try:
-            raw = json.loads(value or "[]")
-        except (TypeError, json.JSONDecodeError):
-            raw = []
-    result = []
-    for item in raw if isinstance(raw, list) else []:
-        if isinstance(item, str):
-            result.append({"content": item, "images": []})
-        elif isinstance(item, dict):
-            result.append({
-                "content": str(item.get("content") or ""),
-                "images": [str(image) for image in item.get("images", []) if str(image).strip()],
-            })
-    return result
+def _parse_updates(value: Any, asset_dir: str | None) -> list[dict[str, Any]]:
+    try:
+        return normalize_project_updates(value, asset_dir, allow_legacy=True)
+    except ProjectAssetError:
+        return []
 
 
 def _new_document() -> dict[str, Any]:
@@ -496,7 +527,7 @@ def export_transfer_document(
                             "name": row["name"],
                             "category": row["category"],
                             "year": row["year"],
-                            "icon": row.get("icon"),
+                            "assetDir": row.get("asset_dir"),
                             "description": row["description"],
                             "cas": {
                                 "creativity": bool(row["cas_creativity"]),
@@ -505,7 +536,7 @@ def export_transfer_document(
                             },
                             "popularity": row["popularity"],
                             "members": members,
-                            "updates": _parse_updates(row.get("updates")),
+                            "updates": _parse_updates(row.get("updates"), row.get("asset_dir")),
                         }
                     )
 
@@ -603,9 +634,9 @@ def import_transfer_document(document: dict[str, Any]) -> dict[str, Any]:
                 cursor.execute(
                     """
                     INSERT INTO projects
-                      (name, leader, members, category, year, icon, description, media,
+                      (name, leader, members, category, year, icon, asset_dir, description, media,
                        cas_creativity, cas_activity, cas_service, popularity, updates)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, '[]', %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, NULL, %s, %s, '[]', %s, %s, %s, %s, %s)
                     """,
                     (
                         project["name"],
@@ -613,7 +644,7 @@ def import_transfer_document(document: dict[str, Any]) -> dict[str, Any]:
                         member_summary,
                         project["category"],
                         project["year"],
-                        project["icon"],
+                        project["assetDir"],
                         project["description"],
                         1 if project["cas"]["creativity"] else 0,
                         1 if project["cas"]["activity"] else 0,
@@ -715,14 +746,18 @@ def transfer_template() -> dict[str, Any]:
                 "name": "示例 CAS 项目",
                 "category": "公益服务",
                 "year": datetime.now().year,
-                "icon": "/CAS/example/icon.png",
+                "assetDir": "/CAS/example/",
                 "description": "项目简介",
                 "cas": {"creativity": True, "activity": False, "service": True},
                 "popularity": 0,
                 "members": [
                     {"name": "示例成员", "role": "leader", "contactType": "wechat", "contactValue": "example"}
                 ],
-                "updates": [{"content": "项目动态", "images": ["/CAS/example/activity.jpg"]}],
+                "updates": [{
+                    "id": "0123456789abcdef0123456789abcdef",
+                    "content": "项目动态",
+                    "images": ["activities/activity.jpg"],
+                }],
             }
         ],
         "resources": [

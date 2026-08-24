@@ -10,6 +10,12 @@ import secrets
 from typing import Any, Literal
 
 from backend.database import get_db_connection
+from backend.project_assets import (
+    ProjectAssetError,
+    normalize_project_updates,
+    project_icon_url,
+    public_updates,
+)
 
 ProjectSort = Literal["latest", "popular"]
 
@@ -31,6 +37,8 @@ def parse_json_field(value: Any, default: list | dict | None = None) -> list | d
 def format_project(
     row: dict[str, Any],
     member_list: list[dict[str, Any]] | None = None,
+    *,
+    admin: bool = False,
 ) -> dict[str, Any]:
     """把数据库行转换为前端约定的 Project JSON。
 
@@ -38,7 +46,17 @@ def format_project(
     这个转换层让数据库结构和前端展示结构保持解耦。
     """
 
-    return {
+    asset_dir = row.get("asset_dir")
+    try:
+        updates = (
+            normalize_project_updates(row.get("updates"), asset_dir, allow_legacy=True)
+            if admin
+            else public_updates(row.get("updates"), asset_dir)
+        )
+    except ProjectAssetError:
+        updates = parse_json_field(row.get("updates"))
+
+    result = {
         "id": row["id"],
         "name": row["name"],
         "leader": row["leader"],
@@ -46,8 +64,8 @@ def format_project(
         "memberList": member_list or [],
         "category": row["category"],
         "year": row["year"],
-        # 未上传图标时把空值交给前端显示项目首字母，不再伪造随机图片。
-        "icon": row.get("icon") or None,
+        # Directory-derived icon first; unresolved legacy rows retain their old URL.
+        "icon": project_icon_url(asset_dir, row.get("icon")),
         "description": row["description"],
         "media": parse_json_field(row.get("media")),
         "cas": {
@@ -56,10 +74,14 @@ def format_project(
             "service": bool(row.get("cas_service")),
         },
         "popularity": row.get("popularity", 0),
-        "updates": parse_json_field(row.get("updates")),
+        "updates": updates,
         "createdAt": row.get("created_at"),
         "updatedAt": row.get("updated_at"),
     }
+    if admin:
+        result["assetDir"] = asset_dir
+        result["assetDirWarning"] = None if asset_dir else "尚未配置项目资源目录"
+    return result
 
 
 def split_member_names(leader: str, members: str) -> list[str]:

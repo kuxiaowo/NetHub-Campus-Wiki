@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import io
+import json
 import os
 from pathlib import Path
+import shutil
 import sqlite3
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
+
+from PIL import Image
 
 _TEMP_DIR = tempfile.TemporaryDirectory()
 os.environ["DATABASE_PATH"] = str(Path(_TEMP_DIR.name) / "campus_wiki_test.db")
@@ -23,6 +29,15 @@ from backend.database import get_db_connection  # noqa: E402
 class SocialMessagingFlowTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        cls.project_asset_dir = Path(__file__).resolve().parents[1] / "public" / "CAS" / "__test_project_assets__"
+        cls.project_asset_dir.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (8, 8), "blue").save(cls.project_asset_dir / "icon.png")
+        Image.new("RGB", (8, 8), "red").save(cls.project_asset_dir / "activity-1.jpg")
+        Image.new("RGB", (8, 8), "green").save(cls.project_asset_dir / "activity-2.jpg")
+        (cls.project_asset_dir / "no-icon").mkdir(exist_ok=True)
+        upload_buffer = io.BytesIO()
+        Image.new("RGB", (10, 10), "purple").save(upload_buffer, format="PNG")
+        cls.upload_photo = upload_buffer.getvalue()
         cls.client = TestClient(app)
         cls.admin_token = cls._login("kuxiaowo", "12345678")
         cls.alice = cls._register("alice_user", "Alice")
@@ -31,6 +46,11 @@ class SocialMessagingFlowTest(unittest.TestCase):
         cls.alice_token = cls._login("alice_user", "password123")
         cls.bob_token = cls._login("bob_user", "password123")
         cls.charlie_token = cls._login("charlie_user", "password123")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        shutil.rmtree(cls.project_asset_dir, ignore_errors=True)
+        cls.client.close()
 
     @classmethod
     def _register(cls, username: str, display_name: str) -> dict:
@@ -208,7 +228,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         with get_db_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("PRAGMA user_version")
-                self.assertEqual(cursor.fetchone()["user_version"], 7)
+                self.assertEqual(cursor.fetchone()["user_version"], 8)
                 cursor.execute("PRAGMA table_info(conversation_members)")
                 member_columns = {column["name"] for column in cursor.fetchall()}
                 self.assertNotIn("request_status", member_columns)
@@ -997,7 +1017,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
                 "name": "分阶段管理测试",
                 "category": "测试分类",
                 "year": 2026,
-                "icon": "/CAS/test/icon.png",
+                "assetDir": "/CAS/__test_project_assets__/",
                 "description": "首次创建只录入基本信息。",
                 "casCreativity": True,
                 "casActivity": True,
@@ -1012,7 +1032,8 @@ class SocialMessagingFlowTest(unittest.TestCase):
         self.assertEqual(project["media"], [])
         self.assertEqual(project["updates"], [])
         self.assertEqual(project["memberList"], [])
-        self.assertEqual(project["icon"], "/CAS/test/icon.png")
+        self.assertEqual(project["assetDir"], "/CAS/__test_project_assets__/")
+        self.assertEqual(project["icon"], "/CAS/__test_project_assets__/icon.png")
 
         created_without_icon = self.client.post(
             "/api/admin/projects",
@@ -1021,6 +1042,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
                 "name": "无图标占位测试",
                 "category": "测试分类",
                 "year": 2026,
+                "assetDir": "/CAS/__test_project_assets__/no-icon/",
                 "description": "未上传图标时应返回空值，由前端显示首字母。",
                 "casCreativity": False,
                 "casActivity": True,
@@ -1137,7 +1159,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
                 "updates": [
                     {
                         "content": "项目创建后补充的第一条动态",
-                        "images": ["/CAS/test/activity-1.jpg", "/CAS/test/activity-2.jpg"],
+                        "images": ["activity-1.jpg", "activity-2.jpg"],
                     },
                     {"content": "没有照片的第二条动态", "images": []},
                 ],
@@ -1145,13 +1167,10 @@ class SocialMessagingFlowTest(unittest.TestCase):
         )
         self.assertEqual(updated_content.status_code, 200, updated_content.text)
         self.assertEqual(updated_content.json()["media"], [])
-        self.assertEqual(
-            updated_content.json()["updates"][0],
-            {
-                "content": "项目创建后补充的第一条动态",
-                "images": ["/CAS/test/activity-1.jpg", "/CAS/test/activity-2.jpg"],
-            },
-        )
+        first_update = updated_content.json()["updates"][0]
+        self.assertRegex(first_update["id"], r"^[a-f0-9]{32}$")
+        self.assertEqual(first_update["content"], "项目创建后补充的第一条动态")
+        self.assertEqual(first_update["images"], ["activity-1.jpg", "activity-2.jpg"])
 
         rejected_project_media = self.client.patch(
             f"/api/admin/projects/{project_id}",
@@ -1167,19 +1186,68 @@ class SocialMessagingFlowTest(unittest.TestCase):
         self.assertEqual(public_members[1]["contactValue"], "member@example.com")
         self.assertEqual(
             public_project.json()["data"]["updates"][0]["images"],
-            ["/CAS/test/activity-1.jpg", "/CAS/test/activity-2.jpg"],
+            [
+                "/CAS/__test_project_assets__/activity-1.jpg",
+                "/CAS/__test_project_assets__/activity-2.jpg",
+            ],
         )
+
+        uploaded = self.client.post(
+            f"/api/admin/projects/{project_id}/updates",
+            headers=self._headers(self.admin_token),
+            data={"content": "上传照片动态", "images": "[]"},
+            files=[("photos", ("现场照片.png", self.upload_photo, "image/png"))],
+        )
+        self.assertEqual(uploaded.status_code, 200, uploaded.text)
+        uploaded_update = next(
+            item for item in uploaded.json()["updates"] if item["content"] == "上传照片动态"
+        )
+        update_id = uploaded_update["id"]
+        self.assertEqual(uploaded_update["images"], [f"updates/{update_id}/现场照片.png"])
+        uploaded_file = self.project_asset_dir / "updates" / update_id / "现场照片.png"
+        self.assertTrue(uploaded_file.is_file())
+
+        appended = self.client.patch(
+            f"/api/admin/projects/{project_id}/updates/{update_id}",
+            headers=self._headers(self.admin_token),
+            data={"content": "上传照片动态（已编辑）", "images": json.dumps(uploaded_update["images"], ensure_ascii=False)},
+            files=[("photos", ("现场照片.png", self.upload_photo, "image/png"))],
+        )
+        self.assertEqual(appended.status_code, 200, appended.text)
+        appended_update = next(item for item in appended.json()["updates"] if item["id"] == update_id)
+        self.assertEqual(
+            appended_update["images"],
+            [f"updates/{update_id}/现场照片.png", f"updates/{update_id}/现场照片-2.png"],
+        )
+
+        deleted = self.client.delete(
+            f"/api/admin/projects/{project_id}/updates/{update_id}",
+            headers=self._headers(self.admin_token),
+        )
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertTrue(uploaded_file.is_file(), "删除动态不应删除实体照片")
+
+        files_before_failed_upload = set((self.project_asset_dir / "updates").rglob("*"))
+        with patch("backend.admin.MAX_PROJECT_PHOTO_BYTES", 4):
+            too_large = self.client.post(
+                f"/api/admin/projects/{project_id}/updates",
+                headers=self._headers(self.admin_token),
+                data={"content": "应回滚", "images": "[]"},
+                files=[("photos", ("too-large.png", self.upload_photo, "image/png"))],
+            )
+        self.assertEqual(too_large.status_code, 413, too_large.text)
+        self.assertEqual(set((self.project_asset_dir / "updates").rglob("*")), files_before_failed_upload)
 
     def test_10_admin_json_import_export(self) -> None:
         document = {
             "format": "nethub-campus-wiki-data",
-            "version": 1,
+            "version": 2,
             "projects": [
                 {
                     "name": "JSON 导入 CAS",
                     "category": "导入测试",
                     "year": 2026,
-                    "icon": "https://example.com/project-icon.png",
+                    "assetDir": "/CAS/__test_project_assets__/",
                     "description": "通过统一 JSON 导入的测试项目。",
                     "cas": {"creativity": True, "activity": False, "service": True},
                     "popularity": 17,
@@ -1194,8 +1262,9 @@ class SocialMessagingFlowTest(unittest.TestCase):
                     ],
                     "updates": [
                         {
+                            "id": "abcdef0123456789abcdef0123456789",
                             "content": "第一条导入动态",
-                            "images": ["https://example.com/activity.png"],
+                            "images": ["activity-1.jpg"],
                         }
                     ],
                 }
@@ -1250,6 +1319,40 @@ class SocialMessagingFlowTest(unittest.TestCase):
             },
         )
         self.assertEqual(preview.json()["warnings"], [])
+
+        legacy_project_document = {
+            "format": "nethub-campus-wiki-data",
+            "version": 1,
+            "projects": [{
+                **document["projects"][0],
+                "icon": "/CAS/__test_project_assets__/icon.png",
+                "updates": [{
+                    "content": "v1 动态",
+                    "images": ["/CAS/__test_project_assets__/activity-1.jpg"],
+                }],
+            }],
+            "resources": [],
+            "photoActivities": [],
+        }
+        legacy_project_document["projects"][0].pop("assetDir", None)
+        legacy_preview = self.client.post(
+            "/api/admin/data-import/preview",
+            headers=self._headers(self.admin_token),
+            json=legacy_project_document,
+        )
+        self.assertEqual(legacy_preview.status_code, 200, legacy_preview.text)
+        self.assertTrue(any("推断" in item["message"] for item in legacy_preview.json()["warnings"]))
+
+        unconvertible_v1 = json.loads(json.dumps(legacy_project_document, ensure_ascii=False))
+        unconvertible_v1["projects"][0]["icon"] = "https://example.com/icon.png"
+        unconvertible_v1["projects"][0]["updates"][0]["images"] = ["https://example.com/photo.png"]
+        rejected_v1 = self.client.post(
+            "/api/admin/data-import/preview",
+            headers=self._headers(self.admin_token),
+            json=unconvertible_v1,
+        )
+        self.assertEqual(rejected_v1.status_code, 422, rejected_v1.text)
+        self.assertIn("assetDir", rejected_v1.text)
 
         first_import = self.client.post(
             "/api/admin/data-import",
@@ -1396,7 +1499,9 @@ class SocialMessagingFlowTest(unittest.TestCase):
             headers=self._headers(self.admin_token),
         )
         self.assertEqual(template.status_code, 200, template.text)
-        self.assertEqual(template.json()["version"], 1)
+        self.assertEqual(template.json()["version"], 2)
+        self.assertIn("assetDir", template.json()["projects"][0])
+        self.assertNotIn("icon", template.json()["projects"][0])
 
 
 if __name__ == "__main__":

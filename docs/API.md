@@ -301,7 +301,7 @@ curl "http://127.0.0.1:3100/api/projects?category=科技创新&year=2026&sort=po
 | `memberList` | `ProjectMember[]` | 结构化成员；项目详情接口返回完整数据，列表接口可为空数组 |
 | `category` | `string` | 项目分类 |
 | `year` | `number` | 项目年份 |
-| `icon` | `string` | 项目图标图片 URL |
+| `icon` | `string | null` | 项目图标图片 URL；由项目资源目录中的固定 `icon.*` 文件解析，缺失时为空 |
 | `description` | `string` | 项目简介 |
 | `media` | `string[]` | 旧版项目级媒体兼容字段；新项目固定为空，后台不可编辑且前台不展示 |
 | `cas` | `object` | CAS 三项标记 |
@@ -309,7 +309,7 @@ curl "http://127.0.0.1:3100/api/projects?category=科技创新&year=2026&sort=po
 | `cas.activity` | `boolean` | 是否包含 Activity |
 | `cas.service` | `boolean` | 是否包含 Service |
 | `popularity` | `number` | 热度分 |
-| `updates` | `ProjectUpdate[] | string[]` | 项目动态；旧数据可能仍为纯文字字符串数组 |
+| `updates` | `ProjectUpdate[]` | 项目动态；图片已解析为可直接访问的完整 URL |
 | `createdAt` | `string | null` | 创建时间 |
 | `updatedAt` | `string | null` | 更新时间 |
 
@@ -731,7 +731,9 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 ### JSON 数据导入/导出
 
-JSON 迁移覆盖 CAS 项目（含成员联系方式与动态）、普通资源、活动照片及其旧版单张照片记录。路径字段只保存 `public/` 下的 URL（如 `/CAS/ride/icon.png`）或 `http(s)` URL，不传输图片、PDF、视频或压缩包本身。`yearbook.resourceUrl` 和活动的 `photoDir` 必须使用 `public/` 站内目录；图片、视频及普通资源地址可使用外部 `http(s)` URL。数据库 ID、用户账号绑定及创建/更新时间不会导出。
+JSON 迁移覆盖 CAS 项目（含成员联系方式与动态）、普通资源、活动照片及其旧版单张照片记录，但不传输图片、PDF、视频或压缩包本身。CAS 项目必须使用 `/CAS/` 下的目录和目录内相对图片路径；Yearbook 的 `resourceUrl` 和活动的 `photoDir` 也必须使用 `public/` 站内目录；普通资源地址仍可使用外部 `http(s)` URL。数据库 ID、用户账号绑定及创建/更新时间不会导出。
+
+当前迁移格式为版本 2。CAS 项目使用 `assetDir` 指向 `/CAS/` 下的项目目录，动态包含稳定 `id`，其 `images` 只保存相对于 `assetDir` 的路径；CAS 图标不再单独导出。版本 1 文件仍可预检：能够从旧 `icon` 或动态图片 URL 推断项目目录时自动转换，否则返回 `422`。
 
 - `GET /api/admin/data-export`：整体导出全部项目和资源。
 - `GET /api/admin/data-template`：下载包含三类数据示例的模板。
@@ -746,7 +748,7 @@ JSON 迁移覆盖 CAS 项目（含成员联系方式与动态）、普通资源�
 ```json
 {
   "format": "nethub-campus-wiki-data",
-  "version": 1,
+  "version": 2,
   "exportedAt": "2026-08-24T12:00:00Z",
   "projects": [],
   "resources": [],
@@ -783,12 +785,18 @@ JSON 迁移覆盖 CAS 项目（含成员联系方式与动态）、普通资源�
 - `PATCH /api/admin/project-categories/reorder`：批量更新 CAS 项目分类顺序。请求体：`{"items":[{"id":1,"sortOrder":10}]}`。
 - `GET /api/admin/projects`：查询后台 CAS 项目列表，支持 `search`、`category`、`year`、`sort`。
 - `GET /api/admin/projects/{project_id}`：读取单个项目及完整 `memberList`，用于后台详情管理。
-- `POST /api/admin/projects`：创建 CAS 项目。只接受 `name`、`category`、`year`、`icon`、`description`、`casCreativity`、`casActivity`、`casService`；新项目的成员、负责人、媒体和动态均为空。
+- `POST /api/admin/projects`：创建 CAS 项目。只接受 `name`、`category`、`year`、`assetDir`、`description`、`casCreativity`、`casActivity`、`casService`；`assetDir` 必须是已经存在的 `/CAS/` 子目录，新项目的成员、负责人、媒体和动态均为空。
 - `PATCH /api/admin/projects/{project_id}`：更新项目基本信息，或在创建后更新 `updates`、`popularity`；不接受 `leader`、旧的 `members` 文本字段或项目级 `media`。负责人只能通过结构化成员接口确定。
 - `PATCH /api/admin/projects/{project_id}/members`：整体替换结构化成员列表。请求体为 `{"members":[{"personId":1,"name":"李明","role":"leader","contactType":"wechat","contactValue":"liming-cas"}]}`；新成员可省略 `personId`。
 - `PATCH /api/admin/projects/{project_id}/members/{person_id}/binding`：把该项目成员绑定到启用的站内用户，传 `{"userId":12}`；传 `{"userId":null}` 解除绑定。只有管理员可调用，且 `person_id` 必须属于指定项目。
+- `POST /api/admin/projects/{project_id}/updates`：创建动态。使用 `multipart/form-data`，字段为 `content`、JSON 数组文本 `images` 和可重复的 `photos` 文件。
+- `PATCH /api/admin/projects/{project_id}/updates/{update_id}`：替换动态文字及保留的相对图片路径，并把新上传照片追加到该动态目录。
+- `DELETE /api/admin/projects/{project_id}/updates/{update_id}`：删除动态记录，不删除项目目录中的实体文件。
+- `PATCH /api/admin/projects/{project_id}/updates/reorder`：按 `{"updateIds":["32位动态ID"]}` 重排，必须完整包含当前项目的全部动态 ID。
 
-项目刚创建时允许成员列表为空。保存成员时列表不能为空，负责人未知时可以全部先标为 `member`；确认后最多只能有一名 `leader`，后端会据此同步项目的负责人姓名摘要。联系方式可以整组留空；一旦填写，就必须同时提供 `contactType` 和 `contactValue`。成员账号只能在后台项目详情中绑定，一个账号最多绑定一个人员档案。`updates` 请求是 `ProjectUpdate[]`，例如 `[{"content":"完成第一次骑行","images":["/CAS/ride/001.jpg"]}]`；每条动态可以只有文字、只有照片或同时包含二者。正式前台详情页只负责展示，不提供认领或绑定能力。
+项目刚创建时允许成员列表为空。保存成员时列表不能为空，负责人未知时可以全部先标为 `member`；确认后最多只能有一名 `leader`，后端会据此同步项目的负责人姓名摘要。联系方式可以整组留空；一旦填写，就必须同时提供 `contactType` 和 `contactValue`。成员账号只能在后台项目详情中绑定，一个账号最多绑定一个人员档案。
+
+每个项目的文件集中在 `public/CAS/<项目>/`。图标按 `icon.webp`、`icon.png`、`icon.jpg`、`icon.jpeg`、`icon.avif`、`icon.gif` 的优先级解析。动态数据库结构为 `{"id":"32位稳定键","content":"完成第一次骑行","images":["activities/001.jpg"]}`；图片路径不得离开项目目录，也不允许外部 URL。上传照片会自动创建 `updates/<动态ID>/`，保留安全处理后的原文件名，重名时追加数字。单张最大 50MB，支持 JPG、PNG、WebP、GIF 和 AVIF。每条动态可以只有文字、只有照片或同时包含二者。正式前台详情页只负责展示，不提供认领或绑定能力。
 
 `sortOrder` 是分类人工排序权重，数字越小越靠前。当前只用于 CAS 项目分类，不控制项目本身排序；项目仍按 `latest` 或 `popular` 排序。
 
