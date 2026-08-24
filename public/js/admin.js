@@ -545,27 +545,87 @@ async function loadFiles(path = adminState.filePath) {
   adminEls.fileTable.innerHTML = renderFileRows(result.data);
 }
 
-async function uploadToCurrentDirectory() {
-  const file = adminEls.uploadInput.files?.[0];
-  const message = adminEls.uploadMessage;
-  if (!file) {
-    message.textContent = '请选择文件';
-    message.classList.add('error');
+function setFileActionMessage(text, isError = false) {
+  adminEls.uploadMessage.textContent = text;
+  adminEls.uploadMessage.classList.toggle('error', isError);
+}
+
+async function createFolderInCurrentDirectory() {
+  const name = adminEls.folderName.value.trim();
+  if (!name) {
+    setFileActionMessage('请输入文件夹名称', true);
+    adminEls.folderName.focus();
     return;
   }
-  message.textContent = '正在上传...';
-  message.classList.remove('error');
+  adminEls.createFolderButton.disabled = true;
+  setFileActionMessage('正在新建文件夹...');
+  try {
+    const result = await adminEndpoint('/admin/files/folders', {
+      method: 'POST',
+      body: JSON.stringify({ parentPath: adminState.filePath, name }),
+    });
+    adminEls.folderName.value = '';
+    await loadFiles(adminState.filePath);
+    setFileActionMessage(`已新建：${result.data.url}`);
+  } catch (error) {
+    setFileActionMessage(error.message, true);
+  } finally {
+    adminEls.createFolderButton.disabled = false;
+  }
+}
+
+async function uploadToCurrentDirectory() {
+  const file = adminEls.uploadInput.files?.[0];
+  if (!file) {
+    setFileActionMessage('请选择文件', true);
+    return;
+  }
+  adminEls.uploadButton.disabled = true;
+  setFileActionMessage('正在上传文件...');
   try {
     const body = new FormData();
     body.append('file', file);
     body.append('targetPath', adminState.filePath);
     const result = await adminEndpoint('/admin/uploads', { method: 'POST', body });
-    message.textContent = `上传完成：${result.url}`;
     adminEls.uploadInput.value = '';
     await loadFiles(adminState.filePath);
+    setFileActionMessage(`上传完成：${result.url}`);
   } catch (error) {
-    message.textContent = error.message;
-    message.classList.add('error');
+    setFileActionMessage(error.message, true);
+  } finally {
+    adminEls.uploadButton.disabled = false;
+  }
+}
+
+async function uploadFolderToCurrentDirectory() {
+  const files = [...(adminEls.folderUploadInput.files || [])];
+  if (!files.length) {
+    setFileActionMessage('请选择包含文件的文件夹', true);
+    return;
+  }
+  const relativePaths = files.map((file) => file.webkitRelativePath || file.name);
+  if (relativePaths.some((path) => !path.includes('/'))) {
+    setFileActionMessage('当前浏览器没有提供文件夹相对路径，请改用 Chrome 或 Edge', true);
+    return;
+  }
+
+  adminEls.folderUploadButton.disabled = true;
+  setFileActionMessage(`正在上传文件夹（${files.length} 个文件）...`);
+  try {
+    const body = new FormData();
+    files.forEach((file, index) => {
+      body.append('files', file, file.name);
+      body.append('relativePaths', relativePaths[index]);
+    });
+    body.append('targetPath', adminState.filePath);
+    const result = await adminEndpoint('/admin/files/folder-upload', { method: 'POST', body });
+    adminEls.folderUploadInput.value = '';
+    await loadFiles(adminState.filePath);
+    setFileActionMessage(`文件夹上传完成：${result.folderUrl}（${result.fileCount} 个文件）`);
+  } catch (error) {
+    setFileActionMessage(error.message, true);
+  } finally {
+    adminEls.folderUploadButton.disabled = false;
   }
 }
 
@@ -1942,7 +2002,19 @@ function bindAdminEvents() {
   adminEls.previewDataImportButton.addEventListener('click', previewDataImport);
   adminEls.confirmDataImportButton.addEventListener('click', confirmDataImport);
   adminEls.fileUpButton.addEventListener('click', () => loadFiles(parentPublicPath(adminState.filePath)));
+  adminEls.createFolderButton.addEventListener('click', createFolderInCurrentDirectory);
+  adminEls.folderName.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') createFolderInCurrentDirectory();
+  });
   adminEls.uploadButton.addEventListener('click', uploadToCurrentDirectory);
+  adminEls.folderUploadButton.addEventListener('click', uploadFolderToCurrentDirectory);
+  adminEls.folderUploadInput.addEventListener('change', () => {
+    const files = [...(adminEls.folderUploadInput.files || [])];
+    if (!files.length) return;
+    const relativePath = files[0].webkitRelativePath || files[0].name;
+    const folderName = relativePath.split('/')[0];
+    setFileActionMessage(`已选择：${folderName}（${files.length} 个文件）`);
+  });
 
   adminEls.createUserButton.addEventListener('click', () => openUserModal({ isActive: true, role: 'user' }));
   adminEls.refreshUsers.addEventListener('click', loadUsers);
@@ -2269,8 +2341,12 @@ async function initAdmin() {
     filePathLabel: adminQuery('#filePathLabel'),
     fileTable: adminQuery('#fileTable'),
     uploadTargetLabel: adminQuery('#uploadTargetLabel'),
+    folderName: adminQuery('#adminFolderName'),
+    createFolderButton: adminQuery('#adminCreateFolderButton'),
     uploadInput: adminQuery('#adminUploadInput'),
     uploadButton: adminQuery('#adminUploadButton'),
+    folderUploadInput: adminQuery('#adminFolderUploadInput'),
+    folderUploadButton: adminQuery('#adminFolderUploadButton'),
     uploadMessage: adminQuery('#adminUploadMessage'),
     exportAllDataButton: adminQuery('#exportAllDataButton'),
     downloadDataTemplateButton: adminQuery('#downloadDataTemplateButton'),

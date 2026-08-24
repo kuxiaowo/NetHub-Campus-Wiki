@@ -96,6 +96,9 @@ class FrontendServerTest(unittest.TestCase):
         self.assertIn(b"data-project-update-photos", body)
         self.assertIn(b"/updates/reorder", body)
         self.assertIn(b"data-browse-relative-to", body)
+        self.assertIn(b"/admin/files/folders", body)
+        self.assertIn(b"/admin/files/folder-upload", body)
+        self.assertIn(b"webkitRelativePath", body)
         project_detail = body.split(b"function adminProjectDetail", 1)[1].split(
             b"function findAdminProject", 1
         )[0]

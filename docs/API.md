@@ -841,6 +841,8 @@ JSON 迁移覆盖 CAS 项目（含成员联系方式与动态）、普通资源�
 
 `GET /api/admin/files/tree?path=` 浏览 `public/` 目录下的文件和文件夹。`path` 是相对 `public/` 的目录路径，例如 `uploads`。返回项包含 `name`、`path`、`url`、`type`、`size`、`updatedAt`。
 
+`POST /api/admin/files/folders` 在 `public/` 下新建空文件夹。JSON 请求体为 `{"parentPath":"uploads","name":"activity-2026"}`。`parentPath` 必须是已经存在的目录；文件夹名称不能包含路径分隔符、系统保留字符或 `.`、`..`。同名文件或文件夹已存在时返回 `409`。
+
 `POST /api/admin/uploads` 使用 `multipart/form-data`。字段：
 
 | 字段 | 类型 | 必填 | 说明 |
@@ -850,7 +852,17 @@ JSON 迁移覆盖 CAS 项目（含成员联系方式与动态）、普通资源�
 
 允许扩展名：`jpg`、`jpeg`、`png`、`webp`、`gif`、`pdf`、`doc`、`docx`、`ppt`、`pptx`、`xls`、`xlsx`、`zip`、`rar`。单文件最大 50MB。普通文件上传后使用随机文件名保存；`.rar` 压缩文件保留原文件名，方便活动照片目录使用同名压缩文件。
 
-成功响应：
+`POST /api/admin/files/folder-upload` 使用 `multipart/form-data` 直接上传整个文件夹。字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `files` | `file[]` | 是 | 文件夹内的文件，可重复提交 |
+| `relativePaths` | `string[]` | 是 | 与 `files` 一一对应的相对路径，例如 `activity-2026/photos/01.jpg` |
+| `targetPath` | `string` | 否 | 相对 `public/` 的已存在目标目录 |
+
+文件夹上传会保留顶层文件夹、子目录和原文件名，扩展名白名单和单文件 50MB 限制与单文件上传一致。一次请求只能包含一个顶层文件夹；目标位置已存在同名文件夹时返回 `409`，不会合并或覆盖。任意文件校验或写入失败时，本次新建的整个文件夹都会回滚。
+
+单文件上传成功响应：
 
 ```json
 {

@@ -9,8 +9,9 @@ from __future__ import annotations
 import json
 import re
 import secrets
+import shutil
 from sqlite3 import IntegrityError
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -79,6 +80,15 @@ ALLOWED_UPLOAD_EXTENSIONS = {
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
 WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:/")
 WINDOWS_FILENAME_RESERVED_CHARS = re.compile(r'[\x00-\x1f<>:"|?*]')
+WINDOWS_RESERVED_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{index}" for index in range(1, 10)),
+    *(f"LPT{index}" for index in range(1, 10)),
+}
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 MAX_PROJECT_PHOTO_BYTES = 50 * 1024 * 1024
 
 
@@ -134,6 +144,40 @@ def _file_url(relative_path: str, is_dir: bool = False) -> str:
 def _safe_upload_filename(filename: str | None) -> str:
     original_name = Path((filename or "").replace("\\", "/")).name
     return WINDOWS_FILENAME_RESERVED_CHARS.sub("_", original_name).strip(" .")
+
+
+def _validate_public_entry_name(value: Any, field_name: str, *, trim: bool = False) -> str:
+    raw_name = str(value or "")
+    name = raw_name.strip() if trim else raw_name
+    if not name or name in {".", ".."}:
+        raise HTTPException(status_code=422, detail=f"{field_name}不能为空")
+    if "/" in name or "\\" in name or WINDOWS_FILENAME_RESERVED_CHARS.search(name):
+        raise HTTPException(status_code=422, detail=f"{field_name}包含不允许的字符")
+    if name.endswith((" ", ".")):
+        raise HTTPException(status_code=422, detail=f"{field_name}不能以空格或句点结尾")
+    if len(name) > 255:
+        raise HTTPException(status_code=422, detail=f"{field_name}不能超过 255 个字符")
+    if name.split(".", 1)[0].upper() in WINDOWS_RESERVED_NAMES:
+        raise HTTPException(status_code=422, detail=f"{field_name}是系统保留名称")
+    return name
+
+
+def _folder_upload_relative_path(value: Any) -> PurePosixPath:
+    raw_value = str(value or "").replace("\\", "/")
+    if raw_value.startswith("/") or WINDOWS_DRIVE_PATTERN.match(raw_value):
+        raise HTTPException(status_code=422, detail="文件夹内路径不合法")
+    raw_parts = raw_value.split("/")
+    if len(raw_parts) < 2 or any(part in {"", ".", ".."} for part in raw_parts):
+        raise HTTPException(status_code=422, detail="文件夹内路径必须包含顶层文件夹且不能越级")
+    parts = [
+        _validate_public_entry_name(part, "文件夹内路径")
+        for part in raw_parts
+    ]
+    relative_path = PurePosixPath(*parts)
+    suffix = Path(parts[-1]).suffix.lower().lstrip(".")
+    if suffix not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise HTTPException(status_code=422, detail=f"文件类型不允许：{relative_path.as_posix()}")
+    return relative_path
 
 
 def _format_file_item(path: Path, root: Path) -> dict[str, Any]:
@@ -1450,7 +1494,7 @@ async def admin_upload_file(
     with target_file.open("wb") as output:
         while chunk := await file.read(1024 * 1024):
             size += len(chunk)
-            if size > 50 * 1024 * 1024:
+            if size > MAX_UPLOAD_BYTES:
                 target_file.unlink(missing_ok=True)
                 raise HTTPException(status_code=413, detail="文件不能超过 50MB")
             output.write(chunk)
@@ -1460,6 +1504,108 @@ async def admin_upload_file(
         "url": _file_url(file_relative),
         "filename": target_name,
         "size": size,
+        "targetPath": relative_dir,
+    }
+
+
+@router.post("/files/folders")
+def admin_create_folder(
+    payload: dict[str, Any],
+    _: dict[str, Any] = Depends(require_admin_user),
+):
+    parent_dir, _ = _resolve_public_path(payload.get("parentPath"))
+    if not parent_dir.exists():
+        raise HTTPException(status_code=404, detail="目标目录不存在")
+    if not parent_dir.is_dir():
+        raise HTTPException(status_code=422, detail="目标路径必须是目录")
+
+    folder_name = _validate_public_entry_name(payload.get("name"), "文件夹名称", trim=True)
+    target_dir = parent_dir / folder_name
+    if target_dir.exists():
+        raise HTTPException(status_code=409, detail="同名文件或文件夹已存在")
+    try:
+        target_dir.mkdir()
+    except FileExistsError as error:
+        raise HTTPException(status_code=409, detail="同名文件或文件夹已存在") from error
+    except OSError as error:
+        raise HTTPException(status_code=422, detail="无法创建文件夹") from error
+    return {"ok": True, "data": _format_file_item(target_dir, PUBLIC_DIR.resolve())}
+
+
+@router.post("/files/folder-upload")
+async def admin_upload_folder(
+    files: list[UploadFile] = File(...),
+    relative_paths: list[str] = Form(..., alias="relativePaths"),
+    target_path: str = Form(default="", alias="targetPath"),
+    _: dict[str, Any] = Depends(require_admin_user),
+):
+    if not files:
+        raise HTTPException(status_code=422, detail="所选文件夹中没有可上传文件")
+    if len(files) != len(relative_paths):
+        raise HTTPException(status_code=422, detail="文件与相对路径数量不一致")
+
+    normalized_paths = [_folder_upload_relative_path(path) for path in relative_paths]
+    path_keys = [path.as_posix().casefold() for path in normalized_paths]
+    if len(path_keys) != len(set(path_keys)):
+        raise HTTPException(status_code=422, detail="文件夹中包含重名文件")
+    file_path_keys = set(path_keys)
+    for relative_path in normalized_paths:
+        parts = relative_path.parts
+        for depth in range(2, len(parts)):
+            parent_key = "/".join(parts[:depth]).casefold()
+            if parent_key in file_path_keys:
+                raise HTTPException(status_code=422, detail="文件夹内文件和子目录名称冲突")
+
+    root_names = {path.parts[0] for path in normalized_paths}
+    if len(root_names) != 1:
+        raise HTTPException(status_code=422, detail="一次只能上传一个文件夹")
+    root_name = root_names.pop()
+
+    target_dir, relative_dir = _resolve_public_path(target_path)
+    if not target_dir.exists():
+        raise HTTPException(status_code=404, detail="上传目标目录不存在")
+    if not target_dir.is_dir():
+        raise HTTPException(status_code=422, detail="上传目标必须是目录")
+
+    uploaded_root = target_dir / root_name
+    if uploaded_root.exists():
+        raise HTTPException(status_code=409, detail=f"同名文件夹已存在：{root_name}")
+
+    total_size = 0
+    created_root = False
+    try:
+        uploaded_root.mkdir()
+        created_root = True
+        for upload, relative_path in zip(files, normalized_paths):
+            target_file = target_dir.joinpath(*relative_path.parts)
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+            file_size = 0
+            with target_file.open("xb") as output:
+                while chunk := await upload.read(1024 * 1024):
+                    file_size += len(chunk)
+                    if file_size > MAX_UPLOAD_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"单个文件不能超过 50MB：{relative_path.as_posix()}",
+                        )
+                    output.write(chunk)
+            total_size += file_size
+    except FileExistsError as error:
+        if created_root:
+            shutil.rmtree(uploaded_root, ignore_errors=True)
+        raise HTTPException(status_code=409, detail="文件夹内包含重名路径") from error
+    except Exception:
+        if created_root:
+            shutil.rmtree(uploaded_root, ignore_errors=True)
+        raise
+
+    uploaded_relative = uploaded_root.relative_to(PUBLIC_DIR.resolve()).as_posix()
+    return {
+        "ok": True,
+        "folderPath": uploaded_relative,
+        "folderUrl": _file_url(uploaded_relative, is_dir=True),
+        "fileCount": len(files),
+        "size": total_size,
         "targetPath": relative_dir,
     }
 

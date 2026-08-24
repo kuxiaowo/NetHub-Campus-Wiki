@@ -2056,8 +2056,21 @@ button:disabled,
   gap: 12px;
   box-shadow: none;
 }
-.admin-upload-panel h3,
-.admin-upload-panel p { margin: 0; }
+.admin-file-action {
+  display: grid;
+  gap: 8px;
+}
+.admin-file-action + .admin-file-action {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+.admin-file-action h3,
+.admin-file-action p { margin: 0; }
+.admin-file-target {
+  overflow-wrap: anywhere;
+  color: var(--primary-dark);
+  font-weight: 800;
+}
 .admin-link-button {
   border: 0;
   padding: 0;
