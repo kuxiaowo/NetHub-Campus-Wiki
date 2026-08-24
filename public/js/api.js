@@ -114,8 +114,8 @@ async function refreshGlobalMessageBadge() {
     return;
   }
   try {
-    const result = await request('/messages/unread-count');
-    const total = Number(result.unread || 0) + Number(result.requests || 0);
+    const result = await request('/message-center/unread-count');
+    const total = Number(result.total || 0);
     badges.forEach((badge) => {
       badge.textContent = total > 99 ? '99+' : String(total);
       badge.classList.toggle('is-hidden', !total);

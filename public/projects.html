@@ -9,14 +9,14 @@
   <meta property="og:image" content="/og.png" />
   <meta name="twitter:card" content="summary_large_image" />
   <title>CAS 项目库</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=2" />
-  <link rel="stylesheet" href="/css/styles.css?v=nethub-social3" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=3" />
+  <link rel="stylesheet" href="/css/styles.css?v=unified-filter2" />
 </head>
 <body>
   <header class="site-header">
     <nav class="navbar container">
       <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
-        <img class="site-logo" src="/assets/nethub-icon.png?v=2" alt="" />
+        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
         <span class="brand-copy">
           <strong>NetHub</strong>
           <small>Campus Wiki</small>
@@ -32,24 +32,52 @@
     </nav>
   </header>
 
-  <main class="container library-layout">
-    <aside class="card sidebar">
-      <h2>筛选项目</h2>
-      <label for="searchInput">关键词</label>
-      <input id="searchInput" class="input" type="search" placeholder="搜索名称、负责人、简介" />
+  <section class="container project-filter-bar" aria-label="项目搜索与筛选">
+    <div class="card project-search-card">
+      <label class="project-search-field" for="searchInput">
+        <img src="/assets/icons/heroicons/magnifying-glass.svg" alt="" aria-hidden="true" />
+        <span class="sr-only">搜索项目</span>
+        <input id="searchInput" type="search" autocomplete="off" />
+      </label>
+      <button
+        id="projectFilterToggle"
+        class="project-filter-toggle"
+        type="button"
+        aria-label="显示详细筛选"
+        aria-expanded="false"
+        aria-controls="projectAdvancedFilters"
+      >
+        <img src="/assets/icons/heroicons/funnel.svg" alt="" aria-hidden="true" />
+        <span id="projectFilterCount" class="project-filter-count" hidden></span>
+      </button>
+    </div>
 
-      <label for="yearSelect">年份</label>
-      <select id="yearSelect" class="input">
-        <option value="">全部年份</option>
-      </select>
+    <div id="projectAdvancedFilters" class="card project-advanced-filters project-filter-options-only" role="region" aria-label="详细筛选" hidden>
+      <div class="project-filter-controls">
+        <label for="yearSelect">
+          <span>年份</span>
+          <select id="yearSelect" class="input">
+            <option value="">全部年份</option>
+          </select>
+        </label>
 
-      <label for="sortSelect">排序</label>
-      <select id="sortSelect" class="input">
-        <option value="latest">最新</option>
-        <option value="popular">热门</option>
-      </select>
+        <label for="sortSelect">
+          <span>排序</span>
+          <select id="sortSelect" class="input">
+            <option value="latest">最新发布</option>
+            <option value="popular">最多浏览</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </section>
 
-      <h3>分类</h3>
+  <main class="container library-layout project-library-layout">
+    <aside class="card sidebar filter-category-sidebar">
+      <div class="filter-sidebar-title">
+        <h2>项目分类</h2>
+        <button id="clearProjectFilters" type="button">清除</button>
+      </div>
       <div id="categoryList" class="category-list"></div>
     </aside>
 
@@ -67,7 +95,7 @@
   <footer class="site-footer">
     <div class="container site-footer-inner">
       <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
-        <img class="site-logo" src="/assets/nethub-icon.png?v=2" alt="" />
+        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
         <span class="brand-copy">
           <strong>NetHub</strong>
           <small>Campus Wiki</small>
@@ -83,7 +111,7 @@
     </div>
   </footer>
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=nethub-social3"></script>
-  <script src="/js/projects.js"></script>
+  <script src="/js/api.js?v=nethub-social4"></script>
+  <script src="/js/projects.js?v=unified-filter1"></script>
 </body>
 </html>

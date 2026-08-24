@@ -3,21 +3,21 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="NetHub 校园私信，支持会话、陌生人消息请求和未读提醒。" />
+  <meta name="description" content="NetHub 消息中心，集中查看校园私信、留言回复和收到的赞。" />
   <meta property="og:site_name" content="NetHub Campus Wiki" />
   <meta property="og:title" content="消息中心 - NetHub Campus Wiki" />
-  <meta property="og:description" content="安全地联系 CAS 项目成员和校园用户。" />
+  <meta property="og:description" content="集中查看校园私信、留言回复和收到的赞。" />
   <meta property="og:image" content="/og.png" />
   <meta name="twitter:card" content="summary_large_image" />
   <title>消息中心 - NetHub Campus Wiki</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=2" />
-  <link rel="stylesheet" href="/css/styles.css?v=nethub-social3" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=3" />
+  <link rel="stylesheet" href="/css/styles.css?v=nethub-social4" />
 </head>
 <body class="messages-page">
   <header class="site-header">
     <nav class="navbar container">
       <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
-        <img class="site-logo" src="/assets/nethub-icon.png?v=2" alt="" />
+        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
         <span class="brand-copy"><strong>NetHub</strong><small>Campus Wiki</small></span>
       </a>
       <div class="nav-links" aria-label="主导航">
@@ -33,69 +33,93 @@
   <main class="container messages-shell">
     <section id="messagesGate" class="card messages-gate is-hidden">
       <h1>登录后查看消息</h1>
-      <p>私信、消息请求和未读状态只对账号本人开放。</p>
+      <p>私信和未读状态只对账号本人开放。</p>
       <a class="button" href="/index.html">返回首页登录</a>
     </section>
 
     <section id="messagesApp" class="messages-app is-hidden" aria-label="消息中心">
-      <aside class="conversation-sidebar">
-        <header class="conversation-sidebar-head">
-          <div>
-            <p class="eyebrow">Messages</p>
-            <h1>消息中心</h1>
-          </div>
-          <button id="newConversationButton" class="icon-button" type="button" aria-label="发起新私信">＋</button>
+      <aside class="message-center-nav">
+        <header class="message-center-brand">
+          <p class="eyebrow">Messages</p>
+          <h1>消息中心</h1>
         </header>
-        <div class="message-tabs" role="tablist">
-          <button class="active" type="button" data-message-scope="inbox">私信 <span id="inboxUnread"></span></button>
-          <button type="button" data-message-scope="requests">陌生人 <span id="requestUnread"></span></button>
-        </div>
-        <section id="userSearchPanel" class="user-search-panel is-hidden">
-          <label for="messageUserSearch">查找用户</label>
-          <input id="messageUserSearch" class="input" type="search" placeholder="输入昵称或姓名" autocomplete="off" />
-          <div id="messageUserResults" class="message-user-results"></div>
-        </section>
-        <div id="conversationList" class="conversation-list" aria-live="polite"></div>
+        <nav aria-label="消息分类">
+          <button class="message-center-nav-item active" type="button" data-message-view="messages" aria-current="page">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5h16v11H4z"></path><path d="m4.5 7 7.5 6 7.5-6"></path></svg>
+            <span>我的消息</span><b class="is-hidden" data-message-view-badge="messages">0</b>
+          </button>
+          <button class="message-center-nav-item" type="button" data-message-view="replies">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 8 4.5 12 9 16"></path><path d="M5 12h8.5a5.5 5.5 0 0 1 5.5 5.5V19"></path></svg>
+            <span>回复我的</span><b class="is-hidden" data-message-view-badge="replies">0</b>
+          </button>
+          <button class="message-center-nav-item" type="button" data-message-view="likes">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 10.2 11.3 4a1.4 1.4 0 0 1 2.6 1l-.8 3H18a2 2 0 0 1 1.9 2.5l-1.6 6.8A2.2 2.2 0 0 1 16.2 19H8z"></path><path d="M4 9.5h4v10H4z"></path></svg>
+            <span>收到的赞</span><b class="is-hidden" data-message-view-badge="likes">0</b>
+          </button>
+        </nav>
       </aside>
 
-      <section id="chatPanel" class="chat-panel">
-        <div id="chatEmpty" class="chat-empty">
-          <div class="chat-empty-mark">信</div>
-          <h2>选择一段会话</h2>
-          <p>也可以点击左上角“＋”查找同学并发起私信。</p>
-        </div>
-        <div id="chatActive" class="chat-active is-hidden">
-          <header class="chat-head">
-            <button id="backConversationButton" class="mobile-chat-back" type="button" aria-label="返回会话列表">‹</button>
-            <a id="chatUserLink" class="chat-user" href="#">
-              <span id="chatAvatar" class="user-avatar"></span>
-              <span><strong id="chatName"></strong><small id="chatUsername"></small></span>
-            </a>
-            <button id="hideConversationButton" class="text-button" type="button">隐藏会话</button>
+      <div class="message-center-content">
+        <section id="directMessagesView" class="direct-messages-view">
+          <aside class="conversation-sidebar">
+            <header class="conversation-sidebar-head">
+              <div>
+                <p class="eyebrow">Direct messages</p>
+                <h2>我的消息</h2>
+              </div>
+              <button id="newConversationButton" class="icon-button" type="button" aria-label="发起新私信">＋</button>
+            </header>
+            <section id="userSearchPanel" class="user-search-panel is-hidden">
+              <label for="messageUserSearch">查找用户</label>
+              <input id="messageUserSearch" class="input" type="search" placeholder="输入昵称或姓名" autocomplete="off" />
+              <div id="messageUserResults" class="message-user-results"></div>
+            </section>
+            <div id="conversationList" class="conversation-list" aria-live="polite"></div>
+          </aside>
+
+          <section id="chatPanel" class="chat-panel">
+            <div id="chatEmpty" class="chat-empty">
+              <div class="chat-empty-mark">信</div>
+              <h2>选择一段会话</h2>
+              <p>也可以点击左上角“＋”查找同学并发起私信。</p>
+            </div>
+            <div id="chatActive" class="chat-active is-hidden">
+              <header class="chat-head">
+                <button id="backConversationButton" class="mobile-chat-back" type="button" aria-label="返回会话列表">‹</button>
+                <a id="chatUserLink" class="chat-user" href="#">
+                  <span id="chatAvatar" class="user-avatar"></span>
+                  <span><strong id="chatName"></strong><small id="chatUsername"></small></span>
+                </a>
+                <button id="hideConversationButton" class="text-button" type="button">隐藏会话</button>
+              </header>
+              <div id="messageList" class="message-list" aria-live="polite"></div>
+              <form id="messageComposer" class="message-composer">
+                <div id="projectSharePreview" class="composer-project-share is-hidden"></div>
+                <textarea id="messageInput" maxlength="2000" placeholder="输入消息，Enter 发送，Shift + Enter 换行"></textarea>
+                <div class="message-composer-foot">
+                  <span id="messageStatus" aria-live="polite"></span>
+                  <button class="button compact" type="submit">发送</button>
+                </div>
+              </form>
+            </div>
+          </section>
+        </section>
+
+        <section id="messageActivityView" class="message-activity-view is-hidden">
+          <header class="message-activity-head">
+            <div><p class="eyebrow">Activity</p><h2 id="messageActivityTitle">回复我的</h2></div>
           </header>
-          <div id="requestBanner" class="request-banner is-hidden">
-            <div><strong>陌生人消息请求</strong><p>接受或回复后，对方才能继续发送消息。</p></div>
-            <div>
-              <button class="button secondary compact" type="button" data-request-action="decline">拒绝</button>
-              <button class="button compact" type="button" data-request-action="accept">接受</button>
-            </div>
-          </div>
-          <div id="messageList" class="message-list" aria-live="polite"></div>
-          <form id="messageComposer" class="message-composer">
-            <div id="projectSharePreview" class="composer-project-share is-hidden"></div>
-            <textarea id="messageInput" maxlength="2000" placeholder="输入消息，Enter 发送，Shift + Enter 换行"></textarea>
-            <div class="message-composer-foot">
-              <span id="messageStatus" aria-live="polite"></span>
-              <button class="button compact" type="submit">发送</button>
-            </div>
-          </form>
-        </div>
-      </section>
+          <div id="messageActivityList" class="message-activity-list" aria-live="polite"></div>
+          <footer class="message-activity-more">
+            <button id="messageActivityMore" class="button secondary compact is-hidden" type="button">加载更多</button>
+          </footer>
+        </section>
+      </div>
     </section>
   </main>
 
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=nethub-social3"></script>
-  <script src="/js/messages.js?v=nethub-social2"></script>
+  <script src="/js/api.js?v=nethub-social4"></script>
+  <script src="/js/messages.js?v=nethub-social3"></script>
 </body>
 </html>

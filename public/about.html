@@ -3,19 +3,23 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="了解 NetHub Campus Wiki 的愿景、内容与校园连接。" />
+  <meta name="description" content="认识 NetHub：由学生发起，为校园制作实用的网站和数字工具。" />
   <title>关于我们 - NetHub Campus Wiki</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=2" />
-  <link rel="stylesheet" href="/css/about.css?v=1" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=3" />
+  <link rel="stylesheet" href="/css/styles.css?v=nethub-social3" />
+  <link rel="stylesheet" href="/css/about.css?v=3" />
 </head>
 <body class="about-page">
-  <header class="about-header">
-    <nav class="about-nav about-container" aria-label="主导航">
-      <a class="about-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
-        <img src="/assets/nethub-icon.png?v=2" alt="" />
-        <span><strong>NetHub</strong><small>Campus Wiki</small></span>
+  <header class="site-header">
+    <nav class="navbar container">
+      <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
+        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
+        <span class="brand-copy">
+          <strong>NetHub</strong>
+          <small>Campus Wiki</small>
+        </span>
       </a>
-      <div class="about-nav-links">
+      <div class="nav-links" aria-label="主导航">
         <a href="/index.html">首页</a>
         <a href="/projects.html">CAS 项目库</a>
         <a href="/resources.html">资源中心</a>
@@ -25,143 +29,143 @@
     </nav>
   </header>
 
-  <main>
-    <section class="about-hero">
-      <div class="about-grid-sky" aria-hidden="true">
-        <span class="about-node node-one"></span>
-        <span class="about-node node-two"></span>
-        <span class="about-node node-three"></span>
-      </div>
-      <div class="about-container about-hero-layout">
-        <div class="about-hero-copy">
-          <p class="about-kicker"><span></span> About NetHub</p>
-          <h1>让校园里的<br /><em>好想法彼此相遇</em></h1>
-          <p>NetHub Campus Wiki 是一个记录校园创造、行动与共同记忆的内容空间。我们希望有价值的项目能够被看见，实用的经验能够被找到，真实发生过的故事能够被留下。</p>
+  <main class="about-main">
+    <section class="container about-hero" aria-labelledby="aboutTitle">
+      <div class="about-hero-stage">
+        <img class="about-hero-photo" src="/assets/about/campus-courtyard.webp" alt="" width="2400" height="1350" fetchpriority="high" />
+        <div class="about-hero-card">
+          <img class="about-hero-logo" src="/assets/nethub-icon.png?v=3" alt="" />
+          <p class="about-kicker">学生发起 · 校园技术小组</p>
+          <h1 id="aboutTitle">把校园里的想法，<br />真正落地。</h1>
+          <p class="about-hero-summary">整理校园资料，提供快捷信息。</p>
           <div class="about-actions">
-            <a class="about-button" href="/projects.html">探索校园项目 <span aria-hidden="true">→</span></a>
-            <a class="about-link" href="/resources.html">浏览共享资源 <span aria-hidden="true">↗</span></a>
+            <a class="button" href="#our-work">看看我们在做什么</a>
+            <a class="button secondary" href="#contact">联系我们</a>
           </div>
-        </div>
-
-        <div class="about-mark-stage" aria-hidden="true">
-          <div class="about-mark-rings"></div>
-          <div class="about-mark-core">
-            <img src="/assets/nethub-icon.png?v=2" alt="" />
-          </div>
-          <span class="about-coordinate top">CAMPUS / CONNECTED</span>
-          <span class="about-coordinate bottom">C · A · S</span>
-          <span class="about-stage-caption">CONNECTING<br />CAMPUS STORIES</span>
-        </div>
-      </div>
-      <div class="about-container about-hero-foot">
-        <span>Creativity · Activity · Service</span>
-        <p>连接创造、行动与服务的校园知识网络</p>
-      </div>
-    </section>
-
-    <section class="about-intro">
-      <div class="about-container about-intro-layout">
-        <div>
-          <p class="about-section-no">01 / WHY NETHUB</p>
-          <h2>不只是保存信息，<br />更是让行动产生回响。</h2>
-        </div>
-        <div class="about-intro-copy">
-          <p>校园里每天都在发生值得记录的事情：一项从问题出发的研究、一次由同学共同完成的服务、一份帮助后来者少走弯路的资料。</p>
-          <p>NetHub 把这些内容组织在一起，让项目经验可以延续，让校园资源可以共享，也让人与人之间更容易因为相同的关注而建立连接。</p>
         </div>
       </div>
     </section>
 
-    <section class="about-pillars">
-      <div class="about-container">
-        <div class="about-section-head">
-          <div>
-            <p class="about-section-no light">02 / WHAT CONNECTS US</p>
-            <h2>创造、行动与服务</h2>
-          </div>
-          <p>CAS 不只是三个标签，也是 NetHub 选择和组织校园内容的三个视角。</p>
+    <section id="our-work" class="container about-work" aria-labelledby="workTitle">
+      <header class="about-section-head">
+        <p id="workTitle" class="about-kicker about-work-title">正在进行</p>
+      </header>
+
+      <article class="about-feature">
+        <div class="about-feature-copy">
+          <p class="about-feature-index">产品 01</p>
+          <h3>更适合国际学生的<br />To Do List</h3>
+          <p>TodoList管理好所有DDL和每天时间。</p>
+          <a href="https://www.nethub.wiki" target="_blank" rel="noreferrer">打开 TodoList <span aria-hidden="true">↗</span></a>
         </div>
-        <div class="about-pillar-grid">
-          <article>
-            <span>C</span>
-            <small>Creativity</small>
-            <h3>创造</h3>
-            <p>记录从问题、观察和灵感出发，最终落地为真实成果的校园项目。</p>
-          </article>
-          <article>
-            <span>A</span>
-            <small>Activity</small>
-            <h3>行动</h3>
-            <p>关注同学如何协作、实践与持续推进，让过程本身也成为可复用的经验。</p>
-          </article>
-          <article>
-            <span>S</span>
-            <small>Service</small>
-            <h3>服务</h3>
-            <p>让知识和资源重新回到校园社区，在分享中帮助更多人解决真实问题。</p>
-          </article>
+        <figure class="about-feature-media about-feature-todo">
+          <img src="/assets/about/todolist.webp" alt="NetHub TodoList 深色模式周视图" width="1600" height="749" loading="lazy" />
+        </figure>
+      </article>
+
+      <article class="about-feature reverse">
+        <div class="about-feature-copy">
+          <p class="about-feature-index">产品 02</p>
+          <h3>CAS、资料与校园记忆，<br />一处查找。</h3>
+          <p>Campus Wiki 收录 CAS 案例、共享资源和活动影像。</p>
+          <a href="/resources.html">浏览校园资源 <span aria-hidden="true">→</span></a>
         </div>
+        <figure class="about-feature-media about-feature-wiki">
+          <img src="/assets/about/campus-wiki.webp" alt="Campus Wiki 活动照片资源页面" width="1500" height="1032" loading="lazy" />
+        </figure>
+      </article>
+
+      <article class="about-feature">
+        <div class="about-feature-copy">
+          <p class="about-feature-index">一起创造</p>
+          <h3>有想法，<br />就试着把它做出来。</h3>
+          <p>我们为校园项目提供力所能及的技术支持。</p>
+          <a href="#contact">聊聊你的想法 <span aria-hidden="true">↓</span></a>
+        </div>
+        <figure class="about-feature-media about-feature-team">
+          <img src="/assets/about/team.webp" alt="NetHub 四位小组成员的合照" width="1400" height="1050" loading="lazy" />
+        </figure>
+      </article>
+    </section>
+
+    <section class="container about-more" aria-labelledby="moreTitle">
+      <div class="about-more-head">
+        <p class="about-kicker">我们可以帮什么</p>
+        <h2 id="moreTitle">把想法变成网页</h2>
+      </div>
+      <div class="about-more-grid">
+        <article>
+          <span aria-hidden="true">01</span>
+          <h3>网站搭建</h3>
+          <p>帮忙搭建基础结构，实现简单功能。</p>
+        </article>
+        <article>
+          <span aria-hidden="true">02</span>
+          <h3>开发资源</h3>
+          <p>经验和工具支持</p>
+        </article>
+        <article>
+          <span aria-hidden="true">03</span>
+          <h3>部署平台</h3>
+          <p>真正把你的网站落实可访问。</p>
+        </article>
       </div>
     </section>
 
-    <section class="about-content">
-      <div class="about-container">
-        <div class="about-section-head dark">
-          <div>
-            <p class="about-section-no">03 / WHAT WE KEEP</p>
-            <h2>我们正在认真整理的内容</h2>
-          </div>
-          <p>从正在发生的项目，到可以反复使用的资料，再到共同经历过的校园瞬间。</p>
+    <section id="contact" class="container about-contact" aria-labelledby="contactTitle">
+      <div class="about-contact-stage">
+        <div class="about-contact-card">
+          <p class="about-kicker">NetHub · Campus Wiki</p>
+          <h2 id="contactTitle">需要技术支持？<br />来找我们聊聊。</h2>
         </div>
-        <div class="about-content-grid">
-          <a href="/projects.html">
-            <span>01</span>
-            <small>CAS Projects</small>
-            <h3>校园项目</h3>
-            <p>完整呈现项目主题、参与者、过程更新与成果材料。</p>
-            <b aria-hidden="true">↗</b>
+        <div class="about-contact-list">
+          <a class="about-member-card" data-account-member="Steve">
+            <span class="about-member-avatar" aria-hidden="true">S</span>
+            <div><strong data-member-name>庞正心（Steve）</strong><small data-member-contact>微信：kuxiaowodehao</small></div>
           </a>
-          <a href="/resources.html">
-            <span>02</span>
-            <small>Shared Knowledge</small>
-            <h3>共享资源</h3>
-            <p>汇集 Yearbook、使用指南和能够帮助校园生活的资料。</p>
-            <b aria-hidden="true">↗</b>
+          <a class="about-member-card" data-account-member="Kipper">
+            <span class="about-member-avatar" aria-hidden="true">K</span>
+            <div><strong data-member-name>田思源（Kipper）</strong><small data-member-contact>微信：kipper_the_great</small></div>
           </a>
-          <a href="/resources.html">
-            <span>03</span>
-            <small>Campus Memories</small>
-            <h3>活动影像</h3>
-            <p>整理运动会、文化节和毕业季等活动留下的共同记忆。</p>
-            <b aria-hidden="true">↗</b>
+          <a class="about-member-card" data-account-member="Nimo">
+            <span class="about-member-avatar" aria-hidden="true">N</span>
+            <div><strong data-member-name>李亦涵（Nimo）</strong><small data-member-contact>微信：L_YH4380</small></div>
+          </a>
+          <a class="about-member-card" data-account-member="Brandon">
+            <span class="about-member-avatar" aria-hidden="true">B</span>
+            <div><strong data-member-name>李柏鸿（Brandon）</strong><small data-member-contact>微信：Brandon-0614</small></div>
           </a>
         </div>
       </div>
     </section>
 
-    <section class="about-statement">
-      <div class="about-container">
-        <img src="/assets/nethub-icon.png?v=2" alt="" />
-        <p>每一个值得被看见的校园故事，<br />都可以在这里继续产生连接。</p>
-        <a href="/index.html">返回首页 <span aria-hidden="true">→</span></a>
-      </div>
+    <section class="container about-final" aria-label="继续浏览">
+      <img src="/assets/nethub-icon.png?v=3" alt="" />
+      <h2>继续探索 Campus Wiki</h2>
+      <p>看看校园里正在发生什么。</p>
+      <a class="button" href="/projects.html">浏览 CAS 项目</a>
     </section>
   </main>
 
-  <footer class="about-footer">
-    <div class="about-container about-footer-inner">
-      <a class="about-brand" href="/index.html">
-        <img src="/assets/nethub-icon.png?v=2" alt="" />
-        <span><strong>NetHub</strong><small>Campus Wiki</small></span>
+  <footer class="site-footer">
+    <div class="container site-footer-inner">
+      <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
+        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
+        <span class="brand-copy">
+          <strong>NetHub</strong>
+          <small>Campus Wiki</small>
+        </span>
       </a>
-      <nav aria-label="页脚导航">
-        <a href="/index.html">首页</a>
+      <nav class="site-footer-links" aria-label="页脚导航">
         <a href="/projects.html">CAS 项目库</a>
         <a href="/resources.html">资源中心</a>
         <a href="/about.html">关于我们</a>
       </nav>
-      <small>© 2026 NetHub Campus Wiki</small>
+      <p class="site-footer-copy">© 2026 NetHub Campus Wiki</p>
     </div>
   </footer>
+  <script src="/js/config.js"></script>
+  <script src="/js/api.js?v=nethub-social3"></script>
+  <script src="/js/about.js?v=3"></script>
 </body>
 </html>

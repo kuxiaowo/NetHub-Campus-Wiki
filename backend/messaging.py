@@ -1,4 +1,4 @@
-"""B 站式一对一私信：会话、陌生人请求、未读、撤回和实时事件。"""
+"""一对一私信：统一会话、动态限流、未读、撤回和实时事件。"""
 
 from __future__ import annotations
 
@@ -224,33 +224,28 @@ def open_conversation(
                 concurrent = cursor.fetchone()
                 return {"data": {"id": concurrent["id"], "created": False}}
             conversation_id = cursor.lastrowid
-            recipient_status = "accepted" if target_follows else "pending"
             cursor.executemany(
                 """
-                INSERT INTO conversation_members
-                  (conversation_id, user_id, request_status)
-                VALUES (%s, %s, %s)
+                INSERT INTO conversation_members (conversation_id, user_id)
+                VALUES (%s, %s)
                 """,
                 [
-                    (conversation_id, user["id"], "accepted"),
-                    (conversation_id, target_user_id, recipient_status),
+                    (conversation_id, user["id"]),
+                    (conversation_id, target_user_id),
                 ],
             )
     return {
         "data": {
             "id": conversation_id,
             "created": True,
-            "requestStatus": recipient_status,
         }
     }
 
 
 @router.get("/conversations")
 def list_conversations(
-    scope: str = Query(default="inbox", pattern="^(inbox|requests)$"),
     user: dict[str, Any] = Depends(get_current_user),
 ):
-    request_status = "pending" if scope == "requests" else "accepted"
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
@@ -258,7 +253,6 @@ def list_conversations(
                 SELECT
                   c.id,
                   c.last_message_at,
-                  cm.request_status,
                   cm.last_read_message_id,
                   other.id AS other_user_id,
                   other.username AS other_username,
@@ -291,19 +285,17 @@ def list_conversations(
                 JOIN users other ON other.id = other_cm.user_id AND other.is_active = 1
                 LEFT JOIN messages lm ON lm.id = c.last_message_id
                 WHERE cm.user_id = %s
-                  AND cm.request_status = %s
                   AND cm.hidden_at IS NULL
                   AND c.last_message_id IS NOT NULL
                 ORDER BY c.last_message_at DESC, c.id DESC
                 """,
-                (user["id"], user["id"], user["id"], user["id"], request_status),
+                (user["id"], user["id"], user["id"], user["id"]),
             )
             rows = cursor.fetchall()
     return {
         "data": [
             {
                 "id": row["id"],
-                "requestStatus": row["request_status"],
                 "otherUser": {
                     "id": row["other_user_id"],
                     "username": row["other_username"],
@@ -352,7 +344,7 @@ def list_messages(
         with conn.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT cm.request_status, cm.last_read_message_id,
+                SELECT cm.last_read_message_id,
                        other_cm.last_read_message_id AS other_last_read_message_id,
                        other_cm.user_id AS other_user_id
                 FROM conversation_members cm
@@ -390,7 +382,6 @@ def list_messages(
             rows = list(reversed(cursor.fetchall()))
     return {
         "data": [_message_dict(row) for row in rows],
-        "requestStatus": membership["request_status"],
         "lastReadMessageId": membership.get("last_read_message_id"),
         "otherLastReadMessageId": membership.get("other_last_read_message_id"),
         "otherUserId": membership["other_user_id"],
@@ -430,10 +421,12 @@ async def send_message(
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
+            # Serialize quota checks and insertion so concurrent requests cannot
+            # both consume the same sender/recipient/day allowance.
+            cursor.execute("BEGIN IMMEDIATE")
             cursor.execute(
                 """
-                SELECT cm.request_status, other_cm.user_id AS other_user_id,
-                       other_cm.request_status AS other_request_status
+                SELECT other_cm.user_id AS other_user_id
                 FROM conversation_members cm
                 JOIN conversation_members other_cm
                   ON other_cm.conversation_id = cm.conversation_id
@@ -465,30 +458,36 @@ async def send_message(
                         raise HTTPException(status_code=409, detail="clientMessageId 已用于其他会话")
                     return {"data": _message_dict(_fetch_message(cursor, idempotent_message["id"]))}
 
-            if membership["request_status"] == "declined":
-                raise HTTPException(status_code=403, detail="该消息请求已被拒绝")
-            if membership["other_request_status"] == "declined":
-                raise HTTPException(status_code=403, detail="对方已拒绝该消息请求")
-            if membership["request_status"] == "pending":
+            cursor.execute(
+                """
+                SELECT
+                  EXISTS(
+                    SELECT 1 FROM user_follows
+                    WHERE follower_id = %s AND following_id = %s
+                  ) AS recipient_follows_sender,
+                  EXISTS(
+                    SELECT 1 FROM messages
+                    WHERE conversation_id = %s AND sender_id = %s
+                  ) AS recipient_has_replied
+                """,
+                (other_user_id, user["id"], conversation_id, other_user_id),
+            )
+            contact = cursor.fetchone()
+            if not contact["recipient_follows_sender"] and not contact["recipient_has_replied"]:
                 cursor.execute(
                     """
-                    UPDATE conversation_members
-                    SET request_status = 'accepted'
-                    WHERE conversation_id = %s AND user_id = %s
-                    """,
-                    (conversation_id, user["id"]),
-                )
-            elif membership["other_request_status"] == "pending":
-                cursor.execute(
-                    """
-                    SELECT COUNT(*) AS sent_count
+                    SELECT COUNT(*) AS sent_today
                     FROM messages
                     WHERE conversation_id = %s AND sender_id = %s
+                      AND date(created_at, '+8 hours') = date('now', '+8 hours')
                     """,
                     (conversation_id, user["id"]),
                 )
-                if cursor.fetchone()["sent_count"] >= 1:
-                    raise HTTPException(status_code=403, detail="请等待对方接受消息请求")
+                if cursor.fetchone()["sent_today"] >= 1:
+                    raise HTTPException(
+                        status_code=429,
+                        detail="对方回复或关注你前，每天最多发送一条消息",
+                    )
 
             cursor.execute(
                 """
@@ -625,41 +624,6 @@ async def mark_conversation_read(
     for user_id in user_ids:
         await manager.send(user_id, event)
     return {"ok": True, "lastReadMessageId": max_id}
-
-
-@router.post("/conversations/{conversation_id}/request")
-async def review_message_request(
-    conversation_id: int,
-    payload: dict[str, Any],
-    user: dict[str, Any] = Depends(get_current_user),
-):
-    action = str(payload.get("action") or "")
-    if action not in {"accept", "decline"}:
-        raise HTTPException(status_code=422, detail="操作只能是 accept 或 decline")
-    new_status = "accepted" if action == "accept" else "declined"
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                UPDATE conversation_members
-                SET request_status = %s,
-                    hidden_at = CASE WHEN %s = 'declined' THEN CURRENT_TIMESTAMP ELSE NULL END
-                WHERE conversation_id = %s AND user_id = %s AND request_status = 'pending'
-                """,
-                (new_status, new_status, conversation_id, user["id"]),
-            )
-            if cursor.rowcount == 0:
-                raise HTTPException(status_code=409, detail="该消息请求不存在或已经处理")
-            user_ids = _conversation_user_ids(cursor, conversation_id)
-    event = {
-        "event": "request",
-        "conversationId": conversation_id,
-        "userId": user["id"],
-        "status": new_status,
-    }
-    for user_id in user_ids:
-        await manager.send(user_id, event)
-    return {"ok": True, "status": new_status}
 
 
 @router.delete("/conversations/{conversation_id}")
@@ -825,30 +789,20 @@ def unread_count(user: dict[str, Any] = Depends(get_current_user)):
             cursor.execute(
                 """
                 SELECT
-                  SUM(
-                    CASE WHEN cm.request_status = 'accepted' THEN (
-                      SELECT COUNT(*) FROM messages m
-                      WHERE m.conversation_id = cm.conversation_id
-                        AND m.sender_id <> cm.user_id
-                        AND m.recalled_at IS NULL
-                        AND m.id > COALESCE(cm.last_read_message_id, 0)
-                    ) ELSE 0 END
-                  ) AS unread,
-                  SUM(
-                    CASE WHEN cm.request_status = 'pending'
-                      AND EXISTS(
-                        SELECT 1 FROM messages request_message
-                        WHERE request_message.conversation_id = cm.conversation_id
-                      )
-                    THEN 1 ELSE 0 END
-                  ) AS requests
+                  SUM((
+                    SELECT COUNT(*) FROM messages m
+                    WHERE m.conversation_id = cm.conversation_id
+                      AND m.sender_id <> cm.user_id
+                      AND m.recalled_at IS NULL
+                      AND m.id > COALESCE(cm.last_read_message_id, 0)
+                  )) AS unread
                 FROM conversation_members cm
                 WHERE cm.user_id = %s AND cm.hidden_at IS NULL
                 """,
                 (user["id"],),
             )
             row = cursor.fetchone()
-    return {"unread": int(row.get("unread") or 0), "requests": int(row.get("requests") or 0)}
+    return {"unread": int(row.get("unread") or 0)}
 
 
 @router.post("/messages/stream-ticket")

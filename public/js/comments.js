@@ -43,10 +43,17 @@
 
   function renderCommentActions(state, comment) {
     if (comment.status === 'deleted') return '';
+    const likeLabel = comment.liked ? '取消点赞' : '点赞';
     return `
       <div class="comment-actions">
-        <button class="${comment.liked ? 'liked' : ''}" type="button" data-comment-action="like" data-comment-id="${escapeHtml(comment.id)}" data-liked="${comment.liked ? 'true' : 'false'}">
-          赞 ${comment.likeCount ? escapeHtml(comment.likeCount) : ''}
+        <button class="comment-like-button ${comment.liked ? 'liked' : ''}" type="button"
+          data-comment-action="like" data-comment-id="${escapeHtml(comment.id)}"
+          data-liked="${comment.liked ? 'true' : 'false'}" aria-label="${likeLabel}" title="${likeLabel}">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M7.5 10.2 11 3.7c.35-.65 1.15-.9 1.82-.58.6.29.9.98.72 1.62l-.9 3.26h4.78a2.4 2.4 0 0 1 2.34 2.95l-1.65 7A2.65 2.65 0 0 1 15.53 20H7.5V10.2Z"></path>
+            <path d="M3.5 9.5h4v10h-4z"></path>
+          </svg>
+          ${comment.likeCount ? `<span>${escapeHtml(comment.likeCount)}</span>` : ''}
         </button>
         <button type="button" data-comment-action="reply" data-comment-id="${escapeHtml(comment.id)}" data-comment-author="${escapeHtml(commentDisplayName(comment.author))}">回复</button>
         ${canDeleteComment(state, comment)
@@ -58,7 +65,7 @@
 
   function renderSingleComment(state, comment, reply = false) {
     return `
-      <article class="${reply ? 'comment-reply' : 'comment-root'}" data-comment-item="${escapeHtml(comment.id)}">
+      <article id="comment-${escapeHtml(comment.id)}" class="${reply ? 'comment-reply' : 'comment-root'}" data-comment-item="${escapeHtml(comment.id)}">
         ${commentAvatar(comment.author, reply ? 'comment-avatar small' : 'comment-avatar')}
         <div class="comment-main">
           <header class="comment-author-line">
@@ -142,6 +149,26 @@
     more.disabled = false;
   }
 
+  async function revealFocusedComment(state) {
+    if (!state.focusCommentId) return;
+    const selector = `[data-comment-item="${CSS.escape(String(state.focusCommentId))}"]`;
+    let focused = state.element.querySelector(selector);
+    if (!focused) {
+      const response = await request(`/comments/${encodeURIComponent(state.focusCommentId)}/context`);
+      const list = state.element.querySelector('[data-comment-list]');
+      list.insertAdjacentHTML(
+        'afterbegin',
+        `<div class="comment-focus-context">${renderThread(state, response.data)}</div>`,
+      );
+      focused = state.element.querySelector(selector);
+    }
+    if (!focused) return;
+    focused.classList.add('comment-focused');
+    window.requestAnimationFrame(() => {
+      focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }
+
   async function loadComments(state, { append = false } = {}) {
     const query = new URLSearchParams({
       targetType: state.targetType,
@@ -152,6 +179,7 @@
     });
     const response = await request(`/comments?${query}`);
     renderComments(state, response, append);
+    if (!append) await revealFocusedComment(state);
   }
 
   async function submitComment(state, content, parentId = null) {
@@ -301,6 +329,10 @@
       currentUser: getStoredUser(),
       sort: 'hot',
       page: 1,
+      focusCommentId: (() => {
+        const raw = Number(new URLSearchParams(window.location.search).get('commentId'));
+        return Number.isInteger(raw) && raw > 0 ? raw : null;
+      })(),
     };
     mountedSections.set(element, state);
     activeStates.add(state);

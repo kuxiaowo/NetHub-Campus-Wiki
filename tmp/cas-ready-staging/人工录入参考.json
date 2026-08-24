@@ -102,5 +102,39 @@
       {"name": "李柏鸿", "englishName": "Brandon", "role": "member", "contactType": null, "contactValue": null}
     ],
     "memberNote": "负责人已确认为庞正心；李亦涵和李柏鸿未提供联系方式"
+  },
+  {
+    "name": "COMPESISTANT",
+    "nameNote": "项目名由 Competition 与 Assistant 组合而来。文档标题使用全大写 COMPESISTANT，正文使用 Compesistant；本整理包以标题写法作为正式展示名",
+    "category": "科技创新",
+    "year": 2026,
+    "icon": "/CAS/Compesistant/icon.jpg",
+    "description": "COMPESISTANT（Competition + Assistant）是一个由学生发起的竞赛支持项目，致力于让竞赛信息更透明、更容易获取。项目帮助学生了解不同学科的国际竞赛、获取优秀参赛者的真实经验，并通过网站提供备赛资源和模拟训练。",
+    "latestOfflineActivity": {
+      "summary": "原始资料未提供近期线下活动信息。",
+      "images": [],
+      "dateNote": "原始资料未提供线下活动的日期、简述或图片"
+    },
+    "completedWork": {
+      "officialAccounts": ["小红书", "微信公众号"],
+      "publishedContent": ["AIME 竞赛介绍", "UKChO 竞赛介绍", "竞赛经验独家采访", "备赛分享"],
+      "websiteDevelopment": ["整理 AMC、Physics Bowl 等竞赛资源", "开发在线模拟考试系统", "网站进入内测阶段"]
+    },
+    "semesterPlan": [
+      "正式上线 COMPESISTANT 网站",
+      "推出模拟商业竞赛",
+      "持续发布物理、经济、商业、生物等学科的竞赛采访、竞赛指南与学习资源"
+    ],
+    "members": [
+      {"name": "David", "role": "leader", "responsibilities": ["网站搭建", "资源整合"], "contactType": "phone", "contactValue": "13688414741"},
+      {"name": "Jenny", "role": "member", "responsibilities": ["采访", "宣传推广"], "contactType": null, "contactValue": null},
+      {"name": "Alice", "role": "member", "responsibilities": ["采访", "宣传推广"], "contactType": null, "contactValue": null},
+      {"name": "Chase", "role": "member", "responsibilities": ["网站搭建", "资源整合"], "contactType": null, "contactValue": null}
+    ],
+    "cas": {"creativity": true, "activity": false, "service": true},
+    "popularity": 0,
+    "memberNote": "原始资料未明确标注负责人和联系方式类型；本次依据唯一对外联系方式将 David 设为负责人，并把 11 位数字联系值按电话处理",
+    "decisionNote": "分类选用现有的科技创新；Creativity 对应内容与平台开发，Service 对应竞赛信息及备赛资源支持；未发现体能活动依据，因此 Activity 为 false",
+    "missingFields": ["近期线下活动", "计划日期与完成标准"]
   }
 ]

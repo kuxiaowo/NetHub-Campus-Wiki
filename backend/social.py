@@ -1,4 +1,4 @@
-"""用户资料、关注、黑名单和 CAS 人员认领接口。"""
+"""用户资料、关注、黑名单和管理员维护的 CAS 人员账号绑定接口。"""
 
 from __future__ import annotations
 
@@ -379,239 +379,12 @@ def person_detail(person_id: int):
     }
 
 
-@router.post("/people/{person_id}/claims")
-def create_person_claim(
+@router.patch("/admin/projects/{project_id}/members/{person_id}/binding")
+def bind_project_member(
+    project_id: int,
     person_id: int,
-    payload: dict[str, Any],
-    user: dict[str, Any] = Depends(get_current_user),
-):
-    note = str(payload.get("note") or "").strip()
-    if len(note) > 500:
-        raise HTTPException(status_code=422, detail="认领说明不能超过 500 字")
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM people WHERE id = %s LIMIT 1", (person_id,))
-            person = cursor.fetchone()
-            if person is None or person["status"] == "archived":
-                raise HTTPException(status_code=404, detail="人员档案不存在")
-            if person.get("user_id") == user["id"]:
-                raise HTTPException(status_code=409, detail="该档案已经与你的账号绑定")
-            if person.get("user_id") is not None:
-                raise HTTPException(status_code=409, detail="该档案已被其他账号认领")
-            cursor.execute(
-                "SELECT id FROM people WHERE user_id = %s LIMIT 1",
-                (user["id"],),
-            )
-            if cursor.fetchone() is not None:
-                raise HTTPException(status_code=409, detail="你的账号已经绑定其他人员档案")
-            cursor.execute(
-                """
-                SELECT id FROM person_claims
-                WHERE person_id = %s AND user_id = %s AND status = 'pending'
-                LIMIT 1
-                """,
-                (person_id, user["id"]),
-            )
-            existing = cursor.fetchone()
-            if existing is not None:
-                return {"ok": True, "claimId": existing["id"], "status": "pending"}
-            cursor.execute(
-                """
-                INSERT INTO person_claims (person_id, user_id, note)
-                VALUES (%s, %s, %s)
-                """,
-                (person_id, user["id"], note or None),
-            )
-            claim_id = cursor.lastrowid
-    return {"ok": True, "claimId": claim_id, "status": "pending"}
-
-
-@router.get("/people/me/claims")
-def my_person_claims(user: dict[str, Any] = Depends(get_current_user)):
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT pc.*, p.display_name
-                FROM person_claims pc
-                JOIN people p ON p.id = pc.person_id
-                WHERE pc.user_id = %s
-                ORDER BY pc.created_at DESC, pc.id DESC
-                """,
-                (user["id"],),
-            )
-            rows = cursor.fetchall()
-    return {
-        "data": [
-            {
-                "id": row["id"],
-                "personId": row["person_id"],
-                "displayName": row["display_name"],
-                "note": row.get("note"),
-                "status": row["status"],
-                "createdAt": row["created_at"],
-                "reviewedAt": row.get("reviewed_at"),
-            }
-            for row in rows
-        ]
-    }
-
-
-@router.get("/admin/people")
-def admin_list_people(
-    search: str | None = Query(default=None, max_length=80),
-    status: str | None = Query(default=None, pattern="^(provisional|claimed|archived)$"),
-    _: dict[str, Any] = Depends(_require_admin),
-):
-    where: list[str] = []
-    params: list[Any] = []
-    if search:
-        where.append("(p.display_name LIKE %s OR u.username LIKE %s)")
-        keyword = f"%{search.strip()}%"
-        params.extend([keyword, keyword])
-    if status:
-        where.append("p.status = %s")
-        params.append(status)
-    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                f"""
-                SELECT p.*, u.username,
-                       (SELECT COUNT(*) FROM project_members pm WHERE pm.person_id = p.id) AS project_count
-                FROM people p
-                LEFT JOIN users u ON u.id = p.user_id
-                {where_sql}
-                ORDER BY p.updated_at DESC, p.id DESC
-                """,
-                params,
-            )
-            rows = cursor.fetchall()
-    return {
-        "data": [
-            {
-                "id": row["id"],
-                "displayName": row["display_name"],
-                "avatarUrl": row.get("avatar_url"),
-                "status": row["status"],
-                "userId": row.get("user_id"),
-                "username": row.get("username"),
-                "projectCount": row["project_count"],
-                "createdAt": row["created_at"],
-            }
-            for row in rows
-        ]
-    }
-
-
-@router.get("/admin/person-claims")
-def admin_list_person_claims(
-    status: str = Query(default="pending", pattern="^(pending|approved|rejected|cancelled)$"),
-    _: dict[str, Any] = Depends(_require_admin),
-):
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT pc.*, p.display_name, u.username, u.display_name AS user_display_name
-                FROM person_claims pc
-                JOIN people p ON p.id = pc.person_id
-                JOIN users u ON u.id = pc.user_id
-                WHERE pc.status = %s
-                ORDER BY pc.created_at ASC, pc.id ASC
-                """,
-                (status,),
-            )
-            rows = cursor.fetchall()
-    return {
-        "data": [
-            {
-                "id": row["id"],
-                "personId": row["person_id"],
-                "personName": row["display_name"],
-                "userId": row["user_id"],
-                "username": row["username"],
-                "userDisplayName": row.get("user_display_name"),
-                "note": row.get("note"),
-                "status": row["status"],
-                "createdAt": row["created_at"],
-            }
-            for row in rows
-        ]
-    }
-
-
-@router.patch("/admin/person-claims/{claim_id}")
-def review_person_claim(
-    claim_id: int,
     payload: dict[str, Any],
     admin: dict[str, Any] = Depends(_require_admin),
-):
-    decision = str(payload.get("status") or "")
-    if decision not in {"approved", "rejected"}:
-        raise HTTPException(status_code=422, detail="审核状态只能是 approved 或 rejected")
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT pc.*, p.user_id AS linked_user_id
-                FROM person_claims pc
-                JOIN people p ON p.id = pc.person_id
-                WHERE pc.id = %s
-                LIMIT 1
-                """,
-                (claim_id,),
-            )
-            claim = cursor.fetchone()
-            if claim is None:
-                raise HTTPException(status_code=404, detail="认领申请不存在")
-            if claim["status"] != "pending":
-                raise HTTPException(status_code=409, detail="该申请已经处理")
-            if decision == "approved":
-                if claim.get("linked_user_id") not in {None, claim["user_id"]}:
-                    raise HTTPException(status_code=409, detail="人员档案已绑定其他账号")
-                cursor.execute(
-                    "SELECT id FROM people WHERE user_id = %s AND id <> %s LIMIT 1",
-                    (claim["user_id"], claim["person_id"]),
-                )
-                if cursor.fetchone() is not None:
-                    raise HTTPException(status_code=409, detail="该账号已绑定其他人员档案")
-                cursor.execute(
-                    """
-                    UPDATE people
-                    SET user_id = %s, status = 'claimed'
-                    WHERE id = %s
-                    """,
-                    (claim["user_id"], claim["person_id"]),
-                )
-                cursor.execute(
-                    "UPDATE users SET campus_verified = 1 WHERE id = %s",
-                    (claim["user_id"],),
-                )
-                cursor.execute(
-                    """
-                    UPDATE person_claims
-                    SET status = 'rejected', reviewed_by = %s, reviewed_at = CURRENT_TIMESTAMP
-                    WHERE person_id = %s AND status = 'pending' AND id <> %s
-                    """,
-                    (admin["id"], claim["person_id"], claim_id),
-                )
-            cursor.execute(
-                """
-                UPDATE person_claims
-                SET status = %s, reviewed_by = %s, reviewed_at = CURRENT_TIMESTAMP
-                WHERE id = %s
-                """,
-                (decision, admin["id"], claim_id),
-            )
-    return {"ok": True, "status": decision}
-
-
-@router.patch("/admin/people/{person_id}/binding")
-def bind_person(
-    person_id: int,
-    payload: dict[str, Any],
-    _: dict[str, Any] = Depends(_require_admin),
 ):
     raw_user_id = payload.get("userId")
     try:
@@ -620,10 +393,19 @@ def bind_person(
         raise HTTPException(status_code=422, detail="userId 无效") from None
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM people WHERE id = %s LIMIT 1", (person_id,))
+            cursor.execute(
+                """
+                SELECT p.*
+                FROM people p
+                JOIN project_members pm ON pm.person_id = p.id
+                WHERE p.id = %s AND pm.project_id = %s
+                LIMIT 1
+                """,
+                (person_id, project_id),
+            )
             person = cursor.fetchone()
             if person is None:
-                raise HTTPException(status_code=404, detail="人员档案不存在")
+                raise HTTPException(status_code=404, detail="项目成员不存在")
             if user_id is not None:
                 _ensure_active_user(cursor, user_id)
                 cursor.execute(
@@ -651,4 +433,12 @@ def bind_person(
                 )
             if user_id is not None:
                 cursor.execute("UPDATE users SET campus_verified = 1 WHERE id = %s", (user_id,))
+                cursor.execute(
+                    """
+                    UPDATE person_claims
+                    SET status = 'cancelled', reviewed_by = %s, reviewed_at = CURRENT_TIMESTAMP
+                    WHERE person_id = %s AND status = 'pending'
+                    """,
+                    (admin["id"], person_id),
+                )
     return {"ok": True}

@@ -140,7 +140,7 @@ def _split_member_names(leader: str, members: str) -> list[str]:
 
 
 def _backfill_project_members(connection: sqlite3.Connection) -> None:
-    """把旧 projects.leader/members 文本安全迁移为待认领人员档案。
+    """把旧 projects.leader/members 文本安全迁移为待绑定人员档案。
 
     不按姓名跨项目自动合并，避免重名成员被错误绑定。管理员可在人员管理中确认后合并。
     """

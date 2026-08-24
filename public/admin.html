@@ -4,14 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>管理后台</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=2" />
-  <link rel="stylesheet" href="/css/styles.css?v=nethub-social3" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=3" />
+  <link rel="stylesheet" href="/css/styles.css?v=shared-resource-ui1" />
 </head>
 <body>
   <main class="admin-shell">
     <aside class="admin-sidebar">
       <a class="brand site-brand admin-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
-        <img class="site-logo" src="/assets/nethub-icon.png?v=2" alt="" />
+        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
         <span class="brand-copy">
           <strong>NetHub</strong>
           <small>Campus Wiki</small>
@@ -19,7 +19,6 @@
       </a>
       <nav class="admin-nav" aria-label="管理后台导航">
         <button class="admin-nav-item active" type="button" data-admin-view="users" aria-pressed="true">用户管理</button>
-        <button class="admin-nav-item" type="button" data-admin-view="people" aria-pressed="false">人员与认领</button>
         <button class="admin-nav-item" type="button" data-admin-view="files" aria-pressed="false">文件管理</button>
         <button class="admin-nav-item" type="button" data-admin-view="transfer" aria-pressed="false">数据导入/导出</button>
         <button class="admin-nav-item" type="button" data-admin-view="projects" aria-pressed="false">CAS 项目管理</button>
@@ -68,37 +67,6 @@
             <button id="refreshUsers" class="button secondary compact" type="button">刷新</button>
           </div>
           <div id="usersTable" class="admin-table-wrap"></div>
-        </section>
-
-        <section class="admin-view" data-admin-panel="people">
-          <div class="admin-section-head">
-            <div>
-              <h2>人员档案与认领</h2>
-              <p>管理已收录但尚未注册的 CAS 成员，并审核账号认领申请。</p>
-            </div>
-            <button id="refreshPeople" class="button secondary compact" type="button">刷新</button>
-          </div>
-          <div class="admin-toolbar">
-            <input id="peopleSearch" class="input" type="search" placeholder="搜索姓名或已绑定昵称" />
-            <select id="peopleStatusFilter" class="input small">
-              <option value="">全部状态</option>
-              <option value="provisional">待认领</option>
-              <option value="claimed">已认领</option>
-              <option value="archived">已归档</option>
-            </select>
-          </div>
-          <section class="admin-subsection">
-            <h3>待审核认领</h3>
-            <div id="personClaimsTable" class="admin-table-wrap"></div>
-          </section>
-          <section class="admin-subsection">
-            <h3>人员档案</h3>
-            <div id="peopleTable" class="admin-table-wrap"></div>
-          </section>
-          <section class="admin-subsection">
-            <h3>待处理私信举报</h3>
-            <div id="messageReportsTable" class="admin-table-wrap"></div>
-          </section>
         </section>
 
         <section class="admin-view" data-admin-panel="files">
@@ -218,43 +186,57 @@
             </div>
             <div class="admin-detail-actions">
               <button id="createResourceButton" class="button compact" type="button">新建资源</button>
-              <button id="createActivityButton" class="button compact is-hidden" type="button">新建资源</button>
+              <button id="createActivityButton" class="button compact is-hidden" type="button">新建活动</button>
             </div>
           </div>
 
-          <div class="card resource-filter-card admin-resource-filter">
-            <h1>资源筛选</h1>
-            <div class="resource-filter-grid">
-              <label>
-                <span>关键词</span>
-                <input id="resourceAdminSearch" class="input" type="search" placeholder="搜索名称、内容、简介" />
+          <div class="resource-filter-bar admin-resource-filter-bar" aria-label="资源搜索与筛选">
+            <div class="card project-search-card">
+              <label class="project-search-field" for="resourceAdminSearch">
+                <img src="/assets/icons/heroicons/magnifying-glass.svg" alt="" aria-hidden="true" />
+                <span class="sr-only">搜索资源</span>
+                <input id="resourceAdminSearch" type="search" autocomplete="off" />
               </label>
-              <button id="refreshResources" class="button secondary compact" type="button">搜索</button>
+              <button
+                id="adminResourceFilterToggle"
+                class="project-filter-toggle"
+                type="button"
+                aria-label="显示详细筛选"
+                aria-expanded="false"
+                aria-controls="adminResourceAdvancedFilters"
+              >
+                <img src="/assets/icons/heroicons/funnel.svg" alt="" aria-hidden="true" />
+                <span id="adminResourceFilterCount" class="project-filter-count" hidden></span>
+              </button>
+            </div>
 
-              <label>
-                <span>年份</span>
-                <select id="adminResourceYear" class="input">
-                  <option value="">全部年份</option>
-                </select>
-              </label>
+            <div id="adminResourceAdvancedFilters" class="card project-advanced-filters project-filter-options-only" role="region" aria-label="详细筛选" hidden>
+              <div class="project-filter-controls">
+                <label for="adminResourceYear">
+                  <span>年份</span>
+                  <select id="adminResourceYear" class="input">
+                    <option value="">全部年份</option>
+                  </select>
+                </label>
 
-              <label>
-                <span>排序</span>
-                <select id="adminResourceSort" class="input">
-                  <option value="hot">最热</option>
-                  <option value="new">最新</option>
-                  <option value="download">下载最多</option>
-                  <option value="old">最早</option>
-                </select>
-              </label>
+                <label for="adminResourceSort">
+                  <span>排序</span>
+                  <select id="adminResourceSort" class="input">
+                    <option value="hot">最热</option>
+                    <option value="new">最新</option>
+                    <option value="download">下载最多</option>
+                    <option value="old">最早</option>
+                  </select>
+                </label>
+              </div>
             </div>
           </div>
 
-          <div class="library-layout admin-resource-layout">
-            <aside class="card sidebar resource-sidebar">
-              <div class="admin-sidebar-title">
+          <div class="library-layout resource-library-layout admin-resource-layout">
+            <aside class="card sidebar resource-sidebar filter-category-sidebar">
+              <div class="filter-sidebar-title">
                 <h2>资源类型</h2>
-                <span>拖动排序</span>
+                <button id="clearAdminResourceFilters" type="button">清除</button>
               </div>
               <div id="adminResourceCategoryList" class="category-list"></div>
 
@@ -273,25 +255,6 @@
                   </div>
                 </div>
                 <div id="resourcesTable" class="resource-grid"></div>
-              </div>
-
-              <div id="adminYearbookView" class="yearbook-view">
-                <div class="section-title with-control">
-                  <div>
-                    <h1 id="adminYearbookTitle">Yearbook</h1>
-                    <span id="adminYearbookMeta">正在加载 Yearbook...</span>
-                  </div>
-                  <div class="yearbook-actions">
-                    <button id="backToAdminResources" class="button secondary" type="button">返回资源列表</button>
-                    <button id="editCurrentYearbookButton" class="button compact" type="button">编辑</button>
-                    <a id="adminDownloadYearbook" class="button secondary" href="#" download>下载 PDF</a>
-                  </div>
-                </div>
-                <div class="yearbook-reader" aria-live="polite">
-                  <button id="adminYearbookPrev" class="yearbook-nav prev" type="button" aria-label="上一组页面">‹</button>
-                  <div id="adminYearbookPages" class="yearbook-pages"></div>
-                  <button id="adminYearbookNext" class="yearbook-nav next" type="button" aria-label="下一组页面">›</button>
-                </div>
               </div>
 
               <div id="adminPhotoView" class="photo-view">
@@ -315,7 +278,7 @@
           <div class="admin-section-head">
             <div>
               <h2>公告与留言</h2>
-              <p>发布首页公告，并集中处理资源、项目和公告下的留言举报。</p>
+              <p>发布首页公告，并集中处理留言和私信举报。</p>
             </div>
             <div class="admin-detail-actions">
               <button id="refreshCommunity" class="button secondary compact" type="button">刷新</button>
@@ -329,6 +292,10 @@
           <section class="admin-subsection">
             <h3>待处理留言举报</h3>
             <div id="commentReportsTable" class="admin-table-wrap"></div>
+          </section>
+          <section class="admin-subsection">
+            <h3>待处理私信举报</h3>
+            <div id="messageReportsTable" class="admin-table-wrap"></div>
           </section>
         </section>
 
@@ -390,7 +357,8 @@
   </div>
 
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=nethub-social3"></script>
-  <script src="/js/admin.js?v=nethub-transfer1"></script>
+  <script src="/js/api.js?v=nethub-social4"></script>
+  <script src="/js/resource-ui.js?v=shared-resource-ui1"></script>
+  <script src="/js/admin.js?v=shared-resource-ui1"></script>
 </body>
 </html>

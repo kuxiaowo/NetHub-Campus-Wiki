@@ -4,7 +4,10 @@
 字段整理成前端使用的 camelCase JSON，路由层只处理 HTTP 参数和响应模型。
 """
 
+import io
 import re
+import shutil
+import subprocess
 import time
 from pathlib import Path
 from typing import Any, Literal
@@ -19,10 +22,13 @@ ResourceMetric = Literal["hot", "downloads"]
 BASE_DIR = Path(__file__).resolve().parents[1]
 PUBLIC_DIR = BASE_DIR / "public"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 YEARBOOK_PDF_EXTENSION = ".pdf"
 WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:/")
 THUMB_DIR_NAME = ".thumbs"
 THUMB_MAX_SIZE = (640, 640)
+THUMB_WEBP_QUALITY = 82
+THUMB_WEBP_METHOD = 6
 _PHOTO_DIR_CACHE: dict[str, dict[str, Any]] = {}
 _HOT_TRACK: dict[tuple[str, int, int], float] = {}
 HOT_THROTTLE_SECONDS = 5.0
@@ -60,7 +66,7 @@ def _public_url_to_path(value: str | None) -> tuple[Path, str] | None:
 def _photo_files(target: Path) -> list[Path]:
     return [
         item
-        for item in sorted(target.iterdir(), key=lambda path: path.name.lower())
+        for item in sorted(target.iterdir(), key=_natural_sort_key)
         if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS
     ]
 
@@ -89,6 +95,18 @@ def yearbook_cover_url(resource_url: str | None) -> str | None:
         if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS:
             return _ensure_thumbnail(item) or _public_file_url(item)
     return None
+
+
+def teacher_video_cover_url(resource_url: str | None) -> str | None:
+    """Return a WebP thumbnail generated from a local teacher video's first frame."""
+
+    resolved = _public_url_to_path(resource_url)
+    if resolved is None:
+        return None
+    source, _ = resolved
+    if not source.is_file() or source.suffix.lower() not in VIDEO_EXTENSIONS:
+        return None
+    return _ensure_video_thumbnail(source)
 
 
 def _scan_photo_dir(
@@ -179,9 +197,74 @@ def _ensure_thumbnail(source: Path) -> str | None:
             image.thumbnail(THUMB_MAX_SIZE)
             if image.mode not in {"RGB", "RGBA"}:
                 image = image.convert("RGB")
-            image.save(thumb_path, "WEBP", quality=82, method=6)
+            image.save(
+                thumb_path,
+                "WEBP",
+                quality=THUMB_WEBP_QUALITY,
+                method=THUMB_WEBP_METHOD,
+            )
         return f"/{thumb_path.relative_to(PUBLIC_DIR.resolve()).as_posix()}"
     except (OSError, UnidentifiedImageError):
+        return None
+
+
+def _ensure_video_thumbnail(source: Path) -> str | None:
+    """Extract the first video frame with FFmpeg and cache it as a WebP thumbnail."""
+
+    thumb_dir = source.parent / THUMB_DIR_NAME
+    thumb_path = thumb_dir / f"{source.stem}.video.webp"
+    try:
+        from PIL import Image, UnidentifiedImageError
+    except ImportError:
+        return None
+
+    try:
+        if thumb_path.is_file() and thumb_path.stat().st_mtime >= source.stat().st_mtime:
+            return f"/{thumb_path.relative_to(PUBLIC_DIR.resolve()).as_posix()}"
+
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            return None
+        result = subprocess.run(
+            [
+                ffmpeg,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(source),
+                "-frames:v",
+                "1",
+                "-vf",
+                f"scale={THUMB_MAX_SIZE[0]}:{THUMB_MAX_SIZE[1]}:force_original_aspect_ratio=decrease",
+                "-f",
+                "image2pipe",
+                "-vcodec",
+                "png",
+                "pipe:1",
+            ],
+            check=True,
+            capture_output=True,
+            timeout=20,
+        )
+        thumb_dir.mkdir(exist_ok=True)
+        with Image.open(io.BytesIO(result.stdout)) as image:
+            image.thumbnail(THUMB_MAX_SIZE)
+            if image.mode not in {"RGB", "RGBA"}:
+                image = image.convert("RGB")
+            image.save(
+                thumb_path,
+                "WEBP",
+                quality=THUMB_WEBP_QUALITY,
+                method=THUMB_WEBP_METHOD,
+            )
+        return f"/{thumb_path.relative_to(PUBLIC_DIR.resolve()).as_posix()}"
+    except (
+        OSError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        UnidentifiedImageError,
+    ):
         return None
 
 
@@ -231,6 +314,8 @@ def format_resource(row: dict[str, Any]) -> dict[str, Any]:
     image = row["image"]
     if row["category"] == "yearbook":
         image = yearbook_cover_url(row.get("resource_url")) or image
+    elif row["category"] == "teacher":
+        image = teacher_video_cover_url(row.get("resource_url")) or image
 
     return {
         "id": row["id"],

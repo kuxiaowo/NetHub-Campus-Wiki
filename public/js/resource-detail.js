@@ -1,11 +1,13 @@
 const resourceDetail = document.querySelector('#resourceDetail');
 const resourceBreadcrumb = document.querySelector('#resourceBreadcrumb');
 const resourceComments = document.querySelector('#resourceComments');
-const resourceId = new URLSearchParams(window.location.search).get('id');
+const resourceParams = new URLSearchParams(window.location.search);
+const resourceId = resourceParams.get('id');
+const isAdminPreview = resourceParams.get('preview') === 'admin';
 
 async function loadResourceDetail() {
   if (!resourceId) throw new Error('缺少资源 ID');
-  const result = await request(`/resources/${encodeURIComponent(resourceId)}`);
+  const result = await request(`/resources/${encodeURIComponent(resourceId)}${isAdminPreview ? '?track=false' : ''}`);
   const resource = result.data;
   document.title = `${resource.title} - NetHub Campus Wiki`;
   resourceBreadcrumb.textContent = resource.title;

@@ -1,38 +1,148 @@
-const announcementList = document.querySelector('#announcementList');
-const recommendProjects = document.querySelector('#recommendProjects');
-const recommendSort = document.querySelector('#recommendSort');
+const notificationList = document.querySelector('#notificationList');
+const popularProjectList = document.querySelector('#popularProjectList');
+const popularResourceList = document.querySelector('#popularResourceList');
 
-function homeAnnouncementDate(value) {
+function shortDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' }).format(date);
 }
 
-// 首页只展示最新三条，完整列表进入全部公告页面。
-async function loadAnnouncements() {
+function projectUpdateMediaUrl(item) {
+  if (item && typeof item === 'object') {
+    return item.url || item.src || item.href || item.poster || item.cover || item.thumbnail || '';
+  }
+  return item || '';
+}
+
+function latestProjectUpdatePhoto(project) {
+  const updates = Array.isArray(project.updates) ? project.updates : [];
+  const fallbackDate = project.updatedAt || project.createdAt || '';
+  const latest = updates
+    .map((update, index) => ({
+      update,
+      index,
+      date: update && typeof update === 'object'
+        ? update.createdAt || update.updatedAt || update.date || update.time || fallbackDate
+        : fallbackDate,
+    }))
+    .sort((left, right) => {
+      const leftTime = new Date(left.date).getTime();
+      const rightTime = new Date(right.date).getTime();
+      if (Number.isNaN(leftTime) || Number.isNaN(rightTime) || leftTime === rightTime) {
+        return left.index - right.index;
+      }
+      return rightTime - leftTime;
+    })[0]?.update;
+
+  if (!latest || typeof latest !== 'object') return '';
+  const media = [latest.images, latest.photos, latest.media]
+    .find((items) => Array.isArray(items) && items.length);
+  if (!media) return '';
+
+  const imageUrl = safeExternalUrl(projectUpdateMediaUrl(media[0]));
+  return imageUrl === '#' ? '' : imageUrl;
+}
+
+function popularProjectCard(project, index) {
+  const updatePhoto = latestProjectUpdatePhoto(project);
+  return `
+    <a class="home-popular-card" href="/detail.html?id=${encodeURIComponent(project.id)}">
+      <div class="home-popular-media project-media${updatePhoto ? ' has-update-photo' : ''}">
+        ${updatePhoto ? `<img class="home-project-update-photo" src="${escapeHtml(updatePhoto)}" alt="" loading="lazy" decoding="async" data-project-update-photo>` : ''}
+        <b class="home-popular-rank">${index + 1}</b>
+        ${projectIconImage(project)}
+      </div>
+      <div class="home-popular-body">
+        <span class="home-popular-meta"><em>${escapeHtml(project.category)}</em><small>${escapeHtml(project.year)}</small></span>
+        <strong>${escapeHtml(project.name)}</strong>
+        <span class="home-popular-hot">热度 ${escapeHtml(project.popularity || 0)} <i aria-hidden="true">→</i></span>
+      </div>
+    </a>
+  `;
+}
+
+document.addEventListener('error', (event) => {
+  const image = event.target;
+  if (!(image instanceof HTMLImageElement) || !image.matches('[data-project-update-photo]')) return;
+  image.closest('.project-media')?.classList.remove('has-update-photo');
+  image.remove();
+}, true);
+
+function popularResourceCard(resource, index) {
+  const image = safeExternalUrl(resource.image);
+  const thumbnail = image === '#'
+    ? '<span class="home-popular-placeholder" aria-hidden="true"></span>'
+    : `<img src="${image}" alt="" loading="lazy" decoding="async">`;
+
+  return `
+    <a class="home-popular-card" href="${escapeHtml(resource.href || `/resource.html?id=${encodeURIComponent(resource.id)}`)}">
+      <div class="home-popular-media resource-media">
+        <b class="home-popular-rank">${index + 1}</b>
+        ${thumbnail}
+      </div>
+      <div class="home-popular-body">
+        <span class="home-popular-meta"><em>${escapeHtml(resource.label || '资源')}</em><small>${escapeHtml(resource.year)}</small></span>
+        <strong>${escapeHtml(resource.title)}</strong>
+        <span class="home-popular-hot">热度 ${escapeHtml(resource.hot || 0)} <i aria-hidden="true">→</i></span>
+      </div>
+    </a>
+  `;
+}
+
+async function loadNotifications() {
   const result = await request('/announcements?page=1&pageSize=3');
-  announcementList.classList.remove('skeleton-list');
-  announcementList.innerHTML = result.data.map((announcement) => `
-    <li>
-      <a href="/announcement.html?id=${encodeURIComponent(announcement.id)}">
-        <span>${announcement.isPinned ? '<strong>置顶</strong>' : ''}${escapeHtml(announcement.title)}</span>
-        <time>${escapeHtml(homeAnnouncementDate(announcement.publishedAt))}</time>
-      </a>
-    </li>
-  `).join('');
+  notificationList.innerHTML = result.data.length
+    ? result.data.map((notification) => `
+        <li>
+          <a href="/announcement.html?id=${encodeURIComponent(notification.id)}">
+            <span>${notification.isPinned ? '<b>置顶</b>' : ''}<strong>${escapeHtml(notification.title)}</strong></span>
+            <time>${escapeHtml(shortDate(notification.publishedAt))}</time>
+          </a>
+        </li>
+      `).join('')
+    : '<li class="home-notification-empty">暂无通知</li>';
 }
 
-// 加载推荐项目。首页只展示前三个，完整列表在项目库页面。
-async function loadRecommendedProjects() {
-  recommendProjects.innerHTML = '<div class="empty">正在加载推荐项目...</div>';
-  const sort = recommendSort.value;
-  const result = await request(`/projects?sort=${encodeURIComponent(sort)}`);
-  recommendProjects.innerHTML = result.data.slice(0, 3).map(projectCard).join('');
+async function loadPopularProjects() {
+  const result = await request('/projects?sort=popular');
+  const projects = result.data.slice(0, 3);
+  popularProjectList.innerHTML = projects.length
+    ? projects.map(popularProjectCard).join('')
+    : '<div class="empty">还没有项目。</div>';
 }
 
-recommendSort.addEventListener('change', loadRecommendedProjects);
+async function loadPopularResources() {
+  const [resourceResult, photoResult] = await Promise.all([
+    request('/resources?sort=hot'),
+    request('/photo-activities?sort=hot'),
+  ]);
+  const resources = [
+    ...resourceResult.data,
+    ...photoResult.data.map((activity) => ({
+      id: activity.id,
+      label: '活动照片',
+      title: activity.activity,
+      year: activity.year,
+      hot: activity.hot,
+      image: activity.coverThumbSrc || activity.coverSrc || '',
+      href: '/resources.html?category=photos',
+      createdAt: activity.createdAt,
+    })),
+  ].sort((left, right) => (right.hot || 0) - (left.hot || 0)).slice(0, 3);
+  popularResourceList.innerHTML = resources.length
+    ? resources.map(popularResourceCard).join('')
+    : '<div class="empty">还没有资源。</div>';
+}
 
-// 首页有两个独立数据源；任意一个失败时都给出可操作的错误提示。
-Promise.all([loadAnnouncements(), loadRecommendedProjects()]).catch((error) => {
-  recommendProjects.innerHTML = `<div class="empty error">${escapeHtml(error.message)}。请确认后端和数据库已启动。</div>`;
+loadNotifications().catch(() => {
+  notificationList.innerHTML = '<li class="home-notification-empty error">通知暂时无法加载</li>';
+});
+
+loadPopularProjects().catch((error) => {
+  popularProjectList.innerHTML = `<div class="empty error">${escapeHtml(error.message)}。热门项目暂时无法加载。</div>`;
+});
+
+loadPopularResources().catch((error) => {
+  popularResourceList.innerHTML = `<div class="empty error">${escapeHtml(error.message)}。热门资源暂时无法加载。</div>`;
 });

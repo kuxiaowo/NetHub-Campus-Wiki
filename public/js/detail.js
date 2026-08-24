@@ -424,9 +424,7 @@ function renderMembers(project) {
                   ${renderMemberContact(member)}
                   ${member.userId
                     ? `<a class="member-action-link" href="/messages.html?targetUserId=${encodeURIComponent(member.userId)}&projectId=${encodeURIComponent(project.id)}">发私信</a>`
-                    : member.personId
-                      ? `<button class="member-action-link" type="button" data-claim-person="${escapeHtml(member.personId)}">尚未注册 · 认领档案</button>`
-                      : '<span class="member-unregistered">尚未注册</span>'}
+                    : ''}
                 </div>
               </div>
             </article>
@@ -454,27 +452,6 @@ function bindDetailInteractions() {
     event.currentTarget.textContent = expanded ? '收起成员列表' : '查看全部成员';
   });
 
-  document.querySelectorAll('[data-claim-person]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      if (!getAuthToken()) {
-        window.alert('请先登录，再提交人员档案认领申请。');
-        return;
-      }
-      const note = window.prompt('请填写便于管理员核验的说明（例如班级、项目分工）。', '') ?? null;
-      if (note === null) return;
-      button.disabled = true;
-      try {
-        await request(`/people/${encodeURIComponent(button.dataset.claimPerson)}/claims`, {
-          method: 'POST',
-          body: JSON.stringify({ note: note.trim() }),
-        });
-        button.textContent = '已提交认领，等待审核';
-      } catch (error) {
-        window.alert(error.message);
-        button.disabled = false;
-      }
-    });
-  });
 }
 
 function renderProject(project) {

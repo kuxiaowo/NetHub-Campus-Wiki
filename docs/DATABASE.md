@@ -41,7 +41,8 @@ announcements ─┐
 projects ──────┼── comments 1 ──── n comments (reply)
 resources ─────┘       │
                        ├──── n comment_likes
-                       └──── n comment_reports
+                       ├──── n comment_reports
+                       └──── n comment_notifications
 ```
 
 ## 表说明
@@ -102,6 +103,10 @@ resources ─────┘       │
 
 `comment_likes` 使用 `(comment_id, user_id)` 联合主键防止重复点赞。`comment_reports` 对同一用户和留言保持一条记录，管理员可处理或忽略，并记录处理人和处理时间。
 
+### `comment_notifications`
+
+保存直接回复和留言点赞产生的永久通知。通知冗余保存目标类型和目标 ID，且不对 `comment_id` 设置级联外键，因此留言删除、隐藏或原内容不存在后仍可显示失效记录。`read_at` 保存分类已读状态；同一用户取消后重新点赞时复用原通知并重新标为未读。迁移 007 不回填升级前的互动。
+
 ## 字段与接口命名
 
 数据库字段使用 `snake_case`，API 使用 `camelCase`，由后端数据访问层转换：
@@ -148,13 +153,13 @@ SQLite 数据库及对应的 `public/` 资源目录。
 - `users`：登录账号、公开资料、校园关联状态和私信权限。
 - `people`：已经被 CAS 项目收录的现实人员，`user_id` 可为空。
 - `project_members`：项目与人员的多对多关系，保存负责人/成员角色、历史展示名、排序以及该成员在当前项目中的联系方式。`contact_type` 可为 `wechat`、`phone`、`email`、`other` 或空，`contact_value` 保存对应内容；联系方式不放在 `people` 中，避免一个人在不同项目中的公开方式相互覆盖。
-- `person_claims`：用户认领人员档案的审核记录。
+- `person_claims`：旧版用户认领流程的历史记录表；当前不再开放新增或审核接口，仅为兼容已有数据库保留。
 - `user_follows`、`user_blocks`：用户关系和黑名单。
 - `conversations`：两名用户之间唯一的一对一会话。
-- `conversation_members`：每个参与者的消息请求、已读、隐藏和免打扰状态。
+- `conversation_members`：每个参与者的已读、隐藏和免打扰状态。
 - `messages`：文本或项目卡片消息，撤回采用 `recalled_at` 软删除。
 - `message_reports`：消息举报审核记录。
 
-不要通过姓名直接把 `people` 绑定到 `users`。旧文本数据迁移会为每个项目创建独立的待确认档案，后续由校园身份核验或管理员审核完成绑定。
+不要通过姓名自动把 `people` 绑定到 `users`。旧文本数据迁移会为每个项目创建独立人员档案，之后只能由管理员在对应 CAS 项目详情的成员区域选择账号完成绑定。
 
-数据库结构通过 `sql/migrations` 目录中的连续编号脚本升级。每个脚本必须在事务中执行并更新 `PRAGMA user_version`；后端检测到版本缺口时会拒绝启动，避免跳版本造成半套结构。当前最新版本为 5：002 增加用户关系、人员认领和私信，003 增加公告与通用留言，004 移除旧资源分类表，005 为项目成员关系增加联系方式。
+数据库结构通过 `sql/migrations` 目录中的连续编号脚本升级。每个脚本必须在事务中执行并更新 `PRAGMA user_version`；后端检测到版本缺口时会拒绝启动，避免跳版本造成半套结构。当前最新版本为 7：002 增加用户关系、人员认领和私信，003 增加公告与通用留言，004 移除旧资源分类表，005 为项目成员关系增加联系方式，006 取消消息请求状态并统一私信会话，007 增加回复与点赞通知。

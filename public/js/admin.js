@@ -5,8 +5,6 @@ const adminState = {
   fileItems: [],
   picker: null,
   users: [],
-  people: [],
-  personClaims: [],
   messageReports: [],
   announcements: [],
   commentReports: [],
@@ -22,13 +20,12 @@ const adminState = {
   resourceCategory: '',
   resourceYear: '',
   resourceSort: 'hot',
+  resourceSearchDebounce: null,
   resources: [],
   activities: [],
   activePhotoItems: [],
   selectedActivity: null,
   currentActivity: null,
-  currentYearbook: null,
-  currentYearbookPage: 0,
   currentModalPhoto: null,
   currentModalIndex: -1,
   dragState: null,
@@ -646,7 +643,6 @@ function switchAdminView(view) {
     item.classList.toggle('active', item.dataset.adminPanel === view);
   });
   if (view === 'users') loadUsers();
-  if (view === 'people') loadPeopleAdmin();
   if (view === 'files') loadFiles();
   if (view === 'projects') loadProjectManagementView();
   if (view === 'resources') loadResourceManagementView();
@@ -672,63 +668,6 @@ async function loadUsers() {
     ],
     adminState.users,
     (row) => `<button class="button secondary compact" type="button" data-edit-user="${adminText(row.id)}">编辑</button>`,
-  );
-}
-
-async function loadPeopleAdmin() {
-  const query = buildQuery({
-    search: adminEls.peopleSearch.value.trim(),
-    status: adminEls.peopleStatusFilter.value,
-  });
-  const [peopleResult, claimsResult, reportsResult] = await Promise.all([
-    adminEndpoint(`/admin/people${query}`),
-    adminEndpoint('/admin/person-claims?status=pending'),
-    adminEndpoint('/admin/message-reports?status=pending'),
-  ]);
-  adminState.people = peopleResult.data || [];
-  adminState.personClaims = claimsResult.data || [];
-  adminState.messageReports = reportsResult.data || [];
-  adminEls.claimsTable.innerHTML = renderAdminTable(
-    [
-      { key: 'personName', label: '人员姓名' },
-      { key: 'username', label: '申请账号', render: (row) => `${adminText(row.userDisplayName || row.username)} (@${adminText(row.username)})` },
-      { key: 'note', label: '核验说明' },
-      { key: 'createdAt', label: '申请时间' },
-    ],
-    adminState.personClaims,
-    (row) => `
-      <div class="admin-inline-actions">
-        <button class="button compact" type="button" data-review-claim="${adminText(row.id)}" data-claim-decision="approved">通过</button>
-        <button class="button secondary compact danger" type="button" data-review-claim="${adminText(row.id)}" data-claim-decision="rejected">拒绝</button>
-      </div>
-    `,
-  );
-  adminEls.peopleTable.innerHTML = renderAdminTable(
-    [
-      { key: 'id', label: 'ID' },
-      { key: 'displayName', label: '人员姓名' },
-      { key: 'status', label: '状态', render: (row) => row.status === 'claimed' ? '已认领' : row.status === 'archived' ? '已归档' : '待认领' },
-      { key: 'username', label: '绑定账号', render: (row) => row.username ? `@${adminText(row.username)}` : '—' },
-      { key: 'projectCount', label: '项目数' },
-    ],
-    adminState.people,
-    (row) => `<button class="button secondary compact" type="button" data-bind-person="${adminText(row.id)}">${row.userId ? '更改绑定' : '绑定账号'}</button>`,
-  );
-  adminEls.messageReportsTable.innerHTML = renderAdminTable(
-    [
-      { key: 'messageBody', label: '消息内容' },
-      { key: 'senderUsername', label: '发送者', render: (row) => `@${adminText(row.senderUsername)}` },
-      { key: 'reporterUsername', label: '举报人', render: (row) => `@${adminText(row.reporterUsername)}` },
-      { key: 'reason', label: '举报理由' },
-      { key: 'createdAt', label: '举报时间' },
-    ],
-    adminState.messageReports,
-    (row) => `
-      <div class="admin-inline-actions">
-        <button class="button compact" type="button" data-review-report="${adminText(row.id)}" data-report-decision="resolved">已处理</button>
-        <button class="button secondary compact" type="button" data-review-report="${adminText(row.id)}" data-report-decision="dismissed">忽略</button>
-      </div>
-    `,
   );
 }
 
@@ -758,12 +697,14 @@ function commentTargetLink(report) {
 }
 
 async function loadCommunityAdmin() {
-  const [announcementResult, reportResult] = await Promise.all([
+  const [announcementResult, reportResult, messageReportResult] = await Promise.all([
     adminEndpoint('/admin/announcements'),
     adminEndpoint('/admin/comment-reports?status=pending'),
+    adminEndpoint('/admin/message-reports?status=pending'),
   ]);
   adminState.announcements = announcementResult.data || [];
   adminState.commentReports = reportResult.data || [];
+  adminState.messageReports = messageReportResult.data || [];
   adminEls.announcementsTable.innerHTML = renderAdminTable(
     [
       { key: 'title', label: '标题' },
@@ -794,6 +735,22 @@ async function loadCommunityAdmin() {
       <div class="admin-inline-actions">
         <button class="button compact" type="button" data-review-comment-report="${adminText(row.id)}" data-comment-report-decision="hide">隐藏并处理</button>
         <button class="button secondary compact" type="button" data-review-comment-report="${adminText(row.id)}" data-comment-report-decision="dismiss">忽略</button>
+      </div>
+    `,
+  );
+  adminEls.messageReportsTable.innerHTML = renderAdminTable(
+    [
+      { key: 'messageBody', label: '消息内容' },
+      { key: 'senderUsername', label: '发送者', render: (row) => `@${adminText(row.senderUsername)}` },
+      { key: 'reporterUsername', label: '举报人', render: (row) => `@${adminText(row.reporterUsername)}` },
+      { key: 'reason', label: '举报理由' },
+      { key: 'createdAt', label: '举报时间' },
+    ],
+    adminState.messageReports,
+    (row) => `
+      <div class="admin-inline-actions">
+        <button class="button compact" type="button" data-review-report="${adminText(row.id)}" data-report-decision="resolved">已处理</button>
+        <button class="button secondary compact" type="button" data-review-report="${adminText(row.id)}" data-report-decision="dismissed">忽略</button>
       </div>
     `,
   );
@@ -1014,7 +971,15 @@ function adminProjectMembers(project) {
               <span>${role}</span>
             </div>
             <p>${contact}</p>
-            <small>${member.registered ? '已绑定站内账号' : '待成员认领档案'}</small>
+            <div class="admin-project-member-binding">
+              <small>${member.registered ? `已绑定：@${adminText(member.username || member.userId)}` : '未绑定站内账号'}</small>
+              <button
+                class="button secondary compact"
+                type="button"
+                data-bind-project-member="${adminText(member.personId)}"
+                data-binding-project="${adminText(project.id)}"
+              >${member.registered ? '更改绑定' : '绑定账号'}</button>
+            </div>
           </article>
         `;
       }).join('')}
@@ -1072,7 +1037,6 @@ function adminProjectDetail(project) {
       </div>
       <div class="admin-detail-actions">
         <button class="button secondary compact" type="button" data-back-project-list>返回列表</button>
-        <button class="button secondary compact" type="button" data-export-project="${adminText(project.id)}">导出 JSON</button>
         <button class="button compact" type="button" data-edit-project="${adminText(project.id)}">编辑基本信息</button>
       </div>
     </div>
@@ -1096,7 +1060,7 @@ function adminProjectDetail(project) {
     <section>
       <div class="admin-media-toolbar">
         <h2>成员与联系方式</h2>
-        <button class="button secondary compact" type="button" data-edit-project-members="${adminText(project.id)}">管理成员</button>
+        <button class="button secondary compact" type="button" data-edit-project-members="${adminText(project.id)}">管理成员资料</button>
       </div>
       ${adminProjectMembers(project)}
     </section>
@@ -1146,6 +1110,15 @@ function openProjectModal(project = {}) {
     await loadAdminProjects();
     updateAdminProjectState(saved);
   });
+  if (isEdit) {
+    const actions = adminEls.modalForm.querySelector('.admin-modal-actions');
+    if (actions) {
+      actions.insertAdjacentHTML(
+        'afterbegin',
+        `<button class="button secondary" type="button" data-export-project="${adminText(project.id)}">导出 JSON</button>`,
+      );
+    }
+  }
 }
 
 let projectUpdateEditorSequence = 0;
@@ -1258,7 +1231,7 @@ function openProjectMembersModal(project) {
     : [{ name: '', role: 'leader' }];
   adminEls.modalTitle.textContent = '管理成员与联系方式';
   adminEls.modalForm.innerHTML = `
-    <p class="admin-form-note">成员逐条维护；负责人尚未确认时可以暂不设置，确认后最多只能有一名负责人。联系方式不公开时可以留空。</p>
+    <p class="admin-form-note">成员逐条维护；负责人尚未确认时可以暂不设置，确认后最多只能有一名负责人。联系方式不公开时可以留空。保存后可在项目详情的成员卡片中绑定站内账号。</p>
     <div class="admin-member-editor-list" data-project-member-editor>
       ${members.map(projectMemberEditorItem).join('')}
     </div>
@@ -1316,6 +1289,44 @@ function openProjectMembersModal(project) {
   };
 }
 
+async function openProjectMemberBindingModal(project, member) {
+  const result = await adminEndpoint('/admin/users?isActive=true');
+  const users = result.data || [];
+  adminState.users = users;
+  const availableUsers = users.filter(
+    (user) => !user.campusVerified || String(user.id) === String(member.userId || ''),
+  );
+  const options = [
+    { value: '', label: '不绑定账号' },
+    ...availableUsers.map((user) => ({
+      value: user.id,
+      label: `${user.displayName || user.username} (@${user.username})${user.role === 'admin' ? ' · 管理员' : ''}`,
+    })),
+  ];
+  openAdminModal(
+    `绑定成员账号：${member.name}`,
+    [{
+      name: 'userId',
+      label: '站内用户',
+      type: 'select',
+      value: member.userId || '',
+      options,
+    }],
+    async (payload) => {
+      const userId = payload.userId ? adminNumber(payload.userId) : null;
+      await adminEndpoint(
+        `/admin/projects/${encodeURIComponent(project.id)}/members/${encodeURIComponent(member.personId)}/binding`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ userId }),
+        },
+      );
+      const saved = await adminEndpoint(`/admin/projects/${encodeURIComponent(project.id)}`);
+      updateAdminProjectState(saved);
+    },
+  );
+}
+
 async function loadResourceAdminMeta() {
   if (adminState.resourceMetaLoaded) return;
   const [meta, adminCategories] = await Promise.all([
@@ -1345,6 +1356,27 @@ function isPhotoResourceCategory() {
   return adminState.resourceCategory === 'photos';
 }
 
+function activeAdminResourceFilterCount() {
+  return Number(Boolean(adminState.resourceCategory))
+    + Number(Boolean(adminState.resourceYear))
+    + Number(adminState.resourceSort !== 'hot');
+}
+
+function setAdminResourceFilterPanelOpen(isOpen) {
+  adminEls.resourceAdvancedFilters.hidden = !isOpen;
+  adminEls.resourceFilterToggle.setAttribute('aria-expanded', String(isOpen));
+  adminEls.resourceFilterToggle.setAttribute('aria-label', isOpen ? '收起详细筛选' : '显示详细筛选');
+  adminEls.resourceFilterToggle.classList.toggle('is-open', isOpen);
+}
+
+function updateAdminResourceFilterIndicator() {
+  const count = activeAdminResourceFilterCount();
+  adminEls.resourceFilterCount.hidden = count === 0;
+  adminEls.resourceFilterCount.textContent = String(count);
+  adminEls.resourceFilterToggle.classList.toggle('has-active-filters', count > 0);
+  adminEls.clearResourceFilters.disabled = count === 0;
+}
+
 function renderResourceYearOptions() {
   const meta = adminState.resourceMeta || { years: [], photoYears: [] };
   const years = isPhotoResourceCategory() ? meta.photoYears : meta.years;
@@ -1358,19 +1390,7 @@ function renderResourceYearOptions() {
 }
 
 function renderResourceSortOptions() {
-  const options = isPhotoResourceCategory()
-    ? [
-      { value: 'hot', label: '最热' },
-      { value: 'new', label: '最新' },
-      { value: 'photoCount', label: '照片最多' },
-      { value: 'old', label: '最早' },
-    ]
-    : [
-      { value: 'hot', label: '最热' },
-      { value: 'new', label: '最新' },
-      { value: 'download', label: '下载最多' },
-      { value: 'old', label: '最早' },
-    ];
+  const options = ResourceUI.sortOptions(adminState.resourceCategory);
   const currentSort = adminEls.resourceSort.value || adminState.resourceSort;
   adminEls.resourceSort.innerHTML = options.map((option) => `
     <option value="${adminText(option.value)}">${adminText(option.label)}</option>
@@ -1383,12 +1403,12 @@ async function loadResourceManagementView() {
   await loadResourceAdminMeta();
   const isPhotoMode = isPhotoResourceCategory();
   renderResourceSortOptions();
+  updateAdminResourceFilterIndicator();
   adminEls.createResourceButton.classList.toggle('is-hidden', isPhotoMode);
   adminEls.createActivityButton.classList.toggle('is-hidden', !isPhotoMode);
   adminEls.photoFilters.classList.toggle('is-visible', isPhotoMode);
   adminEls.resourceView.classList.toggle('is-hidden', isPhotoMode);
   adminEls.photoView.classList.toggle('is-visible', isPhotoMode);
-  adminEls.yearbookView.classList.remove('is-visible');
   adminEls.resourceSearch.placeholder = isPhotoMode ? '搜索活动名称' : '搜索名称、内容、简介';
   if (isPhotoMode) {
     await loadActivities();
@@ -1396,7 +1416,6 @@ async function loadResourceManagementView() {
   }
   adminState.selectedActivity = null;
   adminState.currentActivity = null;
-  adminState.currentYearbook = null;
   await loadResources();
 }
 
@@ -1419,15 +1438,14 @@ async function loadResources() {
     ]);
     adminState.resources = resourceResult.data;
     adminState.activities = activityResult.data;
-    const combined = [
+    const combined = ResourceUI.sortCombinedResources([
       ...adminState.resources.map((item) => ({ kind: 'resource', data: item })),
       ...adminState.activities.map((item) => ({ kind: 'activity', data: item })),
-    ];
+    ], adminState.resourceSort);
     adminEls.resourceCount.textContent = `共 ${combined.length} 个资源`;
     adminEls.resourcesTable.innerHTML = combined.length
       ? combined.map((item) => (item.kind === 'resource' ? resourceAdminCard(item.data) : photoActivityCard(item.data))).join('')
       : '<div class="empty">暂无资源</div>';
-    bindAdminTeacherVideos();
     return;
   }
   const query = buildQuery({
@@ -1442,7 +1460,6 @@ async function loadResources() {
   adminEls.resourcesTable.innerHTML = adminState.resources.length
     ? adminState.resources.map(resourceAdminCard).join('')
     : '<div class="empty">暂无资源</div>';
-  bindAdminTeacherVideos();
 }
 
 function selectResourceCategory(category) {
@@ -1453,146 +1470,17 @@ function selectResourceCategory(category) {
   });
   adminEls.resourceYear.value = '';
   renderResourceYearOptions();
+  updateAdminResourceFilterIndicator();
 }
 
 function resourceAdminCard(resource) {
-  const image = safeExternalUrl(resource.image);
-  const resourceUrl = safeExternalUrl(resource.resourceUrl);
-  const isYearbook = resource.category === 'yearbook';
-  const isTeacherVideo = resource.category === 'teacher';
-  const thumb = `
-    <span class="resource-thumb">
-      <img src="${image}" alt="${adminText(resource.title)}" loading="lazy">
-      <span class="badge">${adminText(resource.label)}</span>
-    </span>
-  `;
-  const teacherVideo = `
-    <div class="resource-video-frame">
-      <video class="resource-video" controls preload="metadata" playsinline aria-label="${adminText(resource.title)}">
-        <source src="${resourceUrl}">
-        您的浏览器不支持 HTML5 视频。
-      </video>
-      <span class="badge">${adminText(resource.label)}</span>
-      <a class="resource-video-fallback is-hidden" href="${resourceUrl}" target="_blank" rel="noopener noreferrer">无法播放？打开视频</a>
-    </div>
-  `;
-  return `
-    <article class="resource-card admin-resource-card${isTeacherVideo ? ' teacher-video-card' : ''}">
-      ${isTeacherVideo
-        ? teacherVideo
-        : isYearbook
-        ? `<button class="resource-card-link" type="button" data-admin-yearbook-resource-id="${adminText(resource.id)}">${thumb}</button>`
-        : `<a class="resource-card-link" href="${resourceUrl}" target="_blank" rel="noopener noreferrer">${thumb}</a>`}
-      <div class="resource-body">
-        <div class="admin-card-title-row">
-          <h2>${adminText(resource.title)}</h2>
-          <button class="button compact" type="button" data-edit-resource="${adminText(resource.id)}">编辑</button>
-        </div>
-        <p>${adminText(resource.description)}</p>
-        <div class="meta">
-          <span>${adminText(resource.year)}</span>
-          ${isTeacherVideo ? '' : `<span>热度 ${adminText(resource.hot)}</span><span>下载 ${adminText(resource.downloads)}</span>`}
-        </div>
-      </div>
-    </article>
-  `;
-}
-
-function bindAdminTeacherVideos() {
-  adminEls.resourcesTable.querySelectorAll('.resource-video').forEach((video) => {
-    const showFallback = () => {
-      video.closest('.resource-video-frame')?.querySelector('.resource-video-fallback')?.classList.remove('is-hidden');
-    };
-    video.addEventListener('error', showFallback);
-    if (video.error) showFallback();
+  const previewUrl = `/resource.html?id=${encodeURIComponent(resource.id)}&preview=admin`;
+  return ResourceUI.resourceCard(resource, {
+    managed: true,
+    newTab: true,
+    href: previewUrl,
+    editAttribute: 'data-edit-resource',
   });
-}
-
-async function openAdminYearbook(resourceId) {
-  adminEls.resourceView.classList.add('is-hidden');
-  adminEls.photoView.classList.remove('is-visible');
-  adminEls.yearbookView.classList.add('is-visible');
-  adminState.currentYearbook = null;
-  adminState.currentYearbookPage = 0;
-  adminEls.yearbookTitle.textContent = 'Yearbook';
-  adminEls.yearbookMeta.textContent = '正在加载 Yearbook...';
-  adminEls.yearbookPages.innerHTML = '<div class="empty">正在加载 Yearbook...</div>';
-  setAdminYearbookDownload(null);
-  updateAdminYearbookControls();
-
-  try {
-    const result = await adminEndpoint(`/resources/${resourceId}/yearbook?track=false`);
-    adminState.currentYearbook = result.data;
-    adminState.currentYearbookPage = 0;
-    renderAdminYearbook();
-  } catch (error) {
-    adminEls.yearbookMeta.textContent = 'Yearbook 加载失败';
-    adminEls.yearbookPages.innerHTML = `<div class="empty error">${adminText(error.message)}</div>`;
-  }
-}
-
-function setAdminYearbookDownload(pdfUrl) {
-  if (!pdfUrl) {
-    adminEls.yearbookDownload.href = '#';
-    adminEls.yearbookDownload.removeAttribute('download');
-    adminEls.yearbookDownload.setAttribute('aria-disabled', 'true');
-    adminEls.yearbookDownload.classList.add('disabled');
-    return;
-  }
-  adminEls.yearbookDownload.href = authenticatedPublicFileUrl(pdfUrl) || safeExternalUrl(pdfUrl);
-  adminEls.yearbookDownload.download = `${adminState.currentYearbook?.resource?.title || 'yearbook'}.pdf`;
-  adminEls.yearbookDownload.removeAttribute('aria-disabled');
-  adminEls.yearbookDownload.classList.remove('disabled');
-}
-
-function renderAdminYearbook() {
-  const yearbook = adminState.currentYearbook;
-  if (!yearbook) return;
-  const { resource, pages, pdfUrl } = yearbook;
-  const start = adminState.currentYearbookPage;
-  const visiblePages = pages.slice(start, start + 2);
-
-  adminEls.yearbookTitle.textContent = resource.title;
-  adminEls.yearbookMeta.textContent = `${resource.year} · ${pages.length} 页 · 第 ${start + 1}-${Math.min(start + visiblePages.length, pages.length)} 页 · 热度 ${resource.hot} · 下载 ${resource.downloads}`;
-  setAdminYearbookDownload(pdfUrl);
-  adminState.activePhotoItems = pages.map((page, index) => ({
-    ...page,
-    activity: resource.title,
-    year: resource.year,
-    index,
-  }));
-  adminEls.yearbookPages.innerHTML = visiblePages.map((page) => `
-    <figure class="yearbook-page">
-      <button class="yearbook-page-button" type="button" data-admin-yearbook-page-index="${adminText(page.index - 1)}" aria-label="查看 ${adminText(page.title)}">
-        <img src="${safeExternalUrl(page.thumbSrc || page.src)}" alt="${adminText(resource.title)} ${adminText(page.title)}" loading="eager">
-      </button>
-      <figcaption>${adminText(page.index)} / ${adminText(pages.length)}</figcaption>
-    </figure>
-  `).join('');
-  if (visiblePages.length === 1) {
-    adminEls.yearbookPages.insertAdjacentHTML('beforeend', '<div class="yearbook-page-placeholder">本组只有一页</div>');
-  }
-  updateAdminYearbookControls();
-}
-
-function updateAdminYearbookControls() {
-  const pageCount = adminState.currentYearbook?.pages?.length || 0;
-  adminEls.yearbookPrev.disabled = adminState.currentYearbookPage <= 0;
-  adminEls.yearbookNext.disabled = !pageCount || adminState.currentYearbookPage + 2 >= pageCount;
-}
-
-function shiftAdminYearbook(direction) {
-  if (!adminState.currentYearbook) return;
-  const maxStart = Math.max(0, Math.floor((adminState.currentYearbook.pages.length - 1) / 2) * 2);
-  adminState.currentYearbookPage = Math.min(Math.max(adminState.currentYearbookPage + direction * 2, 0), maxStart);
-  renderAdminYearbook();
-}
-
-function closeAdminYearbook() {
-  adminState.currentYearbook = null;
-  adminState.currentYearbookPage = 0;
-  adminEls.yearbookView.classList.remove('is-visible');
-  adminEls.resourceView.classList.remove('is-hidden');
 }
 
 function resourceCategoryOptions() {
@@ -1760,39 +1648,16 @@ function renderAdminActivityList(activities) {
 }
 
 function photoButton(item) {
-  const image = safeExternalUrl(item.thumbSrc || item.src);
-  return `
-    <button class="photo-item" type="button" data-photo-index="${adminText(item.index)}" aria-label="查看 ${adminText(item.title)}">
-      <img src="${image}" alt="${adminText(item.title)}" loading="lazy" decoding="async">
-    </button>
-  `;
+  return ResourceUI.photoItem(item);
 }
 
 function photoActivityCard(activity) {
-  const cover = activityCoverImage(activity);
-  const image = cover ? `<img src="${safeExternalUrl(cover)}" alt="${adminText(activity.activity)}" loading="lazy">` : '';
-  return `
-    <article class="resource-card photo-activity-card admin-photo-activity-card">
-      <button class="admin-photo-activity-open" type="button" data-admin-activity-card-id="${adminText(activity.id)}">
-        <span class="resource-thumb">
-          ${image}
-          <span class="badge">${adminText(activity.year)}</span>
-        </span>
-        <span class="resource-body">
-          <h2>${adminText(activity.activity)}</h2>
-          <p>${adminText(activity.description)}</p>
-          <span class="meta">
-            <span>${adminText(activityPhotoCount(activity))} 张照片</span>
-            <span>热度 ${adminText(activity.hot)}</span>
-            <span>下载 ${adminText(activity.downloads || 0)}</span>
-          </span>
-        </span>
-      </button>
-      <div class="admin-card-edit-row">
-        <button class="button compact" type="button" data-edit-activity="${adminText(activity.id)}">编辑</button>
-      </div>
-    </article>
-  `;
+  return ResourceUI.activityCard(activity, {
+    managed: true,
+    image: activityCoverImage(activity),
+    dataAttribute: 'data-admin-activity-card-id',
+    editAttribute: 'data-edit-activity',
+  });
 }
 
 function openAdminPhotoModal(index) {
@@ -2002,11 +1867,6 @@ function bindAdminEvents() {
   });
   adminEls.userRoleFilter.addEventListener('change', loadUsers);
   adminEls.userActiveFilter.addEventListener('change', loadUsers);
-  adminEls.refreshPeople.addEventListener('click', loadPeopleAdmin);
-  adminEls.peopleSearch.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') loadPeopleAdmin();
-  });
-  adminEls.peopleStatusFilter.addEventListener('change', loadPeopleAdmin);
   adminEls.createAnnouncementButton.addEventListener('click', () => openAnnouncementModal({ status: 'published' }));
   adminEls.refreshCommunity.addEventListener('click', loadCommunityAdmin);
 
@@ -2027,9 +1887,31 @@ function bindAdminEvents() {
     openResourceModal({ category: adminState.resourceCategory || 'other' });
   });
   adminEls.createActivityButton.addEventListener('click', () => openActivityModal({}));
-  adminEls.refreshResources.addEventListener('click', loadResourceManagementView);
+  adminEls.resourceFilterToggle.addEventListener('click', () => {
+    setAdminResourceFilterPanelOpen(adminEls.resourceAdvancedFilters.hidden);
+  });
+  adminEls.clearResourceFilters.addEventListener('click', () => {
+    adminState.resourceCategory = '';
+    adminState.resourceYear = '';
+    adminState.resourceSort = 'hot';
+    adminEls.resourceYear.value = '';
+    adminEls.resourceSort.value = 'hot';
+    adminEls.resourceCategoryList.querySelectorAll('.category-button').forEach((button) => {
+      button.classList.toggle('active', button.dataset.adminResourceCategory === '');
+    });
+    adminState.selectedActivity = null;
+    loadResourceManagementView();
+  });
+  adminEls.resourceSearch.addEventListener('input', () => {
+    clearTimeout(adminState.resourceSearchDebounce);
+    adminState.resourceSearchDebounce = setTimeout(loadResourceManagementView, 300);
+  });
   adminEls.resourceSearch.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') loadResourceManagementView();
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      clearTimeout(adminState.resourceSearchDebounce);
+      loadResourceManagementView();
+    }
   });
   adminEls.resourceYear.addEventListener('change', () => {
     adminState.resourceYear = adminEls.resourceYear.value;
@@ -2041,21 +1923,6 @@ function bindAdminEvents() {
   });
   adminEls.editCurrentActivityButton.addEventListener('click', () => {
     if (adminState.currentActivity) openActivityModal(adminState.currentActivity);
-  });
-  adminEls.backToResourcesButton.addEventListener('click', closeAdminYearbook);
-  adminEls.editCurrentYearbookButton.addEventListener('click', () => {
-    if (adminState.currentYearbook?.resource) openResourceModal(adminState.currentYearbook.resource);
-  });
-  adminEls.yearbookPrev.addEventListener('click', () => shiftAdminYearbook(-1));
-  adminEls.yearbookNext.addEventListener('click', () => shiftAdminYearbook(1));
-  adminEls.yearbookDownload.addEventListener('click', (event) => {
-    if (adminEls.yearbookDownload.getAttribute('aria-disabled') === 'true') {
-      event.preventDefault();
-      return;
-    }
-    if (!requireAuthForDownload()) {
-      event.preventDefault();
-    }
   });
   adminEls.downloadActivity.addEventListener('click', () => {
     if (!requireAuthForDownload()) return;
@@ -2142,17 +2009,11 @@ function bindAdminEvents() {
     if (target.dataset.editUser) {
       openUserModal(adminState.users.find((item) => String(item.id) === target.dataset.editUser));
     }
-    if (target.dataset.reviewClaim) {
-      adminEndpoint(`/admin/person-claims/${target.dataset.reviewClaim}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: target.dataset.claimDecision }),
-      }).then(loadPeopleAdmin).catch((error) => window.alert(error.message));
-    }
     if (target.dataset.reviewReport) {
       adminEndpoint(`/admin/message-reports/${target.dataset.reviewReport}`, {
         method: 'PATCH',
         body: JSON.stringify({ status: target.dataset.reportDecision }),
-      }).then(loadPeopleAdmin).catch((error) => window.alert(error.message));
+      }).then(loadCommunityAdmin).catch((error) => window.alert(error.message));
     }
     if (target.dataset.editAnnouncement) {
       const announcement = adminState.announcements.find(
@@ -2173,22 +2034,13 @@ function bindAdminEvents() {
         }),
       }).then(loadCommunityAdmin).catch((error) => window.alert(error.message));
     }
-    if (target.dataset.bindPerson) {
-      const person = adminState.people.find((item) => String(item.id) === target.dataset.bindPerson);
-      const value = window.prompt(
-        '输入要绑定的用户 ID；留空表示解除绑定。',
-        person?.userId ? String(person.userId) : '',
+    if (target.dataset.bindProjectMember) {
+      const project = findAdminProject(target.dataset.bindingProject);
+      const member = project?.memberList?.find(
+        (item) => String(item.personId) === String(target.dataset.bindProjectMember),
       );
-      if (value !== null) {
-        const clean = value.trim();
-        if (clean && !/^\d+$/.test(clean)) {
-          window.alert('用户 ID 必须是数字');
-        } else {
-          adminEndpoint(`/admin/people/${target.dataset.bindPerson}/binding`, {
-            method: 'PATCH',
-            body: JSON.stringify({ userId: clean ? Number(clean) : null }),
-          }).then(loadPeopleAdmin).catch((error) => window.alert(error.message));
-        }
+      if (project && member) {
+        openProjectMemberBindingModal(project, member).catch((error) => window.alert(error.message));
       }
     }
     if (target.dataset.adminProjectCategory !== undefined) {
@@ -2236,9 +2088,6 @@ function bindAdminEvents() {
         `nethub-resource-${target.dataset.exportResource}.json`,
       ).catch((error) => window.alert(error.message));
     }
-    if (target.dataset.adminYearbookResourceId) {
-      openAdminYearbook(Number(target.dataset.adminYearbookResourceId));
-    }
     if (target.dataset.deleteResourceFromModal) {
       deleteResource(target.dataset.deleteResourceFromModal)
         .then((deleted) => {
@@ -2270,9 +2119,6 @@ function bindAdminEvents() {
     if (target.dataset.photoIndex) {
       openAdminPhotoModal(Number(target.dataset.photoIndex));
     }
-    if (target.dataset.adminYearbookPageIndex) {
-      openAdminPhotoModal(Number(target.dataset.adminYearbookPageIndex));
-    }
     if (target.dataset.editActivity) {
       openActivityModal(adminState.activities.find((item) => String(item.id) === target.dataset.editActivity));
     }
@@ -2286,16 +2132,9 @@ function bindAdminEvents() {
   });
 
   document.addEventListener('keydown', (event) => {
-    if (!adminEls.photoModal.classList.contains('is-open') && adminEls.yearbookView.classList.contains('is-visible')) {
-      if (event.key === 'ArrowLeft') {
-        event.preventDefault();
-        shiftAdminYearbook(-1);
-      }
-      if (event.key === 'ArrowRight') {
-        event.preventDefault();
-        shiftAdminYearbook(1);
-      }
-      return;
+    if (event.key === 'Escape' && !adminEls.resourceAdvancedFilters.hidden && !adminEls.photoModal.classList.contains('is-open')) {
+      setAdminResourceFilterPanelOpen(false);
+      adminEls.resourceFilterToggle.focus();
     }
     if (!adminEls.photoModal.classList.contains('is-open')) return;
     if (event.key === 'Escape') {
@@ -2343,11 +2182,6 @@ async function initAdmin() {
     userRoleFilter: adminQuery('#userRoleFilter'),
     userActiveFilter: adminQuery('#userActiveFilter'),
     usersTable: adminQuery('#usersTable'),
-    refreshPeople: adminQuery('#refreshPeople'),
-    peopleSearch: adminQuery('#peopleSearch'),
-    peopleStatusFilter: adminQuery('#peopleStatusFilter'),
-    peopleTable: adminQuery('#peopleTable'),
-    claimsTable: adminQuery('#personClaimsTable'),
     messageReportsTable: adminQuery('#messageReportsTable'),
     createAnnouncementButton: adminQuery('#createAnnouncementButton'),
     refreshCommunity: adminQuery('#refreshCommunity'),
@@ -2363,23 +2197,17 @@ async function initAdmin() {
     projectDetailView: adminQuery('#adminProjectDetailView'),
     projectList: adminQuery('#adminProjectList'),
     createResourceButton: adminQuery('#createResourceButton'),
-    refreshResources: adminQuery('#refreshResources'),
     resourceSearch: adminQuery('#resourceAdminSearch'),
+    resourceFilterToggle: adminQuery('#adminResourceFilterToggle'),
+    resourceAdvancedFilters: adminQuery('#adminResourceAdvancedFilters'),
+    resourceFilterCount: adminQuery('#adminResourceFilterCount'),
+    clearResourceFilters: adminQuery('#clearAdminResourceFilters'),
     resourceSort: adminQuery('#adminResourceSort'),
     resourceYear: adminQuery('#adminResourceYear'),
     resourceCategoryList: adminQuery('#adminResourceCategoryList'),
     resourceCount: adminQuery('#adminResourceCount'),
     resourceView: adminQuery('#adminResourceView'),
     resourcesTable: adminQuery('#resourcesTable'),
-    yearbookView: adminQuery('#adminYearbookView'),
-    yearbookTitle: adminQuery('#adminYearbookTitle'),
-    yearbookMeta: adminQuery('#adminYearbookMeta'),
-    yearbookPages: adminQuery('#adminYearbookPages'),
-    yearbookPrev: adminQuery('#adminYearbookPrev'),
-    yearbookNext: adminQuery('#adminYearbookNext'),
-    yearbookDownload: adminQuery('#adminDownloadYearbook'),
-    backToResourcesButton: adminQuery('#backToAdminResources'),
-    editCurrentYearbookButton: adminQuery('#editCurrentYearbookButton'),
     createActivityButton: adminQuery('#createActivityButton'),
     photoFilters: adminQuery('#adminPhotoFilters'),
     photoView: adminQuery('#adminPhotoView'),

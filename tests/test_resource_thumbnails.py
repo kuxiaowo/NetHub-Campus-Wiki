@@ -1,0 +1,76 @@
+"""资源卡片缩略图生成与封面对应规则测试。"""
+
+from __future__ import annotations
+
+import io
+from pathlib import Path
+from types import SimpleNamespace
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from PIL import Image
+
+class ResourceThumbnailTest(unittest.TestCase):
+    def test_teacher_video_uses_cached_first_frame_webp(self) -> None:
+        from backend import resources
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            public_dir = Path(temp_dir) / "public"
+            video = public_dir / "teacher" / "lesson.mp4"
+            video.parent.mkdir(parents=True)
+            video.write_bytes(b"fake-video")
+
+            frame = io.BytesIO()
+            Image.new("RGB", (960, 540), "#336699").save(frame, "PNG")
+            ffmpeg_result = SimpleNamespace(stdout=frame.getvalue())
+
+            with (
+                patch.object(resources, "PUBLIC_DIR", public_dir),
+                patch.object(resources.shutil, "which", return_value="ffmpeg"),
+                patch.object(resources.subprocess, "run", return_value=ffmpeg_result) as run,
+            ):
+                thumbnail_url = resources.teacher_video_cover_url("/teacher/lesson.mp4")
+                cached_url = resources.teacher_video_cover_url("/teacher/lesson.mp4")
+
+            self.assertEqual(thumbnail_url, "/teacher/.thumbs/lesson.video.webp")
+            self.assertEqual(cached_url, thumbnail_url)
+            run.assert_called_once()
+            thumbnail = public_dir / "teacher" / ".thumbs" / "lesson.video.webp"
+            self.assertTrue(thumbnail.is_file())
+            with Image.open(thumbnail) as image:
+                self.assertEqual(image.format, "WEBP")
+                self.assertEqual(image.size, (640, 360))
+
+    def test_activity_cover_uses_first_filename_and_its_thumbnail(self) -> None:
+        from backend import resources
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            public_dir = Path(temp_dir) / "public"
+            activity_dir = public_dir / "Photos" / "activity"
+            activity_dir.mkdir(parents=True)
+            for filename, color in (("10.jpg", "blue"), ("2.jpg", "red")):
+                Image.new("RGB", (1200, 800), color).save(activity_dir / filename, "JPEG")
+
+            row = {
+                "id": 1,
+                "activity": "活动",
+                "description": "说明",
+                "year": 2026,
+                "hot": 0,
+                "downloads": 0,
+                "sort_order": 10,
+                "photo_dir": "/Photos/activity/",
+                "photo_count": 0,
+                "created_at": None,
+            }
+            with patch.object(resources, "PUBLIC_DIR", public_dir):
+                activity = resources.format_photo_activity(row, [])
+
+            self.assertEqual(activity["coverSrc"], "/Photos/activity/2.jpg")
+            self.assertEqual(activity["coverThumbSrc"], "/Photos/activity/.thumbs/2.webp")
+            self.assertEqual(activity["photoCount"], 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

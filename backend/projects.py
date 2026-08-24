@@ -142,7 +142,7 @@ def _delete_unused_provisional_people(cursor: Any) -> None:
 def sync_project_members(project_id: int, leader: str, members: str) -> None:
     """同步管理员维护的文本成员和结构化关系。
 
-    同一个项目内按姓名复用既有档案；新名字创建项目级待认领档案，绝不跨项目按姓名
+    同一个项目内按姓名复用既有档案；新名字创建项目级待绑定档案，绝不跨项目按姓名
     自动合并。
     """
 

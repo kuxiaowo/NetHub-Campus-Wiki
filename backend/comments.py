@@ -20,6 +20,45 @@ MAX_COMMENT_LENGTH = 1000
 COMMENT_RATE_PER_MINUTE = 10
 
 
+def _create_notification(
+    cursor: Any,
+    *,
+    kind: str,
+    recipient_id: int,
+    actor_id: int,
+    comment_id: int,
+    target_type: str,
+    target_id: int,
+) -> None:
+    if recipient_id == actor_id:
+        return
+    cursor.execute(
+        """
+        INSERT INTO comment_notifications
+          (kind, recipient_id, actor_id, comment_id, target_type, target_id)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT(kind, recipient_id, actor_id, comment_id) DO UPDATE SET
+          created_at = CURRENT_TIMESTAMP,
+          read_at = NULL,
+          target_type = excluded.target_type,
+          target_id = excluded.target_id
+        """,
+        (kind, recipient_id, actor_id, comment_id, target_type, target_id),
+    )
+
+
+def _target_url(target_type: str, target_id: int, comment_id: int | None = None) -> str:
+    routes = {
+        "announcement": "/announcement.html",
+        "project": "/detail.html",
+        "resource": "/resource.html",
+    }
+    url = f"{routes.get(target_type, '/')}?id={target_id}"
+    if comment_id:
+        url += f"&commentId={comment_id}#comment-{comment_id}"
+    return url
+
+
 def _require_admin(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="需要管理员权限")
@@ -186,6 +225,248 @@ def list_comments(
     }
 
 
+@router.get("/comments/{comment_id}/context")
+def get_comment_context(
+    comment_id: int,
+    viewer: dict[str, Any] | None = Depends(get_optional_current_user),
+):
+    viewer_id = viewer["id"] if viewer else None
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, target_type, target_id, root_id, status
+                FROM comments
+                WHERE id = %s
+                LIMIT 1
+                """,
+                (comment_id,),
+            )
+            focus = cursor.fetchone()
+            if focus is None or focus["status"] != "visible":
+                raise HTTPException(status_code=404, detail="该留言或回复已删除或不存在")
+
+            _validate_target(cursor, focus["target_type"], focus["target_id"])
+            root_id = focus.get("root_id") or focus["id"]
+            select_fields, select_params = _select_fields(viewer_id)
+            cursor.execute(
+                f"""
+                SELECT {select_fields},
+                  (
+                    SELECT COUNT(*) FROM comments child
+                    WHERE child.root_id = c.id
+                      AND child.parent_id IS NOT NULL
+                      AND child.status <> 'hidden'
+                  ) AS reply_count
+                FROM comments c
+                JOIN users u ON u.id = c.user_id
+                LEFT JOIN users reply_user ON reply_user.id = c.reply_to_user_id
+                WHERE c.id = %s AND c.target_type = %s AND c.target_id = %s
+                  AND c.parent_id IS NULL AND c.status <> 'hidden'
+                LIMIT 1
+                """,
+                [*select_params, root_id, focus["target_type"], focus["target_id"]],
+            )
+            root = cursor.fetchone()
+            if root is None:
+                raise HTTPException(status_code=404, detail="留言上下文不存在")
+
+            reply_fields, reply_params = _select_fields(viewer_id)
+            cursor.execute(
+                f"""
+                SELECT {reply_fields}, 0 AS reply_count
+                FROM comments c
+                JOIN users u ON u.id = c.user_id
+                LEFT JOIN users reply_user ON reply_user.id = c.reply_to_user_id
+                WHERE c.root_id = %s
+                  AND c.parent_id IS NOT NULL
+                  AND c.status <> 'hidden'
+                ORDER BY c.created_at ASC, c.id ASC
+                """,
+                [*reply_params, root_id],
+            )
+            replies = [_comment_dict(row) for row in cursor.fetchall()]
+
+    data = _comment_dict(root)
+    data["replies"] = replies
+    return {"data": data, "focusCommentId": comment_id}
+
+
+@router.get("/comment-notifications")
+def list_comment_notifications(
+    kind: str = Query(pattern="^(reply|like)$"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, alias="pageSize", ge=1, le=50),
+    user: dict[str, Any] = Depends(get_current_user),
+):
+    offset = (page - 1) * page_size
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS total, COALESCE(MAX(id), 0) AS latest_id
+                FROM comment_notifications
+                WHERE recipient_id = %s AND kind = %s
+                """,
+                (user["id"], kind),
+            )
+            summary = cursor.fetchone()
+            cursor.execute(
+                """
+                SELECT n.*,
+                       actor.username AS actor_username,
+                       actor.display_name AS actor_display_name,
+                       actor.avatar_url AS actor_avatar_url,
+                       actor.campus_verified AS actor_campus_verified,
+                       c.content AS comment_content,
+                       c.status AS comment_status,
+                       CASE n.target_type
+                         WHEN 'announcement' THEN a.title
+                         WHEN 'project' THEN p.name
+                         WHEN 'resource' THEN r.title
+                       END AS target_title,
+                       CASE n.target_type
+                         WHEN 'announcement' THEN
+                           a.id IS NOT NULL AND a.status = 'published'
+                             AND a.published_at <= CURRENT_TIMESTAMP
+                         WHEN 'project' THEN p.id IS NOT NULL
+                         WHEN 'resource' THEN r.id IS NOT NULL
+                         ELSE 0
+                       END AS target_available
+                FROM comment_notifications n
+                JOIN users actor ON actor.id = n.actor_id
+                LEFT JOIN comments c ON c.id = n.comment_id
+                LEFT JOIN announcements a
+                  ON n.target_type = 'announcement' AND a.id = n.target_id
+                LEFT JOIN projects p
+                  ON n.target_type = 'project' AND p.id = n.target_id
+                LEFT JOIN resources r
+                  ON n.target_type = 'resource' AND r.id = n.target_id
+                WHERE n.recipient_id = %s AND n.kind = %s
+                ORDER BY n.created_at DESC, n.id DESC
+                LIMIT %s OFFSET %s
+                """,
+                (user["id"], kind, page_size, offset),
+            )
+            rows = cursor.fetchall()
+
+    data = []
+    for row in rows:
+        comment_available = row.get("comment_status") == "visible"
+        link_available = comment_available and bool(row.get("target_available"))
+        data.append(
+            {
+                "id": row["id"],
+                "kind": row["kind"],
+                "actor": {
+                    "id": row["actor_id"],
+                    "username": row.get("actor_username"),
+                    "displayName": row.get("actor_display_name"),
+                    "avatarUrl": row.get("actor_avatar_url"),
+                    "campusVerified": bool(row.get("actor_campus_verified")),
+                },
+                "comment": {
+                    "id": row["comment_id"],
+                    "content": row.get("comment_content") if comment_available else "",
+                    "status": row.get("comment_status") or "missing",
+                    "available": comment_available,
+                },
+                "target": {
+                    "type": row["target_type"],
+                    "id": row["target_id"],
+                    "title": row.get("target_title") or "原内容已不存在",
+                    "available": bool(row.get("target_available")),
+                    "url": (
+                        _target_url(row["target_type"], row["target_id"], row["comment_id"])
+                        if link_available
+                        else None
+                    ),
+                },
+                "createdAt": row["created_at"],
+                "read": row.get("read_at") is not None,
+            }
+        )
+    total = int(summary.get("total") or 0)
+    return {
+        "data": data,
+        "page": page,
+        "pageSize": page_size,
+        "total": total,
+        "hasMore": offset + len(data) < total,
+        "latestId": int(summary.get("latest_id") or 0),
+    }
+
+
+@router.post("/comment-notifications/read")
+def read_comment_notifications(
+    payload: dict[str, Any],
+    user: dict[str, Any] = Depends(get_current_user),
+):
+    kind = str(payload.get("kind") or "")
+    if kind not in {"reply", "like"}:
+        raise HTTPException(status_code=422, detail="通知类型无效")
+    try:
+        through_id = int(payload.get("throughId"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="throughId 无效") from None
+    if through_id < 0:
+        raise HTTPException(status_code=422, detail="throughId 无效")
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE comment_notifications
+                SET read_at = CURRENT_TIMESTAMP
+                WHERE recipient_id = %s AND kind = %s
+                  AND id <= %s AND read_at IS NULL
+                """,
+                (user["id"], kind, through_id),
+            )
+    return {"ok": True}
+
+
+@router.get("/message-center/unread-count")
+def message_center_unread_count(user: dict[str, Any] = Depends(get_current_user)):
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                  (
+                    SELECT COALESCE(SUM((
+                      SELECT COUNT(*)
+                      FROM messages m
+                      WHERE m.conversation_id = cm.conversation_id
+                        AND m.sender_id <> cm.user_id
+                        AND m.recalled_at IS NULL
+                        AND m.id > COALESCE(cm.last_read_message_id, 0)
+                    )), 0)
+                    FROM conversation_members cm
+                    WHERE cm.user_id = %s AND cm.hidden_at IS NULL
+                  ) AS messages,
+                  (
+                    SELECT COUNT(*) FROM comment_notifications n
+                    WHERE n.recipient_id = %s AND n.kind = 'reply' AND n.read_at IS NULL
+                  ) AS replies,
+                  (
+                    SELECT COUNT(*) FROM comment_notifications n
+                    WHERE n.recipient_id = %s AND n.kind = 'like' AND n.read_at IS NULL
+                  ) AS likes
+                """,
+                (user["id"], user["id"], user["id"]),
+            )
+            row = cursor.fetchone()
+    messages = int(row.get("messages") or 0)
+    replies = int(row.get("replies") or 0)
+    likes = int(row.get("likes") or 0)
+    return {
+        "total": messages + replies + likes,
+        "messages": messages,
+        "replies": replies,
+        "likes": likes,
+    }
+
+
 @router.post("/comments")
 def create_comment(
     payload: dict[str, Any],
@@ -268,6 +549,16 @@ def create_comment(
             comment_id = cursor.lastrowid
             if parent_id is None:
                 cursor.execute("UPDATE comments SET root_id = %s WHERE id = %s", (comment_id, comment_id))
+            elif reply_to_user_id is not None:
+                _create_notification(
+                    cursor,
+                    kind="reply",
+                    recipient_id=reply_to_user_id,
+                    actor_id=user["id"],
+                    comment_id=comment_id,
+                    target_type=target_type,
+                    target_id=target_id,
+                )
     return {"data": {"id": comment_id}}
 
 
@@ -293,7 +584,15 @@ def delete_comment(comment_id: int, user: dict[str, Any] = Depends(get_current_u
 def like_comment(comment_id: int, user: dict[str, Any] = Depends(get_current_user)):
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT status FROM comments WHERE id = %s LIMIT 1", (comment_id,))
+            cursor.execute(
+                """
+                SELECT status, user_id, target_type, target_id
+                FROM comments
+                WHERE id = %s
+                LIMIT 1
+                """,
+                (comment_id,),
+            )
             comment = cursor.fetchone()
             if comment is None or comment["status"] != "visible":
                 raise HTTPException(status_code=404, detail="留言不存在")
@@ -305,6 +604,16 @@ def like_comment(comment_id: int, user: dict[str, Any] = Depends(get_current_use
                 """,
                 (comment_id, user["id"]),
             )
+            if cursor.rowcount:
+                _create_notification(
+                    cursor,
+                    kind="like",
+                    recipient_id=comment["user_id"],
+                    actor_id=user["id"],
+                    comment_id=comment_id,
+                    target_type=comment["target_type"],
+                    target_id=comment["target_id"],
+                )
     return {"ok": True}
 
 

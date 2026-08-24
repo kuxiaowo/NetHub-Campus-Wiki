@@ -1,10 +1,13 @@
-"""用户、人员认领和私信主流程集成测试。"""
+"""用户、管理员维护的人员绑定和私信主流程集成测试。"""
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import os
 from pathlib import Path
+import sqlite3
 import tempfile
+import threading
 import unittest
 
 _TEMP_DIR = tempfile.TemporaryDirectory()
@@ -202,6 +205,115 @@ class SocialMessagingFlowTest(unittest.TestCase):
         self.assertEqual(members[0]["role"], "leader")
         self.assertFalse(members[0]["registered"])
 
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("PRAGMA user_version")
+                self.assertEqual(cursor.fetchone()["user_version"], 7)
+                cursor.execute("PRAGMA table_info(conversation_members)")
+                member_columns = {column["name"] for column in cursor.fetchall()}
+                self.assertNotIn("request_status", member_columns)
+                cursor.execute("PRAGMA table_info(comment_notifications)")
+                notification_columns = {column["name"] for column in cursor.fetchall()}
+                self.assertEqual(
+                    notification_columns,
+                    {
+                        "id",
+                        "kind",
+                        "recipient_id",
+                        "actor_id",
+                        "comment_id",
+                        "target_type",
+                        "target_id",
+                        "created_at",
+                        "read_at",
+                    },
+                )
+                cursor.execute("SELECT COUNT(*) AS total FROM comment_notifications")
+                self.assertEqual(cursor.fetchone()["total"], 0)
+
+        migration = (
+            Path(__file__).parents[1] / "sql" / "migrations" / "006_unified_direct_messages.sql"
+        ).read_text(encoding="utf-8")
+        legacy = sqlite3.connect(":memory:")
+        legacy.row_factory = sqlite3.Row
+        legacy.execute("PRAGMA foreign_keys = ON")
+        legacy.executescript(
+            """
+            CREATE TABLE users (id INTEGER PRIMARY KEY);
+            CREATE TABLE conversations (id INTEGER PRIMARY KEY);
+            CREATE TABLE conversation_members (
+              conversation_id INTEGER NOT NULL,
+              user_id INTEGER NOT NULL,
+              request_status TEXT NOT NULL,
+              last_read_message_id INTEGER,
+              hidden_at TEXT,
+              muted INTEGER NOT NULL DEFAULT 0,
+              joined_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              PRIMARY KEY (conversation_id, user_id),
+              FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+            CREATE INDEX idx_conversation_members_user
+              ON conversation_members(user_id, request_status, conversation_id);
+            INSERT INTO users (id) VALUES (1), (2);
+            INSERT INTO conversations (id) VALUES (1);
+            INSERT INTO conversation_members
+              (conversation_id, user_id, request_status, hidden_at)
+            VALUES (1, 1, 'pending', NULL),
+                   (1, 2, 'declined', '2026-08-01 00:00:00');
+            PRAGMA user_version = 5;
+            """
+        )
+        legacy.executescript(migration)
+        self.assertEqual(legacy.execute("PRAGMA user_version").fetchone()[0], 6)
+        migrated_columns = {
+            column["name"] for column in legacy.execute("PRAGMA table_info(conversation_members)")
+        }
+        self.assertNotIn("request_status", migrated_columns)
+        migrated_members = legacy.execute(
+            "SELECT user_id, hidden_at FROM conversation_members ORDER BY user_id"
+        ).fetchall()
+        self.assertIsNone(migrated_members[0]["hidden_at"])
+        self.assertEqual(migrated_members[1]["hidden_at"], "2026-08-01 00:00:00")
+        legacy.close()
+
+        notification_migration = (
+            Path(__file__).parents[1] / "sql" / "migrations" / "007_comment_notifications.sql"
+        ).read_text(encoding="utf-8")
+        notification_legacy = sqlite3.connect(":memory:")
+        notification_legacy.row_factory = sqlite3.Row
+        notification_legacy.execute("PRAGMA foreign_keys = ON")
+        notification_legacy.executescript(
+            """
+            CREATE TABLE users (id INTEGER PRIMARY KEY);
+            CREATE TABLE comments (
+              id INTEGER PRIMARY KEY,
+              user_id INTEGER NOT NULL,
+              target_type TEXT NOT NULL,
+              target_id INTEGER NOT NULL,
+              content TEXT NOT NULL
+            );
+            CREATE TABLE comment_likes (
+              comment_id INTEGER NOT NULL,
+              user_id INTEGER NOT NULL,
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              PRIMARY KEY (comment_id, user_id)
+            );
+            INSERT INTO users (id) VALUES (1), (2);
+            INSERT INTO comments (id, user_id, target_type, target_id, content)
+            VALUES (1, 1, 'project', 1, '旧留言');
+            INSERT INTO comment_likes (comment_id, user_id) VALUES (1, 2);
+            PRAGMA user_version = 6;
+            """
+        )
+        notification_legacy.executescript(notification_migration)
+        self.assertEqual(notification_legacy.execute("PRAGMA user_version").fetchone()[0], 7)
+        self.assertEqual(
+            notification_legacy.execute("SELECT COUNT(*) FROM comment_notifications").fetchone()[0],
+            0,
+        )
+        notification_legacy.close()
+
     def test_02_profile_follow_and_block(self) -> None:
         response = self.client.patch(
             "/api/users/me/profile",
@@ -237,36 +349,50 @@ class SocialMessagingFlowTest(unittest.TestCase):
         ).json()["data"]
         self.assertTrue(profile["relationship"]["blocked"])
 
-    def test_03_person_claim_and_admin_review(self) -> None:
+    def test_03_only_admin_can_bind_project_members(self) -> None:
         project = self.client.get("/api/projects/1").json()["data"]
         person_id = project["memberList"][0]["personId"]
-        response = self.client.post(
+
+        removed_claim = self.client.post(
             f"/api/people/{person_id}/claims",
             headers=self._headers(self.alice_token),
             json={"note": "校园噪音地图负责人"},
         )
-        self.assertEqual(response.status_code, 200, response.text)
-        claim_id = response.json()["claimId"]
+        self.assertEqual(removed_claim.status_code, 404, removed_claim.text)
 
-        pending = self.client.get(
-            "/api/admin/person-claims?status=pending",
+        removed_standalone_binding = self.client.patch(
+            f"/api/admin/people/{person_id}/binding",
             headers=self._headers(self.admin_token),
+            json={"userId": self.alice["id"]},
         )
-        self.assertEqual(pending.status_code, 200, pending.text)
-        self.assertIn(claim_id, [item["id"] for item in pending.json()["data"]])
+        self.assertEqual(removed_standalone_binding.status_code, 404, removed_standalone_binding.text)
 
-        response = self.client.patch(
-            f"/api/admin/person-claims/{claim_id}",
-            headers=self._headers(self.admin_token),
-            json={"status": "approved"},
+        denied = self.client.patch(
+            f"/api/admin/projects/1/members/{person_id}/binding",
+            headers=self._headers(self.alice_token),
+            json={"userId": self.alice["id"]},
         )
-        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(denied.status_code, 403, denied.text)
+
+        wrong_project = self.client.patch(
+            f"/api/admin/projects/999999/members/{person_id}/binding",
+            headers=self._headers(self.admin_token),
+            json={"userId": self.alice["id"]},
+        )
+        self.assertEqual(wrong_project.status_code, 404, wrong_project.text)
+
+        bound = self.client.patch(
+            f"/api/admin/projects/1/members/{person_id}/binding",
+            headers=self._headers(self.admin_token),
+            json={"userId": self.alice["id"]},
+        )
+        self.assertEqual(bound.status_code, 200, bound.text)
         project = self.client.get("/api/projects/1").json()["data"]
         leader = project["memberList"][0]
         self.assertTrue(leader["registered"])
         self.assertEqual(leader["userId"], self.alice["id"])
 
-    def test_04_stranger_request_message_read_recall_and_block(self) -> None:
+    def test_04_unified_message_daily_limit_reply_read_recall_and_block(self) -> None:
         response = self.client.post(
             "/api/conversations",
             headers=self._headers(self.alice_token),
@@ -274,7 +400,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         conversation_id = response.json()["data"]["id"]
-        self.assertEqual(response.json()["data"]["requestStatus"], "pending")
+        self.assertNotIn("requestStatus", response.json()["data"])
 
         first = self.client.post(
             f"/api/conversations/{conversation_id}/messages",
@@ -291,52 +417,103 @@ class SocialMessagingFlowTest(unittest.TestCase):
         self.assertEqual(retry.status_code, 200, retry.text)
         self.assertEqual(retry.json()["data"]["id"], first_message_id)
 
+        recalled = self.client.post(
+            f"/api/messages/{first_message_id}/recall",
+            headers=self._headers(self.alice_token),
+        )
+        self.assertEqual(recalled.status_code, 200, recalled.text)
+
         second = self.client.post(
             f"/api/conversations/{conversation_id}/messages",
             headers=self._headers(self.alice_token),
-            json={"type": "text", "body": "第二条", "clientMessageId": "alice-second-before-accept"},
+            json={"type": "text", "body": "第二条", "clientMessageId": "alice-second-same-day"},
         )
-        self.assertEqual(second.status_code, 403)
+        self.assertEqual(second.status_code, 429, second.text)
+        self.assertIn("每天最多发送一条", second.json()["detail"])
 
-        requests = self.client.get(
-            "/api/conversations?scope=requests",
+        # Recalled messages still consume quota, but a Beijing-calendar-day
+        # rollover restores one allowance.
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE messages SET created_at = datetime('now', '-1 day') WHERE id = %s",
+                    (first_message_id,),
+                )
+
+        second = self.client.post(
+            f"/api/conversations/{conversation_id}/messages",
+            headers=self._headers(self.alice_token),
+            json={"type": "text", "body": "新的一天", "clientMessageId": "alice-second-day"},
+        )
+        self.assertEqual(second.status_code, 200, second.text)
+        second_message_id = second.json()["data"]["id"]
+
+        third_before_reply = self.client.post(
+            f"/api/conversations/{conversation_id}/messages",
+            headers=self._headers(self.alice_token),
+            json={"type": "text", "body": "当天再发", "clientMessageId": "alice-third-before-reply"},
+        )
+        self.assertEqual(third_before_reply.status_code, 429, third_before_reply.text)
+
+        conversations = self.client.get(
+            "/api/conversations",
             headers=self._headers(self.bob_token),
         )
-        self.assertEqual(requests.status_code, 200, requests.text)
-        self.assertEqual(requests.json()["data"][0]["id"], conversation_id)
+        self.assertEqual(conversations.status_code, 200, conversations.text)
+        conversation = next(item for item in conversations.json()["data"] if item["id"] == conversation_id)
+        self.assertNotIn("requestStatus", conversation)
 
         history = self.client.get(
             f"/api/conversations/{conversation_id}/messages",
             headers=self._headers(self.bob_token),
         )
         self.assertEqual(history.status_code, 200, history.text)
-        self.assertEqual(history.json()["data"][0]["body"], "你好，我想聊聊 CAS")
+        self.assertNotIn("requestStatus", history.json())
+        self.assertTrue(history.json()["data"][0]["recalled"])
 
-        accepted = self.client.post(
-            f"/api/conversations/{conversation_id}/request",
+        replied = self.client.post(
+            f"/api/conversations/{conversation_id}/messages",
             headers=self._headers(self.bob_token),
-            json={"action": "accept"},
+            json={"type": "text", "body": "可以聊", "clientMessageId": "bob-first-reply"},
         )
-        self.assertEqual(accepted.status_code, 200, accepted.text)
+        self.assertEqual(replied.status_code, 200, replied.text)
 
-        second = self.client.post(
+        third = self.client.post(
             f"/api/conversations/{conversation_id}/messages",
             headers=self._headers(self.alice_token),
-            json={"type": "text", "body": "现在可以继续了", "clientMessageId": "alice-second"},
+            json={"type": "text", "body": "收到回复后可继续", "clientMessageId": "alice-third"},
         )
-        self.assertEqual(second.status_code, 200, second.text)
-        second_message_id = second.json()["data"]["id"]
+        self.assertEqual(third.status_code, 200, third.text)
+
+        followed = self.client.post(
+            f"/api/users/{self.alice['id']}/follow",
+            headers=self._headers(self.bob_token),
+        )
+        self.assertEqual(followed.status_code, 200, followed.text)
+        unfollowed = self.client.delete(
+            f"/api/users/{self.alice['id']}/follow",
+            headers=self._headers(self.bob_token),
+        )
+        self.assertEqual(unfollowed.status_code, 200, unfollowed.text)
+        fourth = self.client.post(
+            f"/api/conversations/{conversation_id}/messages",
+            headers=self._headers(self.alice_token),
+            json={"type": "text", "body": "回复解锁不因取消关注失效", "clientMessageId": "alice-fourth"},
+        )
+        self.assertEqual(fourth.status_code, 200, fourth.text)
+        last_message_id = fourth.json()["data"]["id"]
 
         counts = self.client.get(
             "/api/messages/unread-count",
             headers=self._headers(self.bob_token),
         ).json()
-        self.assertEqual(counts["unread"], 2)
+        self.assertEqual(counts["unread"], 3)
+        self.assertNotIn("requests", counts)
 
         read = self.client.post(
             f"/api/conversations/{conversation_id}/read",
             headers=self._headers(self.bob_token),
-            json={"messageId": second_message_id},
+            json={"messageId": last_message_id},
         )
         self.assertEqual(read.status_code, 200, read.text)
         counts = self.client.get(
@@ -364,12 +541,6 @@ class SocialMessagingFlowTest(unittest.TestCase):
         )
         self.assertEqual(reviewed.status_code, 200, reviewed.text)
 
-        recalled = self.client.post(
-            f"/api/messages/{first_message_id}/recall",
-            headers=self._headers(self.alice_token),
-        )
-        self.assertEqual(recalled.status_code, 200, recalled.text)
-
         blocked = self.client.post(
             f"/api/users/{self.alice['id']}/block",
             headers=self._headers(self.bob_token),
@@ -382,7 +553,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         )
         self.assertEqual(denied.status_code, 403)
 
-    def test_05_declined_request_cannot_receive_more_messages(self) -> None:
+    def test_05_follow_dynamically_unlocks_and_unfollow_restores_limit(self) -> None:
         opened = self.client.post(
             "/api/conversations",
             headers=self._headers(self.bob_token),
@@ -393,21 +564,155 @@ class SocialMessagingFlowTest(unittest.TestCase):
         first = self.client.post(
             f"/api/conversations/{conversation_id}/messages",
             headers=self._headers(self.bob_token),
-            json={"type": "text", "body": "陌生人请求", "clientMessageId": "decline-first"},
+            json={"type": "project", "body": "", "projectId": 1, "clientMessageId": "follow-limit-project"},
         )
         self.assertEqual(first.status_code, 200, first.text)
-        declined = self.client.post(
-            f"/api/conversations/{conversation_id}/request",
-            headers=self._headers(self.charlie_token),
-            json={"action": "decline"},
+
+        recalled = self.client.post(
+            f"/api/messages/{first.json()['data']['id']}/recall",
+            headers=self._headers(self.bob_token),
         )
-        self.assertEqual(declined.status_code, 200, declined.text)
-        denied = self.client.post(
+        self.assertEqual(recalled.status_code, 200, recalled.text)
+        limited = self.client.post(
             f"/api/conversations/{conversation_id}/messages",
             headers=self._headers(self.bob_token),
-            json={"type": "text", "body": "拒绝后不应继续发送", "clientMessageId": "decline-second"},
+            json={"type": "text", "body": "撤回后仍受限", "clientMessageId": "follow-limit-before-follow"},
         )
-        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(limited.status_code, 429, limited.text)
+
+        followed = self.client.post(
+            f"/api/users/{self.bob['id']}/follow",
+            headers=self._headers(self.charlie_token),
+        )
+        self.assertEqual(followed.status_code, 200, followed.text)
+        unlocked = self.client.post(
+            f"/api/conversations/{conversation_id}/messages",
+            headers=self._headers(self.bob_token),
+            json={"type": "text", "body": "关注后解锁", "clientMessageId": "follow-limit-unlocked"},
+        )
+        self.assertEqual(unlocked.status_code, 200, unlocked.text)
+
+        unfollowed = self.client.delete(
+            f"/api/users/{self.bob['id']}/follow",
+            headers=self._headers(self.charlie_token),
+        )
+        self.assertEqual(unfollowed.status_code, 200, unfollowed.text)
+        limited_again = self.client.post(
+            f"/api/conversations/{conversation_id}/messages",
+            headers=self._headers(self.bob_token),
+            json={"type": "text", "body": "取消关注后恢复限制", "clientMessageId": "follow-limit-after-unfollow"},
+        )
+        self.assertEqual(limited_again.status_code, 429, limited_again.text)
+
+    def test_05_messaging_permissions_still_control_new_conversations(self) -> None:
+        sender = self._register("permission_sender", "Permission Sender")
+        sender_token = self._login("permission_sender", "password123")
+
+        everyone = self._register("permission_everyone", "Permission Everyone")
+        everyone_opened = self.client.post(
+            "/api/conversations",
+            headers=self._headers(sender_token),
+            json={"targetUserId": everyone["id"]},
+        )
+        self.assertEqual(everyone_opened.status_code, 200, everyone_opened.text)
+
+        following = self._register("permission_following", "Permission Following")
+        following_token = self._login("permission_following", "password123")
+        updated = self.client.patch(
+            "/api/users/me/profile",
+            headers=self._headers(following_token),
+            json={"messagingPermission": "following"},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        denied = self.client.post(
+            "/api/conversations",
+            headers=self._headers(sender_token),
+            json={"targetUserId": following["id"]},
+        )
+        self.assertEqual(denied.status_code, 403, denied.text)
+        self.client.post(
+            f"/api/users/{sender['id']}/follow",
+            headers=self._headers(following_token),
+        )
+        allowed = self.client.post(
+            "/api/conversations",
+            headers=self._headers(sender_token),
+            json={"targetUserId": following["id"]},
+        )
+        self.assertEqual(allowed.status_code, 200, allowed.text)
+
+        mutual = self._register("permission_mutual", "Permission Mutual")
+        mutual_token = self._login("permission_mutual", "password123")
+        updated = self.client.patch(
+            "/api/users/me/profile",
+            headers=self._headers(mutual_token),
+            json={"messagingPermission": "mutual"},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.client.post(
+            f"/api/users/{sender['id']}/follow",
+            headers=self._headers(mutual_token),
+        )
+        denied = self.client.post(
+            "/api/conversations",
+            headers=self._headers(sender_token),
+            json={"targetUserId": mutual["id"]},
+        )
+        self.assertEqual(denied.status_code, 403, denied.text)
+        self.client.post(
+            f"/api/users/{mutual['id']}/follow",
+            headers=self._headers(sender_token),
+        )
+        allowed = self.client.post(
+            "/api/conversations",
+            headers=self._headers(sender_token),
+            json={"targetUserId": mutual["id"]},
+        )
+        self.assertEqual(allowed.status_code, 200, allowed.text)
+
+        nobody = self._register("permission_nobody", "Permission Nobody")
+        nobody_token = self._login("permission_nobody", "password123")
+        updated = self.client.patch(
+            "/api/users/me/profile",
+            headers=self._headers(nobody_token),
+            json={"messagingPermission": "nobody"},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        denied = self.client.post(
+            "/api/conversations",
+            headers=self._headers(sender_token),
+            json={"targetUserId": nobody["id"]},
+        )
+        self.assertEqual(denied.status_code, 403, denied.text)
+
+    def test_05_parallel_sends_cannot_bypass_daily_limit(self) -> None:
+        sender = self._register("parallel_sender", "Parallel Sender")
+        recipient = self._register("parallel_recipient", "Parallel Recipient")
+        sender_token = self._login("parallel_sender", "password123")
+        opened = self.client.post(
+            "/api/conversations",
+            headers=self._headers(sender_token),
+            json={"targetUserId": recipient["id"]},
+        )
+        self.assertEqual(opened.status_code, 200, opened.text)
+        conversation_id = opened.json()["data"]["id"]
+        barrier = threading.Barrier(2)
+
+        def send_parallel(client_message_id: str):
+            barrier.wait()
+            return self.client.post(
+                f"/api/conversations/{conversation_id}/messages",
+                headers=self._headers(sender_token),
+                json={
+                    "type": "text",
+                    "body": client_message_id,
+                    "clientMessageId": client_message_id,
+                },
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            responses = list(executor.map(send_parallel, ("parallel-one", "parallel-two")))
+        self.assertEqual(sorted(response.status_code for response in responses), [200, 429])
 
     def test_06_websocket_ticket_is_single_use(self) -> None:
         ticket = self.client.post(
@@ -494,6 +799,33 @@ class SocialMessagingFlowTest(unittest.TestCase):
             json={"targetType": "resource", "targetId": 1, "content": "资源很实用"},
         )
         self.assertEqual(resource_root.status_code, 200, resource_root.text)
+        self_reply = self.client.post(
+            "/api/comments",
+            headers=self._headers(self.alice_token),
+            json={
+                "targetType": "resource",
+                "targetId": 1,
+                "content": "补充一下自己的留言",
+                "parentId": resource_root.json()["data"]["id"],
+            },
+        )
+        self.assertEqual(self_reply.status_code, 200, self_reply.text)
+        self_like = self.client.post(
+            f"/api/comments/{resource_root.json()['data']['id']}/like",
+            headers=self._headers(self.alice_token),
+        )
+        self.assertEqual(self_like.status_code, 200, self_like.text)
+        alice_replies = self.client.get(
+            "/api/comment-notifications?kind=reply",
+            headers=self._headers(self.alice_token),
+        )
+        self.assertEqual(alice_replies.status_code, 200, alice_replies.text)
+        self.assertEqual(alice_replies.json()["total"], 0)
+        alice_likes = self.client.get(
+            "/api/comment-notifications?kind=like",
+            headers=self._headers(self.alice_token),
+        )
+        self.assertEqual(alice_likes.json()["total"], 0)
         denied_reply = self.client.post(
             "/api/comments",
             headers=self._headers(self.charlie_token),
@@ -529,6 +861,89 @@ class SocialMessagingFlowTest(unittest.TestCase):
         self.assertEqual(len(item["replies"]), 2)
         self.assertEqual(item["replies"][1]["rootId"], root_id)
 
+        reply_notifications = self.client.get(
+            "/api/comment-notifications?kind=reply&page=1&pageSize=20",
+            headers=self._headers(self.bob_token),
+        )
+        self.assertEqual(reply_notifications.status_code, 200, reply_notifications.text)
+        reply_payload = reply_notifications.json()
+        self.assertEqual(reply_payload["total"], 1)
+        self.assertEqual(reply_payload["data"][0]["comment"]["id"], reply_id)
+        self.assertEqual(reply_payload["data"][0]["actor"]["id"], self.charlie["id"])
+        self.assertTrue(reply_payload["data"][0]["target"]["url"].endswith(f"#comment-{reply_id}"))
+
+        like_notifications = self.client.get(
+            "/api/comment-notifications?kind=like&page=1&pageSize=20",
+            headers=self._headers(self.bob_token),
+        )
+        self.assertEqual(like_notifications.status_code, 200, like_notifications.text)
+        like_payload = like_notifications.json()
+        self.assertEqual(like_payload["total"], 1)
+        like_notification_id = like_payload["data"][0]["id"]
+        self.assertEqual(like_payload["data"][0]["comment"]["id"], root_id)
+
+        context = self.client.get(
+            f"/api/comments/{reply_id}/context",
+            headers=self._headers(self.bob_token),
+        )
+        self.assertEqual(context.status_code, 200, context.text)
+        self.assertEqual(context.json()["data"]["id"], root_id)
+        self.assertEqual(context.json()["focusCommentId"], reply_id)
+
+        counts = self.client.get(
+            "/api/message-center/unread-count",
+            headers=self._headers(self.bob_token),
+        )
+        self.assertEqual(counts.status_code, 200, counts.text)
+        self.assertEqual(counts.json()["replies"], 1)
+        self.assertEqual(counts.json()["likes"], 1)
+        self.assertEqual(
+            counts.json()["total"],
+            counts.json()["messages"] + counts.json()["replies"] + counts.json()["likes"],
+        )
+
+        read_reply = self.client.post(
+            "/api/comment-notifications/read",
+            headers=self._headers(self.bob_token),
+            json={"kind": "reply", "throughId": reply_payload["latestId"]},
+        )
+        self.assertEqual(read_reply.status_code, 200, read_reply.text)
+        read_like = self.client.post(
+            "/api/comment-notifications/read",
+            headers=self._headers(self.bob_token),
+            json={"kind": "like", "throughId": like_payload["latestId"]},
+        )
+        self.assertEqual(read_like.status_code, 200, read_like.text)
+
+        duplicate_like = self.client.post(
+            f"/api/comments/{root_id}/like",
+            headers=self._headers(self.alice_token),
+        )
+        self.assertEqual(duplicate_like.status_code, 200, duplicate_like.text)
+        counts = self.client.get(
+            "/api/message-center/unread-count",
+            headers=self._headers(self.bob_token),
+        ).json()
+        self.assertEqual(counts["likes"], 0)
+
+        unliked = self.client.delete(
+            f"/api/comments/{root_id}/like",
+            headers=self._headers(self.alice_token),
+        )
+        self.assertEqual(unliked.status_code, 200, unliked.text)
+        reliked = self.client.post(
+            f"/api/comments/{root_id}/like",
+            headers=self._headers(self.alice_token),
+        )
+        self.assertEqual(reliked.status_code, 200, reliked.text)
+        relike_payload = self.client.get(
+            "/api/comment-notifications?kind=like",
+            headers=self._headers(self.bob_token),
+        ).json()
+        self.assertEqual(relike_payload["total"], 1)
+        self.assertEqual(relike_payload["data"][0]["id"], like_notification_id)
+        self.assertFalse(relike_payload["data"][0]["read"])
+
         reported = self.client.post(
             f"/api/comments/{reply_id}/reports",
             headers=self._headers(self.alice_token),
@@ -548,6 +963,15 @@ class SocialMessagingFlowTest(unittest.TestCase):
         )
         self.assertEqual(reviewed.status_code, 200, reviewed.text)
 
+        hidden_reply_notification = self.client.get(
+            "/api/comment-notifications?kind=reply",
+            headers=self._headers(self.bob_token),
+        ).json()["data"][0]
+        self.assertFalse(hidden_reply_notification["comment"]["available"])
+        self.assertIsNone(hidden_reply_notification["target"]["url"])
+        hidden_context = self.client.get(f"/api/comments/{reply_id}/context")
+        self.assertEqual(hidden_context.status_code, 404)
+
         deleted = self.client.delete(
             f"/api/comments/{root_id}",
             headers=self._headers(self.bob_token),
@@ -558,6 +982,12 @@ class SocialMessagingFlowTest(unittest.TestCase):
         self.assertEqual(item["status"], "deleted")
         self.assertEqual(item["content"], "")
         self.assertEqual(len(item["replies"]), 1)
+        deleted_like_notification = self.client.get(
+            "/api/comment-notifications?kind=like",
+            headers=self._headers(self.bob_token),
+        ).json()["data"][0]
+        self.assertFalse(deleted_like_notification["comment"]["available"])
+        self.assertIsNone(deleted_like_notification["target"]["url"])
 
     def test_09_admin_project_two_stage_creation_and_member_contacts(self) -> None:
         created = self.client.post(
