@@ -65,17 +65,6 @@ CREATE INDEX idx_resources_year ON resources(year);
 CREATE INDEX idx_resources_hot ON resources(hot);
 CREATE INDEX idx_resources_downloads ON resources(downloads);
 
-CREATE TABLE resource_categories (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  value TEXT NOT NULL UNIQUE,
-  label TEXT NOT NULL,
-  sort_order INTEGER NOT NULL DEFAULT 0,
-  is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_resource_categories_sort ON resource_categories(is_active, sort_order, id);
-
 CREATE TABLE photo_activities (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   activity TEXT NOT NULL,
@@ -120,10 +109,6 @@ END;
 CREATE TRIGGER resources_set_updated_at AFTER UPDATE ON resources
 WHEN NEW.updated_at = OLD.updated_at BEGIN
   UPDATE resources SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-END;
-CREATE TRIGGER resource_categories_set_updated_at AFTER UPDATE ON resource_categories
-WHEN NEW.updated_at = OLD.updated_at BEGIN
-  UPDATE resource_categories SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 CREATE TRIGGER photo_activities_set_updated_at AFTER UPDATE ON photo_activities
 WHEN NEW.updated_at = OLD.updated_at BEGIN
@@ -198,9 +183,6 @@ VALUES
   'https://images.unsplash.com/photo-1521587760476-6c12a4b040da?auto=format&fit=crop&w=900&q=80',
   'https://images.unsplash.com/photo-1521587760476-6c12a4b040da?auto=format&fit=crop&w=1600&q=90'
 );
-
-INSERT INTO resource_categories (value, label, sort_order, is_active)
-VALUES ('yearbook', 'Yearbook', 10, 1), ('photos', '活动照片', 20, 1), ('other', '其他资源', 999, 1);
 
 INSERT INTO photo_activities (id, activity, description, year, hot, downloads, sort_order)
 VALUES

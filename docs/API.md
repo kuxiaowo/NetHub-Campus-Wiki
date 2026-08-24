@@ -184,7 +184,9 @@ curl http://127.0.0.1:3100/api/health
 
 ## GET /api/announcements
 
-获取首页公告列表。
+分页获取已发布公告。首页使用 `pageSize=3`，全部公告页使用搜索和分页。
+
+查询参数：`page`、`pageSize`、`search`。
 
 ### 请求示例
 
@@ -196,18 +198,45 @@ curl http://127.0.0.1:3100/api/announcements
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `data` | `string[]` | 公告文本列表 |
+| `data` | `object[]` | 公告摘要列表 |
+| `total` | `number` | 公告总数 |
+| `hasMore` | `boolean` | 是否还有下一页 |
 
 ### 响应示例
 
 ```json
 {
-  "data": [
-    "CAS 项目库原型上线：欢迎提交你的项目资料。",
-    "本周五 16:00 将举办 CAS 项目分享会。"
-  ]
+  "data": [{
+    "id": 1,
+    "title": "CAS 项目库原型上线",
+    "summary": "欢迎提交你的项目资料。",
+    "isPinned": true,
+    "viewCount": 12,
+    "commentCount": 3,
+    "publishedAt": "2026-07-29 10:00:00"
+  }],
+  "page": 1,
+  "pageSize": 10,
+  "total": 1,
+  "hasMore": false
 }
 ```
+
+## GET /api/announcements/{announcement_id}
+
+读取单条已发布公告的正文、作者、浏览量和留言数。默认每次读取会增加一次浏览量；内部检查可传 `track=false`。
+
+## 留言接口
+
+公告、项目和普通资源使用同一套两级留言接口。读取公开，写操作需要 Bearer Token。
+
+- `GET /api/comments?targetType=announcement|project|resource&targetId=1&sort=hot|latest&page=1&pageSize=10`：分页读取主留言及其全部回复。
+- `POST /api/comments`：发布留言；请求体为 `targetType`、`targetId`、`content`，回复时增加 `parentId`。
+- `DELETE /api/comments/{comment_id}`：软删除自己的留言；管理员也可删除。
+- `POST|DELETE /api/comments/{comment_id}/like`：点赞或取消点赞。
+- `POST /api/comments/{comment_id}/reports`：举报他人留言，请求体为 `{"reason":"..."}`。
+
+回复始终归入两级展示：回复某条回复时，`parentId` 指向被回复留言，`rootId` 仍指向主留言。删除主留言只清空正文，回复关系保留。双方任一方存在黑名单关系时，回复会返回 `403`。
 
 ## GET /api/meta
 
@@ -266,21 +295,31 @@ curl "http://127.0.0.1:3100/api/projects?category=科技创新&year=2026&sort=po
 | --- | --- | --- |
 | `id` | `number` | 项目 ID |
 | `name` | `string` | 项目名称 |
-| `leader` | `string` | 负责人 |
-| `members` | `string` | 成员描述 |
+| `leader` | `string` | 负责人姓名摘要；成员尚未设置时为空字符串 |
+| `members` | `string` | 兼容旧客户端的成员姓名摘要 |
+| `memberList` | `ProjectMember[]` | 结构化成员；项目详情接口返回完整数据，列表接口可为空数组 |
 | `category` | `string` | 项目分类 |
 | `year` | `number` | 项目年份 |
 | `icon` | `string` | 项目图标图片 URL |
 | `description` | `string` | 项目简介 |
-| `media` | `string[]` | 图片或视频链接 |
+| `media` | `string[]` | 旧版项目级媒体兼容字段；新项目固定为空，后台不可编辑且前台不展示 |
 | `cas` | `object` | CAS 三项标记 |
 | `cas.creativity` | `boolean` | 是否包含 Creativity |
 | `cas.activity` | `boolean` | 是否包含 Activity |
 | `cas.service` | `boolean` | 是否包含 Service |
 | `popularity` | `number` | 热度分 |
-| `updates` | `string[]` | 项目动态 |
+| `updates` | `ProjectUpdate[] | string[]` | 项目动态；旧数据可能仍为纯文字字符串数组 |
 | `createdAt` | `string | null` | 创建时间 |
 | `updatedAt` | `string | null` | 更新时间 |
+
+`ProjectUpdate` 结构：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `content` | `string` | 本条动态文字，可为空 |
+| `images` | `string[]` | 只属于本条动态的照片 URL，可为空数组 |
+
+`ProjectMember` 包含 `personId`、`name`、`role`、`sortOrder`、账号绑定状态以及可选的 `contactType`、`contactValue`。`role` 为 `leader` 或 `member`；`contactType` 为 `wechat`、`phone`、`email`、`other` 之一。联系方式按“项目—成员”关系保存，同一人员在不同项目中可使用不同联系方式。
 
 ### 响应示例
 
@@ -296,14 +335,19 @@ curl "http://127.0.0.1:3100/api/projects?category=科技创新&year=2026&sort=po
       "year": 2026,
       "icon": "https://picsum.photos/seed/noise-map-icon/300/300",
       "description": "使用传感器采集校园不同地点的噪音数据。",
-      "media": ["https://picsum.photos/seed/noise-map/900/520"],
+      "media": [],
       "cas": {
         "creativity": true,
         "activity": true,
         "service": true
       },
       "popularity": 96,
-      "updates": ["完成第一版传感器数据模拟器"],
+      "updates": [
+        {
+          "content": "完成第一版传感器数据模拟器",
+          "images": ["https://picsum.photos/seed/noise-map/900/520"]
+        }
+      ],
       "createdAt": "2026-05-10T10:00:00",
       "updatedAt": "2026-05-10T10:00:00"
     }
@@ -340,18 +384,34 @@ curl http://127.0.0.1:3100/api/projects/1
     "name": "校园噪音地图",
     "leader": "李明",
     "members": "李明, 王小雨, Chen Alex",
+    "memberList": [
+      {
+        "personId": 1,
+        "name": "李明",
+        "role": "leader",
+        "registered": false,
+        "sortOrder": 0,
+        "contactType": "wechat",
+        "contactValue": "liming-cas"
+      }
+    ],
     "category": "科技创新",
     "year": 2026,
     "icon": "https://picsum.photos/seed/noise-map-icon/300/300",
     "description": "使用传感器采集校园不同地点的噪音数据。",
-    "media": ["https://picsum.photos/seed/noise-map/900/520"],
+    "media": [],
     "cas": {
       "creativity": true,
       "activity": true,
       "service": true
     },
     "popularity": 96,
-    "updates": ["完成第一版传感器数据模拟器"],
+    "updates": [
+      {
+        "content": "完成第一版传感器数据模拟器",
+        "images": ["https://picsum.photos/seed/noise-map/900/520"]
+      }
+    ],
     "createdAt": "2026-05-10T10:00:00",
     "updatedAt": "2026-05-10T10:00:00"
   }
@@ -370,7 +430,7 @@ curl http://127.0.0.1:3100/api/projects/1
 
 ## GET /api/resources/meta
 
-获取资源中心筛选器需要的资源分类、资源年份和照片活动年份。
+获取资源中心筛选器需要的固定资源类型、资源年份和照片活动年份。固定类型为 `yearbook`、`photos`、`teacher` 和 `other`，由代码定义，不依赖数据库内容。
 
 ### 请求示例
 
@@ -385,7 +445,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 | `categories` | `ResourceCategory[]` | 可筛选资源分类 |
 | `categories[].value` | `string` | 查询参数使用的分类值 |
 | `categories[].label` | `string` | 页面展示名称 |
-| `categories[].sortOrder` | `number` | 分类人工排序权重，数字越小越靠前 |
+| `categories[].sortOrder` | `number` | 代码中固定的显示顺序权重 |
 | `years` | `number[]` | 资源年份 |
 | `photoYears` | `number[]` | 照片活动年份 |
 
@@ -399,7 +459,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
-| `category` | `string` | 否 | 无 | 按资源分类筛选，例如 `yearbook`、`other`；活动照片使用 `/api/photo-activities` |
+| `category` | `string` | 否 | 无 | 按资源分类筛选，可用值为 `yearbook`、`teacher`、`other`；活动照片使用 `/api/photo-activities` |
 | `year` | `number` | 否 | 无 | 按资源年份筛选 |
 | `search` | `string` | 否 | 无 | 搜索资源标题、简介和分类展示名 |
 | `sort` | `string` | 否 | `hot` | `hot`、`new`、`old` 或 `download` |
@@ -422,16 +482,26 @@ curl http://127.0.0.1:3100/api/resources/meta
 | `label` | `string` | 资源分类展示名 |
 | `hot` | `number` | 热度 |
 | `downloads` | `number` | 下载次数 |
-| `image` | `string` | 封面图 URL |
-| `resourceUrl` | `string` | 资源访问或下载 URL |
+| `image` | `string` | 封面图 URL；`teacher` 分类固定为空字符串 |
+| `resourceUrl` | `string` | 资源访问、下载或浏览器可直接播放的视频 URL |
 | `createdAt` | `string | null` | 创建时间 |
 | `updatedAt` | `string | null` | 更新时间 |
 
-资源中心卡片不再使用 icon 字段；封面统一来自 `image`。
+资源中心卡片不再使用 icon 字段；普通资源封面来自 `image`，`teacher` 分类直接使用 `resourceUrl` 渲染视频播放器。
 
 ### 参数错误
 
 `sort` 只允许 `hot`、`new`、`old` 或 `download`。传入其他值会返回 `422 Unprocessable Entity`。
+
+## GET /api/resources/{resource_id}
+
+获取单个资源详情。前台默认会把本接口调用计入资源热度；普通资源打开、资源详情访问和“老师驾到”视频首次播放都会调用该统计链路。热度使用通用节流逻辑，同一登录账户对同一资源 5 秒内只增加一次。
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `track` | `boolean` | 否 | `true` | 是否计入前台浏览热度；后台读取时应传 `false` |
+
+成功响应为 `{ "data": Resource }`；资源不存在时返回 `404 Not Found`。
 
 ## GET /api/resources/{resource_id}/yearbook
 
@@ -615,6 +685,38 @@ curl http://127.0.0.1:3100/api/resources/meta
 - `401 Unauthorized`：未登录、token 无效或 token 已过期。
 - `404 Not Found`：文件不存在，或路径不在允许范围内。
 
+## 用户资料与关系
+
+以下接口除人员档案详情外均需 Bearer Token：
+
+- `GET /api/users?search=`：搜索可私信的启用用户。
+- `GET /api/users/{user_id}`：用户公开资料、关注关系和已关联 CAS 项目。
+- `PATCH /api/users/me/profile`：修改 `displayName`、`avatarUrl`、`bio`、`messagingPermission`。
+- `POST|DELETE /api/users/{user_id}/follow`：关注或取消关注。
+- `POST|DELETE /api/users/{user_id}/block`：拉黑或解除拉黑；拉黑会移除双方关注关系。
+- `GET /api/people/{person_id}`：读取人员档案和参与项目。
+- `POST /api/people/{person_id}/claims`：提交人员档案认领申请。
+- `GET /api/people/me/claims`：读取当前用户的认领记录。
+
+`messagingPermission` 可取 `everyone`、`following`、`mutual`、`nobody`。
+
+## 私信接口
+
+- `POST /api/conversations`：使用 `targetUserId` 打开或创建一对一会话。
+- `GET /api/conversations?scope=inbox|requests`：读取正常会话或陌生人请求。
+- `GET /api/conversations/{id}/messages`：分页读取聊天记录。
+- `POST /api/conversations/{id}/messages`：发送 `text` 或 `project` 消息。
+- `POST /api/conversations/{id}/read`：更新当前用户的已读位置。
+- `POST /api/conversations/{id}/request`：`accept` 或 `decline` 消息请求。
+- `DELETE /api/conversations/{id}`：仅为当前用户隐藏会话，不删除双方消息。
+- `POST /api/messages/{id}/recall`：发送者在两分钟内撤回消息。
+- `POST /api/messages/{id}/reports`：举报消息。
+- `GET /api/messages/unread-count`：读取私信未读数和待处理请求数。
+- `POST /api/messages/stream-ticket`：创建 60 秒内有效且只能使用一次的实时连接凭证。
+- `WS /api/messages/ws?ticket=...`：接收 `message`、`read`、`recall`、`request` 实时事件。
+
+陌生人请求未被接受或回复前，发起者只能发送一条消息。所有权限、黑名单和频率限制均由后端校验，不能依赖前端按钮状态。
+
 ## 管理后台 API
 
 所有管理后台接口都以 `/api/admin` 开头，并且必须携带 `Authorization: Bearer <accessToken>`。只有 `role` 为 `admin` 的用户可以访问。未登录返回 `401 Unauthorized`，普通用户返回 `403 Forbidden`。
@@ -627,17 +729,37 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 `username` 是昵称/登录用户名，`displayName` 是姓名。`POST /api/admin/users` 允许管理员创建普通用户或管理员；`role` 只能是 `admin` 或 `user`。`PATCH /api/admin/users/{user_id}` 中 `displayName` 传空字符串时保存为 `NULL`。
 
+### 人员与认领
+
+- `GET /api/admin/people`：查询人员档案，支持 `search`、`status`。
+- `GET /api/admin/person-claims?status=pending`：查询认领申请。
+- `PATCH /api/admin/person-claims/{claim_id}`：以 `approved` 或 `rejected` 审核申请。
+- `PATCH /api/admin/people/{person_id}/binding`：管理员直接绑定或解除用户账号。
+- `GET /api/admin/message-reports?status=pending`：读取私信举报。
+- `PATCH /api/admin/message-reports/{report_id}`：以 `resolved` 或 `dismissed` 处理举报。
+
+### 公告与留言
+
+- `GET /api/admin/announcements`：读取全部公告，包括草稿和归档。
+- `POST /api/admin/announcements`：创建公告。字段为 `title`、`summary`、`content`、`status`、`isPinned`。
+- `PATCH /api/admin/announcements/{announcement_id}`：编辑公告或切换发布状态。
+- `DELETE /api/admin/announcements/{announcement_id}`：归档公告，不物理删除公告和留言。
+- `GET /api/admin/comment-reports?status=pending`：读取留言举报。
+- `PATCH /api/admin/comment-reports/{report_id}`：以 `resolved` 或 `dismissed` 处理；`hideComment=true` 时同时隐藏被举报留言。
+
 ### CAS 项目管理
 
-后台 CAS 项目管理复用前台项目库的信息架构：左侧筛选和分类、右侧项目列表。项目列表支持新建和编辑，不提供删除。项目分类可拖拽排序，排序会同时影响前台 `GET /api/meta` 的分类顺序。
+后台 CAS 项目管理复用前台项目库的信息架构：左侧筛选和分类、右侧项目列表。首次创建只录入基本信息；创建成功后从项目列表进入后台详情，分别管理基本信息、成员及联系方式和动态。项目不再提供总体照片/视频区，每条动态单独维护自己的照片。当前不提供删除。项目分类可拖拽排序，排序会同时影响前台 `GET /api/meta` 的分类顺序。
 
 - `GET /api/admin/project-categories`：查询 CAS 项目分类列表，按 `sortOrder` 升序返回。
 - `PATCH /api/admin/project-categories/reorder`：批量更新 CAS 项目分类顺序。请求体：`{"items":[{"id":1,"sortOrder":10}]}`。
 - `GET /api/admin/projects`：查询后台 CAS 项目列表，支持 `search`、`category`、`year`、`sort`。
-- `POST /api/admin/projects`：创建 CAS 项目。
-- `PATCH /api/admin/projects/{project_id}`：更新 CAS 项目。
+- `GET /api/admin/projects/{project_id}`：读取单个项目及完整 `memberList`，用于后台详情管理。
+- `POST /api/admin/projects`：创建 CAS 项目。只接受 `name`、`category`、`year`、`icon`、`description`、`casCreativity`、`casActivity`、`casService`；新项目的成员、负责人、媒体和动态均为空。
+- `PATCH /api/admin/projects/{project_id}`：更新项目基本信息，或在创建后更新 `updates`、`popularity`；不接受 `leader`、旧的 `members` 文本字段或项目级 `media`。负责人只能通过结构化成员接口确定。
+- `PATCH /api/admin/projects/{project_id}/members`：整体替换结构化成员列表。请求体为 `{"members":[{"personId":1,"name":"李明","role":"leader","contactType":"wechat","contactValue":"liming-cas"}]}`；新成员可省略 `personId`。
 
-CAS 项目写接口字段包括：`name`、`leader`、`members`、`category`、`year`、`icon`、`description`、`media`、`casCreativity`、`casActivity`、`casService`、`popularity`、`updates`。其中 `media` 和 `updates` 是字符串数组，后端保存为 JSON 文本；管理员在后台项目详情视图中直接拖拽 `media` 排序，拖动结束后自动保存，保存后的数组顺序就是正式详情页媒体展示顺序。编辑弹窗只修改项目基础信息和动态，正式前台详情页不提供编辑或排序能力。
+项目刚创建时允许成员列表为空。保存成员时列表不能为空，负责人未知时可以全部先标为 `member`；确认后最多只能有一名 `leader`，后端会据此同步项目的负责人姓名摘要。联系方式可以整组留空；一旦填写，就必须同时提供 `contactType` 和 `contactValue`。`updates` 请求是 `ProjectUpdate[]`，例如 `[{"content":"完成第一次骑行","images":["/CAS/ride/001.jpg"]}]`；每条动态可以只有文字、只有照片或同时包含二者。正式前台详情页只负责展示，不提供管理能力。
 
 `sortOrder` 是分类人工排序权重，数字越小越靠前。当前只用于 CAS 项目分类，不控制项目本身排序；项目仍按 `latest` 或 `popular` 排序。
 
@@ -645,21 +767,23 @@ CAS 项目写接口字段包括：`name`、`leader`、`members`、`category`、`
 
 后台资源管理直接复用前台资源中心的信息架构：顶部筛选条、左侧资源类型/活动筛选、右侧资源卡片或活动照片内容区。普通资源走资源接口；选择 `photos` 活动照片分类时，后台在同一资源管理页面调用活动照片接口，不再提供独立的活动照片导航。
 
-- `GET /api/admin/resource-categories`：查询资源分类列表，按 `sortOrder` 升序返回。
-- `PATCH /api/admin/resource-categories/reorder`：批量更新资源分类顺序。请求体：`{"items":[{"id":1,"sortOrder":10}]}`。
+- `GET /api/admin/resource-categories`：查询代码中固定的资源类型列表。
+- `PATCH /api/admin/resource-categories/reorder`：保留用于兼容旧客户端，但固定类型不可重排，返回 `409 Conflict`。
 - `GET /api/admin/resources`：查询后台资源列表，支持 `search`、`category`、`year`。
 - `POST /api/admin/resources`：创建资源。
 - `PATCH /api/admin/resources/{resource_id}`：更新资源。
 - `DELETE /api/admin/resources/{resource_id}`：删除资源。
 
-资源字段包括：`title`、`description`、`year`、`category`、`label`、`hot`、`downloads`、`image`、`resourceUrl`。
+资源字段包括：`title`、`description`、`year`、`category`、`label`、`hot`、`downloads`、`image`、`resourceUrl`。其中 `hot` 是只读统计字段：创建时固定为 `0`，后台创建和编辑接口均不接受人工设置。
 
-`sortOrder` 是人工排序权重，数字越小越靠前。当前只用于资源分类和活动列表；普通资源卡片和单张照片卡片不使用人工排序。
+创建 `teacher` 分类资源时，`title`、`description`、`year` 和 `resourceUrl` 必填；后端将 `label` 固定为“老师驾到”、`image` 固定为空字符串，并让热度和下载数使用默认值。视频 URL 必须指向浏览器可直接播放的文件或直链，而不是视频平台的普通页面地址。
+
+活动的 `sortOrder` 是人工排序权重，数字越小越靠前；固定资源类型的顺序由代码定义。普通资源卡片和单张照片卡片不使用人工排序。
 
 ### 活动照片管理
 
 - `GET /api/admin/photo-activities`：查询活动列表，支持 `search`、`year`。该接口由后台资源管理中的 `photos` 分类使用。
-- `POST /api/admin/photo-activities`：创建活动。字段：`activity`、`description`、`year`、`hot`、`sortOrder`、`photoDir`。
+- `POST /api/admin/photo-activities`：创建活动。字段：`activity`、`description`、`year`、`sortOrder`、`photoDir`；热度固定从 `0` 开始。
 - `PATCH /api/admin/photo-activities/{activity_id}`：更新活动。
 - `PATCH /api/admin/photo-activities/reorder`：批量更新活动列表顺序。请求体：`{"items":[{"id":1,"sortOrder":10}]}`。
 - `DELETE /api/admin/photo-activities/{activity_id}`：删除活动，活动下照片记录会被外键级联删除。
@@ -669,6 +793,8 @@ CAS 项目写接口字段包括：`name`、`leader`、`members`、`category`、`
 - `DELETE /api/admin/photos/{photo_id}`：删除照片。
 
 后台活动照片 v1 推荐使用目录模型：`photoDir` 保存 `public/` 下的目录 URL，例如 `/uploads/sports-2026/`。后台资源管理只编辑活动记录和照片目录，不再提供单张照片编辑入口；旧的单张照片接口保留兼容，不作为主要管理方式。
+
+活动的 `hot` 同样是只读统计字段，进入活动照片详情后自动增加；后台创建和编辑接口均不接受人工设置。
 
 公开接口 `GET /api/photo-activities` 会优先扫描 `photoDir` 指向的目录生成照片列表；未配置目录时继续读取旧 `photo_items` 数据。目录扫描支持 `jpg`、`jpeg`、`png`、`webp`、`gif`，标题使用文件名，按文件名升序排列。
 

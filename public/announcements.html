@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="查看 NetHub Campus Wiki 的全部校园公告。" />
+  <meta property="og:site_name" content="NetHub Campus Wiki" />
+  <meta property="og:title" content="全部公告 - NetHub Campus Wiki" />
+  <meta property="og:image" content="/og.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <title>全部公告 - NetHub Campus Wiki</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=2" />
+  <link rel="stylesheet" href="/css/styles.css?v=nethub-social3" />
+</head>
+<body>
+  <header class="site-header">
+    <nav class="navbar container">
+      <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
+        <img class="site-logo" src="/assets/nethub-icon.png?v=2" alt="" />
+        <span class="brand-copy"><strong>NetHub</strong><small>Campus Wiki</small></span>
+      </a>
+      <div class="nav-links" aria-label="主导航">
+        <a href="/index.html">首页</a>
+        <a href="/projects.html">CAS 项目库</a>
+        <a href="/resources.html">资源中心</a>
+        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到<span class="nav-new-badge">new</span></a>
+        <a href="/about.html">关于我们</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="container announcements-layout">
+    <header class="announcement-list-hero">
+      <div>
+        <p class="eyebrow">Campus Bulletin</p>
+        <h1>全部公告</h1>
+        <p>校园项目、活动和站点功能的最新消息都会整理在这里。</p>
+      </div>
+      <label class="announcement-search">
+        <span class="sr-only">搜索公告</span>
+        <input id="announcementSearch" class="input" type="search" placeholder="搜索标题或内容" />
+      </label>
+    </header>
+    <section id="allAnnouncementList" class="announcement-cards" aria-live="polite"></section>
+    <div class="announcement-pagination">
+      <button id="announcementPrev" class="button secondary compact" type="button">上一页</button>
+      <span id="announcementPageMeta"></span>
+      <button id="announcementNext" class="button secondary compact" type="button">下一页</button>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container site-footer-inner">
+      <a class="brand site-brand" href="/index.html"><img class="site-logo" src="/assets/nethub-icon.png?v=2" alt="" /><span class="brand-copy"><strong>NetHub</strong><small>Campus Wiki</small></span></a>
+      <nav class="site-footer-links"><a href="/index.html">首页</a><a href="/projects.html">CAS 项目库</a><a href="/resources.html">资源中心</a><a href="/about.html">关于我们</a></nav>
+      <p class="site-footer-copy">© 2026 NetHub Campus Wiki</p>
+    </div>
+  </footer>
+
+  <script src="/js/config.js"></script>
+  <script src="/js/api.js?v=nethub-social3"></script>
+  <script src="/js/announcements.js?v=nethub-comments1"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+CAS 小组人工录入资料索引
+========================
+
+本资料包目前包含 5 个小组。每个小组目录内均有一份 UTF-8 编码的“资料.txt”，内容按以下五项整理：
+1. 名字
+2. 图标
+3. 简介
+4. 最近一次线下活动的简述和图像
+5. 成员列表和联系方式
+
+小组文件：
+1. Eternity\资料.txt
+2. Herspark\资料.txt
+3. The-Familish\资料.txt
+4. Ride-Royce\资料.txt
+5. NetHub\资料.txt
+
+网站公开图片统一位于项目的 public\CAS\ 目录，TXT 中已经列出对应的 /CAS/... URL。
+
+隐私说明：包含成员联系方式的 TXT、Markdown 和 JSON 只保存在本人工录入包中，没有复制到 public\CAS\。public\CAS\ 仅包含可公开使用的图标和活动图片。
+
+仍待确认的共性信息：
+- Herspark 的正式英文大小写及是否分词。
+- Herspark、The Familish 的负责人。
+- Herspark 的 Aurora 唐家悦、Ride Royce 全体成员、NetHub 的李亦涵和李柏鸿缺少联系方式。
+- The Familish 的联系值类型未注明。
+- 部分线下活动未注明完整日期或年份。

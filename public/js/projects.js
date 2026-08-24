@@ -23,8 +23,8 @@ function projectRow(project) {
         <div class="meta">
           <span class="badge">${escapeHtml(project.category)}</span>
           <span>${escapeHtml(project.year)}</span>
-          <span>负责人：${escapeHtml(project.leader)}</span>
-          <span>成员：${escapeHtml(project.members)}</span>
+          <span>负责人：${escapeHtml(project.leader || '待确认')}</span>
+          <span>成员：${escapeHtml(project.members || '待添加')}</span>
         </div>
         <p>${escapeHtml(project.description)}</p>
         ${casTags(project.cas)}

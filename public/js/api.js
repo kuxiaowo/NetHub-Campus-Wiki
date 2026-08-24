@@ -50,11 +50,13 @@ function getStoredUser() {
 function saveAuthSession(token, user) {
   window.localStorage.setItem(AUTH_TOKEN_KEY, token);
   window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  window.dispatchEvent(new CustomEvent('campusWikiAuthChange', { detail: { user } }));
 }
 
 function clearAuthSession() {
   window.localStorage.removeItem(AUTH_TOKEN_KEY);
   window.localStorage.removeItem(AUTH_USER_KEY);
+  window.dispatchEvent(new CustomEvent('campusWikiAuthChange', { detail: { user: null } }));
 }
 
 function roleLabel(role) {
@@ -62,8 +64,65 @@ function roleLabel(role) {
 }
 
 function userInitial(user) {
-  const name = String(user?.username || user?.displayName || '登').trim();
+  const name = String(user?.displayName || user?.username || '登').trim();
   return (name[0] || '登').toUpperCase();
+}
+
+function userAvatarImage(user) {
+  const avatarUrl = user?.avatarUrl ? safeExternalUrl(user.avatarUrl) : null;
+  return avatarUrl && avatarUrl !== '#'
+    ? `<img src="${escapeHtml(avatarUrl)}" alt="" />`
+    : '';
+}
+
+let globalMessageBadgeTimer = null;
+
+function ensureSocialNav() {
+  const navLinks = document.querySelector('.nav-links');
+  navLinks?.querySelectorAll('a[href="/messages.html"]').forEach((link) => link.remove());
+}
+
+function messageNavMarkup() {
+  const isCurrentPage = window.location.pathname === '/messages.html';
+  return `
+    <a class="message-nav-link${isCurrentPage ? ' active' : ''}" href="/messages.html"
+      aria-label="消息中心"${isCurrentPage ? ' aria-current="page"' : ''}>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M4 6.5h16v11H4z"></path>
+        <path d="m4.5 7 7.5 6 7.5-6"></path>
+      </svg>
+      <span class="message-nav-badge is-hidden">0</span>
+    </a>
+  `;
+}
+
+async function refreshGlobalMessageBadge() {
+  const badges = document.querySelectorAll('.message-nav-badge');
+  if (!badges.length) return;
+  if (!getAuthToken()) {
+    badges.forEach((badge) => {
+      badge.classList.add('is-hidden');
+      badge.closest('.message-nav-link')?.setAttribute('aria-label', '消息中心');
+    });
+    return;
+  }
+  try {
+    const result = await request('/messages/unread-count');
+    const total = Number(result.unread || 0) + Number(result.requests || 0);
+    badges.forEach((badge) => {
+      badge.textContent = total > 99 ? '99+' : String(total);
+      badge.classList.toggle('is-hidden', !total);
+      badge.closest('.message-nav-link')?.setAttribute(
+        'aria-label',
+        total ? `消息中心，${total} 条未读消息` : '消息中心',
+      );
+    });
+  } catch {
+    badges.forEach((badge) => {
+      badge.classList.add('is-hidden');
+      badge.closest('.message-nav-link')?.setAttribute('aria-label', '消息中心');
+    });
+  }
 }
 
 async function loginUser(username, password) {
@@ -210,12 +269,12 @@ function requireAuthForDownload() {
  */
 function casTags(cas) {
   const items = [
-    ['C', Boolean(cas?.creativity), 'Creativity'],
-    ['A', Boolean(cas?.activity), 'Activity'],
-    ['S', Boolean(cas?.service), 'Service'],
+    ['C', Boolean(cas?.creativity), 'Creativity', 'creativity'],
+    ['A', Boolean(cas?.activity), 'Activity', 'activity'],
+    ['S', Boolean(cas?.service), 'Service', 'service'],
   ];
-  return `<div class="cas-tags">${items.map(([letter, enabled, title]) =>
-    `<span class="cas-tag ${enabled ? 'on' : ''}" title="${title}">${letter}</span>`
+  return `<div class="cas-tags" aria-label="CAS 类型">${items.map(([letter, enabled, title, type]) =>
+    `<span class="cas-tag ${type} ${enabled ? 'on' : ''}" title="${title}${enabled ? ' 已启用' : ' 未启用'}">${letter}</span>`
   ).join('')}</div>`;
 }
 
@@ -223,8 +282,8 @@ function authDialogTemplate() {
   return `
     <div class="auth-modal" id="authModal" aria-hidden="true" role="dialog" aria-label="账号">
       <div class="auth-backdrop" data-auth-close></div>
-      <section class="auth-panel">
-        <div class="auth-head">
+      <section id="authPanel" class="auth-panel">
+        <div id="authHead" class="auth-head">
           <h2>账号</h2>
           <p id="authHint">未登录：可浏览内容，登录后可参与更多校园互动。</p>
         </div>
@@ -291,12 +350,16 @@ function initAuthNav() {
   const navbar = document.querySelector('.navbar');
   if (!navbar || document.querySelector('.auth-area')) return;
 
+  ensureSocialNav();
   const authArea = document.createElement('div');
   authArea.className = 'auth-area';
   navbar.appendChild(authArea);
   document.body.insertAdjacentHTML('beforeend', authDialogTemplate());
 
   const modal = document.querySelector('#authModal');
+  const authPanel = document.querySelector('#authPanel');
+  const authHead = document.querySelector('#authHead');
+  const authTabs = document.querySelector('.auth-tabs');
   const loginForm = document.querySelector('#authLoginForm');
   const registerForm = document.querySelector('#authRegisterForm');
   const passwordForm = document.querySelector('#authPasswordForm');
@@ -315,22 +378,34 @@ function initAuthNav() {
     currentUser = user;
     if (!user) {
       authArea.innerHTML = `
+        ${messageNavMarkup()}
         <button class="auth-avatar logged-out" type="button" data-open-auth aria-label="打开账号面板">登</button>
       `;
       authArea.querySelector('[data-open-auth]').addEventListener('click', (event) => openAuthModal('login', event.currentTarget));
+      refreshGlobalMessageBadge();
       return;
     }
 
     authArea.innerHTML = `
-      <button class="auth-avatar" type="button" data-open-auth aria-label="打开账号面板">
-        ${escapeHtml(userInitial(user))}
+      ${messageNavMarkup()}
+      <button class="auth-avatar" type="button" data-open-auth aria-label="打开账号菜单">
+        <span>${escapeHtml(userInitial(user))}</span>
+        ${userAvatarImage(user)}
       </button>
     `;
     authArea.querySelector('[data-open-auth]').addEventListener('click', (event) => openAuthModal('login', event.currentTarget));
+    refreshGlobalMessageBadge();
+    if (!globalMessageBadgeTimer) {
+      globalMessageBadgeTimer = window.setInterval(refreshGlobalMessageBadge, 30000);
+    }
   }
 
   function renderAccountState() {
     if (!currentUser) {
+      authPanel.classList.remove('is-account-menu');
+      authHead.classList.remove('is-hidden');
+      authTabs.classList.remove('is-hidden');
+      message.classList.remove('is-hidden');
       accountState.innerHTML = '';
       hint.textContent = '未登录：可浏览内容，登录后可参与更多校园互动。';
       loginForm.classList.toggle('is-hidden', mode !== 'login');
@@ -342,8 +417,10 @@ function initAuthNav() {
       return;
     }
 
-    hint.innerHTML = `已登录：${escapeHtml(currentUser.displayName || currentUser.username)}
-      <span>(${escapeHtml(currentUser.username)})</span>`;
+    authPanel.classList.add('is-account-menu');
+    authHead.classList.add('is-hidden');
+    authTabs.classList.add('is-hidden');
+    message.classList.toggle('is-hidden', !passwordFormOpen && !usernameFormOpen);
     loginForm.classList.add('is-hidden');
     registerForm.classList.add('is-hidden');
     passwordForm.classList.toggle('is-hidden', !passwordFormOpen);
@@ -351,10 +428,31 @@ function initAuthNav() {
     loginTab.classList.add('is-hidden');
     registerTab.classList.add('is-hidden');
     accountState.innerHTML = `
+      <div class="auth-profile-summary">
+        <span class="auth-profile-avatar" data-initial="${escapeHtml(userInitial(currentUser))}">
+          ${userAvatarImage(currentUser)}
+        </span>
+        <span class="auth-profile-copy">
+          <strong>${escapeHtml(currentUser.displayName || currentUser.username)}</strong>
+          <small>@${escapeHtml(currentUser.username)} · ${escapeHtml(roleLabel(currentUser.role))}</small>
+        </span>
+      </div>
+      <nav class="auth-account-menu" aria-label="账户菜单">
       ${currentUser.role === 'admin'
-        ? '<button class="button auth-admin-button" type="button" data-admin-entry>进入管理员后台</button>'
+        ? `<a class="auth-menu-item" href="/admin.html">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.6 2.9 8 7 10 4.1-2 7-5.4 7-10V6l-7-3Z"></path><path d="m9 12 2 2 4-4"></path></svg>
+            <span>管理员后台</span><span class="auth-menu-arrow" aria-hidden="true">›</span>
+          </a>`
         : ''}
-      <button class="button secondary auth-logout-button" type="button" data-logout>退出账号，重新登录</button>
+        <a class="auth-menu-item" href="/profile.html">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4.5 21a7.5 7.5 0 0 1 15 0"></path></svg>
+          <span>个人中心</span><span class="auth-menu-arrow" aria-hidden="true">›</span>
+        </a>
+        <button class="auth-menu-item auth-menu-logout" type="button" data-logout>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H5v14h5"></path><path d="M13 8l4 4-4 4"></path><path d="M8 12h9"></path></svg>
+          <span>退出账号</span>
+        </button>
+      </nav>
       <div class="auth-account-actions">
         <button class="auth-password-toggle" type="button" data-toggle-username>
           ${usernameFormOpen ? '收起修改昵称' : '修改昵称'}
@@ -390,13 +488,12 @@ function initAuthNav() {
     });
     accountState.querySelector('[data-logout]')?.addEventListener('click', () => {
       clearAuthSession();
+      window.clearInterval(globalMessageBadgeTimer);
+      globalMessageBadgeTimer = null;
       passwordFormOpen = false;
       usernameFormOpen = false;
       renderUser(null);
       setMode('login');
-    });
-    accountState.querySelector('[data-admin-entry]')?.addEventListener('click', () => {
-      window.location.href = '/admin.html';
     });
   }
 
@@ -415,7 +512,7 @@ function initAuthNav() {
     if (!anchor) return;
 
     const rect = anchor.getBoundingClientRect();
-    const panelWidth = Math.min(380, window.innerWidth - 32);
+    const panelWidth = Math.min(currentUser ? 340 : 380, window.innerWidth - 32);
     const left = Math.min(
       Math.max(16, rect.right - panelWidth),
       Math.max(16, window.innerWidth - panelWidth - 16),
@@ -435,7 +532,7 @@ function initAuthNav() {
     modal.classList.add('is-open');
     modal.setAttribute('aria-hidden', 'false');
     if (currentUser) {
-      accountState.querySelector('[data-toggle-password]')?.focus();
+      accountState.querySelector('.auth-menu-item')?.focus();
       return;
     }
     const activeForm = mode === 'register' ? registerForm : loginForm;
@@ -578,14 +675,25 @@ function initAuthNav() {
 
 function projectIconImage(project) {
   const rawIcon = String(project.icon || '');
-  const iconSource = /^(https?:|\/)/i.test(rawIcon) ? rawIcon : project.media?.[0];
+  const iconSource = /^(https?:|\/)/i.test(rawIcon) ? rawIcon : '';
   const iconUrl = safeExternalUrl(iconSource);
+  const hasIcon = Boolean(iconSource && iconUrl !== '#');
+  const initial = String(project.name || '项').trim().charAt(0).toUpperCase() || '项';
   return `
-    <div class="project-icon">
-      <img src="${iconUrl}" alt="${escapeHtml(project.name)}" loading="lazy">
+    <div class="project-icon${hasIcon ? ' has-image' : ''}" data-initial="${escapeHtml(initial)}">
+      ${hasIcon ? `<img src="${iconUrl}" alt="${escapeHtml(project.name)}" loading="lazy" data-project-icon>` : ''}
     </div>
   `;
 }
+
+document.addEventListener('error', (event) => {
+  const image = event.target;
+  if (!(image instanceof HTMLImageElement) || !image.matches('[data-project-icon]')) return;
+  const frame = image.closest('.project-icon');
+  frame?.classList.remove('has-image');
+  frame?.classList.add('is-failed');
+  image.remove();
+}, true);
 
 /**
  * 首页推荐项目卡片。
@@ -601,7 +709,7 @@ function projectCard(project) {
       <div class="meta">
         <span class="badge">${escapeHtml(project.category)}</span>
         <span>${escapeHtml(project.year)}</span>
-        <span>负责人：${escapeHtml(project.leader)}</span>
+        <span>负责人：${escapeHtml(project.leader || '待确认')}</span>
       </div>
       <p>${description}</p>
       ${casTags(project.cas)}

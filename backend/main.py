@@ -12,6 +12,7 @@ import mimetypes
 import re
 import sys
 from pathlib import Path
+from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +23,10 @@ if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from backend.admin import router as admin_router
+from backend.announcements import router as announcements_router
+from backend.comments import router as comments_router
+from backend.messaging import router as messaging_router
+from backend.social import router as social_router
 from backend.config import settings
 from backend.auth import (
     authenticate_user,
@@ -40,13 +45,13 @@ from backend.resources import (
     bump_photo_activity_downloads,
     bump_resource_metric,
     get_activity_photo_detail,
+    get_resource,
     get_yearbook_detail,
     list_photo_activities,
     list_resource_meta,
     list_resources,
 )
 from backend.schemas import (
-    AnnouncementsResponse,
     ChangePasswordRequest,
     HealthResponse,
     LoginRequest,
@@ -66,12 +71,6 @@ from backend.schemas import (
     YearbookDetailResponse,
 )
 
-ANNOUNCEMENTS = [
-    "CAS 项目库原型上线：欢迎提交你的项目资料。",
-    "本周五 16:00 将举办 CAS 项目分享会。",
-    "项目展示页已支持照片/视频链接和动态更新。",
-]
-
 # FastAPI 实例集中声明接口元信息，/docs 会根据这些内容生成接口文档。
 app = FastAPI(
     title="Campus Wiki API",
@@ -87,6 +86,10 @@ app = FastAPI(
         {"name": "content", "description": "首页内容接口。"},
         {"name": "projects", "description": "CAS 项目库查询接口。"},
         {"name": "resources", "description": "资源中心和活动照片查询接口。"},
+        {"name": "social", "description": "用户资料、关注、黑名单和人员认领。"},
+        {"name": "messages", "description": "私信会话、陌生人请求和实时消息。"},
+        {"name": "announcements", "description": "公告列表、详情和后台维护。"},
+        {"name": "comments", "description": "公告、项目和资源共用留言区。"},
     ],
 )
 
@@ -100,6 +103,10 @@ app.add_middleware(
 )
 
 app.include_router(admin_router)
+app.include_router(social_router)
+app.include_router(messaging_router)
+app.include_router(announcements_router)
+app.include_router(comments_router)
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -162,16 +169,6 @@ def health():
         return {"ok": True, "database": "connected"}
     except Exception as exc:  # noqa: BLE001 - development diagnostics are intentional here.
         return {"ok": False, "message": "数据库连接失败", "detail": str(exc)}
-
-
-@app.get("/api/announcements", response_model=AnnouncementsResponse, tags=["content"])
-def announcements():
-    """返回首页公告。
-
-    当前公告先放在内存常量里，后续如果需要后台管理，可以迁移到 announcements 表。
-    """
-
-    return {"data": ANNOUNCEMENTS}
 
 
 @app.post("/api/auth/register", response_model=User, tags=["auth"])
@@ -259,7 +256,7 @@ def resources_meta():
 
 @app.get("/api/resources", response_model=ResourceListResponse, tags=["resources"])
 def resources(
-    category: str | None = Query(default=None, description="按资源分类筛选。"),
+    category: Literal["yearbook", "teacher", "other"] | None = Query(default=None, description="按资源分类筛选。"),
     year: int | None = Query(default=None, description="按资源年份筛选。"),
     search: str | None = Query(default=None, description="搜索资源名称、简介和分类。"),
     sort: str = Query(default="hot", pattern="^(hot|new|old|download)$", description="排序方式。"),
@@ -267,6 +264,22 @@ def resources(
     """返回资源中心普通资源列表。"""
 
     return {"data": list_resources(category=category, year=year, search=search, sort=sort)}
+
+
+@app.get("/api/resources/{resource_id}", response_model=ResourceDetailResponse, tags=["resources"])
+def resource_detail(
+    resource_id: int,
+    track: bool = Query(default=True, description="是否计入前台浏览热度。"),
+    user: dict | None = Depends(get_optional_current_user),
+):
+    resource = get_resource(
+        resource_id,
+        track_view=track,
+        viewer_user_id=user["id"] if user else None,
+    )
+    if resource is None:
+        raise HTTPException(status_code=404, detail="资源不存在")
+    return {"data": resource}
 
 
 @app.get("/api/resources/{resource_id}/yearbook", response_model=YearbookDetailResponse, tags=["resources"])

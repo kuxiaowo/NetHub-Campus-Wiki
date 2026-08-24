@@ -5,6 +5,11 @@ const adminState = {
   fileItems: [],
   picker: null,
   users: [],
+  people: [],
+  personClaims: [],
+  messageReports: [],
+  announcements: [],
+  commentReports: [],
   projectMetaLoaded: false,
   projectCategory: '',
   projectYear: '',
@@ -13,8 +18,6 @@ const adminState = {
   projectYears: [],
   projects: [],
   currentProject: null,
-  projectMediaDragItem: null,
-  projectMediaOrderChanged: false,
   resourceMetaLoaded: false,
   resourceCategory: '',
   resourceYear: '',
@@ -89,15 +92,6 @@ async function persistSortableOrder(type) {
     await loadProjectAdminMeta();
     return;
   }
-  if (type === 'resource-category') {
-    await adminEndpoint('/admin/resource-categories/reorder', {
-      method: 'PATCH',
-      body: JSON.stringify(sortablePayload(type)),
-    });
-    adminState.resourceMetaLoaded = false;
-    await loadResourceAdminMeta();
-    return;
-  }
   if (type === 'activity') {
     await adminEndpoint('/admin/photo-activities/reorder', {
       method: 'PATCH',
@@ -129,56 +123,14 @@ function moveModalSortableItem(target) {
   }
 }
 
-function moveProjectMediaItem(target) {
-  const source = adminState.projectMediaDragItem;
-  if (!source || !target || source === target) return;
-  const position = source.compareDocumentPosition(target);
-  if (position & Node.DOCUMENT_POSITION_FOLLOWING) {
-    target.after(source);
-  } else {
-    target.before(source);
-  }
-  adminState.projectMediaOrderChanged = true;
-}
-
 function bindSortableLists() {
-  document.addEventListener('dragstart', (event) => {
-    const item = event.target.closest('[data-project-media-item]');
-    if (!item) return;
-    adminState.projectMediaDragItem = item;
-    adminState.projectMediaOrderChanged = false;
-    item.classList.add('is-dragging');
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('text/plain', item.dataset.projectMediaUrl || '');
-  });
-
-  document.addEventListener('dragover', (event) => {
-    const item = event.target.closest('[data-project-media-item]');
-    if (!adminState.projectMediaDragItem || !item) return;
-    event.preventDefault();
-    moveProjectMediaItem(item);
-  });
-
-  document.addEventListener('drop', (event) => {
-    const item = event.target.closest('[data-project-media-item]');
-    if (!adminState.projectMediaDragItem || !item) return;
-    event.preventDefault();
-  });
-
-  document.addEventListener('dragend', () => {
-    if (!adminState.projectMediaDragItem) return;
-    adminState.projectMediaDragItem.classList.remove('is-dragging');
-    adminState.projectMediaDragItem = null;
-    if (adminState.projectMediaOrderChanged) saveProjectMediaOrder();
-  });
-
   document.addEventListener('dragstart', (event) => {
     const item = event.target.closest('[data-sortable-list-item]');
     if (!item) return;
     adminState.modalDragItem = item;
     item.classList.add('is-dragging');
     event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('text/plain', 'media');
+    event.dataTransfer.setData('text/plain', 'sortable-item');
   });
 
   document.addEventListener('dragover', (event) => {
@@ -231,10 +183,6 @@ function bindSortableLists() {
         adminState.projectMetaLoaded = false;
         await loadProjectAdminMeta();
       }
-      if (type === 'resource-category') {
-        adminState.resourceMetaLoaded = false;
-        await loadResourceAdminMeta();
-      }
       if (type === 'activity') await loadActivities();
     } finally {
       window.setTimeout(() => {
@@ -251,10 +199,6 @@ function bindSortableLists() {
       if (state.type === 'project-category') {
         adminState.projectMetaLoaded = false;
         await loadProjectAdminMeta();
-      }
-      if (state.type === 'resource-category') {
-        adminState.resourceMetaLoaded = false;
-        await loadResourceAdminMeta();
       }
       if (state.type === 'activity') await loadActivities();
     }
@@ -413,6 +357,7 @@ function closeAdminModal() {
   adminEls.modal.setAttribute('aria-hidden', 'true');
   adminEls.modalForm.innerHTML = '';
   adminEls.modalForm.onsubmit = null;
+  adminEls.modalForm.onchange = null;
 }
 
 function moveSortableListItem(button, direction) {
@@ -574,15 +519,19 @@ async function requireAdmin() {
 function switchAdminView(view) {
   adminState.view = view;
   document.querySelectorAll('[data-admin-view]').forEach((item) => {
-    item.classList.toggle('active', item.dataset.adminView === view);
+    const isActive = item.dataset.adminView === view;
+    item.classList.toggle('active', isActive);
+    item.setAttribute('aria-pressed', String(isActive));
   });
   document.querySelectorAll('[data-admin-panel]').forEach((item) => {
     item.classList.toggle('active', item.dataset.adminPanel === view);
   });
   if (view === 'users') loadUsers();
+  if (view === 'people') loadPeopleAdmin();
   if (view === 'files') loadFiles();
   if (view === 'projects') loadProjectManagementView();
   if (view === 'resources') loadResourceManagementView();
+  if (view === 'community') loadCommunityAdmin();
 }
 
 async function loadUsers() {
@@ -605,6 +554,167 @@ async function loadUsers() {
     adminState.users,
     (row) => `<button class="button secondary compact" type="button" data-edit-user="${adminText(row.id)}">编辑</button>`,
   );
+}
+
+async function loadPeopleAdmin() {
+  const query = buildQuery({
+    search: adminEls.peopleSearch.value.trim(),
+    status: adminEls.peopleStatusFilter.value,
+  });
+  const [peopleResult, claimsResult, reportsResult] = await Promise.all([
+    adminEndpoint(`/admin/people${query}`),
+    adminEndpoint('/admin/person-claims?status=pending'),
+    adminEndpoint('/admin/message-reports?status=pending'),
+  ]);
+  adminState.people = peopleResult.data || [];
+  adminState.personClaims = claimsResult.data || [];
+  adminState.messageReports = reportsResult.data || [];
+  adminEls.claimsTable.innerHTML = renderAdminTable(
+    [
+      { key: 'personName', label: '人员姓名' },
+      { key: 'username', label: '申请账号', render: (row) => `${adminText(row.userDisplayName || row.username)} (@${adminText(row.username)})` },
+      { key: 'note', label: '核验说明' },
+      { key: 'createdAt', label: '申请时间' },
+    ],
+    adminState.personClaims,
+    (row) => `
+      <div class="admin-inline-actions">
+        <button class="button compact" type="button" data-review-claim="${adminText(row.id)}" data-claim-decision="approved">通过</button>
+        <button class="button secondary compact danger" type="button" data-review-claim="${adminText(row.id)}" data-claim-decision="rejected">拒绝</button>
+      </div>
+    `,
+  );
+  adminEls.peopleTable.innerHTML = renderAdminTable(
+    [
+      { key: 'id', label: 'ID' },
+      { key: 'displayName', label: '人员姓名' },
+      { key: 'status', label: '状态', render: (row) => row.status === 'claimed' ? '已认领' : row.status === 'archived' ? '已归档' : '待认领' },
+      { key: 'username', label: '绑定账号', render: (row) => row.username ? `@${adminText(row.username)}` : '—' },
+      { key: 'projectCount', label: '项目数' },
+    ],
+    adminState.people,
+    (row) => `<button class="button secondary compact" type="button" data-bind-person="${adminText(row.id)}">${row.userId ? '更改绑定' : '绑定账号'}</button>`,
+  );
+  adminEls.messageReportsTable.innerHTML = renderAdminTable(
+    [
+      { key: 'messageBody', label: '消息内容' },
+      { key: 'senderUsername', label: '发送者', render: (row) => `@${adminText(row.senderUsername)}` },
+      { key: 'reporterUsername', label: '举报人', render: (row) => `@${adminText(row.reporterUsername)}` },
+      { key: 'reason', label: '举报理由' },
+      { key: 'createdAt', label: '举报时间' },
+    ],
+    adminState.messageReports,
+    (row) => `
+      <div class="admin-inline-actions">
+        <button class="button compact" type="button" data-review-report="${adminText(row.id)}" data-report-decision="resolved">已处理</button>
+        <button class="button secondary compact" type="button" data-review-report="${adminText(row.id)}" data-report-decision="dismissed">忽略</button>
+      </div>
+    `,
+  );
+}
+
+function announcementStatusLabel(status) {
+  return {
+    draft: '草稿',
+    published: '已发布',
+    archived: '已归档',
+  }[status] || status;
+}
+
+function commentTargetLink(report) {
+  const routes = {
+    announcement: '/announcement.html',
+    project: '/detail.html',
+    resource: '/resource.html',
+  };
+  const label = {
+    announcement: '公告',
+    project: '项目',
+    resource: '资源',
+  }[report.targetType] || report.targetType;
+  const route = routes[report.targetType];
+  return route
+    ? `<a class="admin-table-link" href="${route}?id=${adminText(report.targetId)}" target="_blank" rel="noopener">${adminText(label)} #${adminText(report.targetId)}</a>`
+    : `${adminText(label)} #${adminText(report.targetId)}`;
+}
+
+async function loadCommunityAdmin() {
+  const [announcementResult, reportResult] = await Promise.all([
+    adminEndpoint('/admin/announcements'),
+    adminEndpoint('/admin/comment-reports?status=pending'),
+  ]);
+  adminState.announcements = announcementResult.data || [];
+  adminState.commentReports = reportResult.data || [];
+  adminEls.announcementsTable.innerHTML = renderAdminTable(
+    [
+      { key: 'title', label: '标题' },
+      { key: 'status', label: '状态', render: (row) => `${row.isPinned ? '置顶 · ' : ''}${adminText(announcementStatusLabel(row.status))}` },
+      { key: 'viewCount', label: '浏览' },
+      { key: 'commentCount', label: '留言' },
+      { key: 'publishedAt', label: '发布时间', render: (row) => adminText(row.publishedAt || '—') },
+    ],
+    adminState.announcements,
+    (row) => `
+      <div class="admin-inline-actions">
+        <button class="button secondary compact" type="button" data-edit-announcement="${adminText(row.id)}">编辑</button>
+        ${row.status !== 'archived' ? `<button class="button secondary compact danger" type="button" data-archive-announcement="${adminText(row.id)}">归档</button>` : ''}
+      </div>
+    `,
+  );
+  adminEls.commentReportsTable.innerHTML = renderAdminTable(
+    [
+      { key: 'content', label: '留言内容', render: (row) => adminText(row.content.length > 80 ? `${row.content.slice(0, 80)}…` : row.content) },
+      { key: 'targetType', label: '位置', render: commentTargetLink },
+      { key: 'authorUsername', label: '作者', render: (row) => `@${adminText(row.authorUsername)}` },
+      { key: 'reporterUsername', label: '举报人', render: (row) => `@${adminText(row.reporterUsername)}` },
+      { key: 'reason', label: '理由' },
+      { key: 'createdAt', label: '时间' },
+    ],
+    adminState.commentReports,
+    (row) => `
+      <div class="admin-inline-actions">
+        <button class="button compact" type="button" data-review-comment-report="${adminText(row.id)}" data-comment-report-decision="hide">隐藏并处理</button>
+        <button class="button secondary compact" type="button" data-review-comment-report="${adminText(row.id)}" data-comment-report-decision="dismiss">忽略</button>
+      </div>
+    `,
+  );
+}
+
+function announcementFields(announcement = {}) {
+  return [
+    { name: 'title', label: '标题', value: announcement.title || '', required: true },
+    { name: 'summary', label: '摘要（用于首页与列表）', type: 'textarea', value: announcement.summary || '' },
+    { name: 'content', label: '正文（空行会分段）', type: 'textarea', value: announcement.content || '', required: true },
+    {
+      name: 'status',
+      label: '状态',
+      type: 'select',
+      value: announcement.status || 'published',
+      options: [
+        { value: 'draft', label: '草稿' },
+        { value: 'published', label: '发布' },
+        { value: 'archived', label: '归档' },
+      ],
+    },
+    { name: 'isPinned', label: '置顶显示', type: 'checkbox', value: Boolean(announcement.isPinned) },
+  ];
+}
+
+function openAnnouncementModal(announcement = {}) {
+  const isEdit = Boolean(announcement.id);
+  openAdminModal(isEdit ? '编辑公告' : '新建公告', announcementFields(announcement), async (payload) => {
+    await adminEndpoint(isEdit ? `/admin/announcements/${announcement.id}` : '/admin/announcements', {
+      method: isEdit ? 'PATCH' : 'POST',
+      body: JSON.stringify(payload),
+    });
+    await loadCommunityAdmin();
+  });
+}
+
+async function archiveAnnouncement(id) {
+  if (!window.confirm('确认归档这条公告？归档后前台将不再显示，但留言数据会保留。')) return;
+  await adminEndpoint(`/admin/announcements/${id}`, { method: 'DELETE' });
+  await loadCommunityAdmin();
 }
 
 function userFields(user = {}) {
@@ -709,6 +819,20 @@ function showProjectDetailView(project) {
   adminEls.projectDetailView.innerHTML = adminProjectDetail(project);
 }
 
+async function openProjectDetail(projectId) {
+  adminEls.projectListView.classList.add('is-hidden');
+  adminEls.projectDetailView.classList.remove('is-hidden');
+  adminEls.projectDetailView.innerHTML = '<div class="empty">正在加载项目详情...</div>';
+  try {
+    const project = await adminEndpoint(`/admin/projects/${encodeURIComponent(projectId)}`);
+    adminState.projects = adminState.projects.map((item) => item.id === project.id ? project : item);
+    showProjectDetailView(project);
+  } catch (error) {
+    showProjectListView();
+    throw error;
+  }
+}
+
 async function loadAdminProjects() {
   adminEls.projectList.innerHTML = '<div class="empty">正在加载项目...</div>';
   const query = buildQuery({
@@ -735,29 +859,87 @@ function adminProjectRow(project) {
           <div class="meta">
             <span class="badge">${adminText(project.category)}</span>
             <span>${adminText(project.year)}</span>
-            <span>负责人：${adminText(project.leader)}</span>
-            <span>成员：${adminText(project.members)}</span>
+            <span>负责人：${adminText(project.leader || '待确认')}</span>
+            <span>成员：${adminText(project.members || '待添加')}</span>
           </div>
           <p>${adminText(project.description)}</p>
           ${casTags(project.cas)}
         </div>
       </button>
-      <button class="button compact" type="button" data-edit-project="${adminText(project.id)}">编辑</button>
+      <button class="button compact" type="button" data-open-project-detail="${adminText(project.id)}">管理</button>
     </article>
   `;
 }
 
-function adminProjectMediaItem(url) {
-  const safeUrl = safeExternalUrl(url);
-  const escapedUrl = adminText(url);
-  const isImage = /\.(png|jpe?g|webp|gif)$/i.test(url) || url.includes('picsum.photos');
-  const media = isImage
-    ? `<img src="${adminText(safeUrl)}" alt="项目媒体" loading="lazy">`
-    : `<a class="link-card" href="${adminText(safeUrl)}" target="_blank" rel="noreferrer">打开媒体链接：${escapedUrl}</a>`;
+const PROJECT_CONTACT_LABELS = {
+  wechat: '微信',
+  phone: '电话',
+  email: '邮箱',
+  other: '其他',
+};
+
+function adminProjectMembers(project) {
+  const members = Array.isArray(project.memberList) ? project.memberList : [];
+  if (!members.length) return '<div class="empty">暂无成员，负责人尚未确认。请点击“管理成员”添加人员并设置负责人。</div>';
   return `
-    <div class="admin-project-media-item" draggable="true" data-project-media-item data-project-media-url="${escapedUrl}">
-      <span class="admin-sortable-list-handle">拖动</span>
-      ${media}
+    <div class="admin-project-member-list">
+      ${members.map((member) => {
+        const role = member.role === 'leader' ? '负责人' : '成员';
+        const contact = member.contactValue
+          ? `${PROJECT_CONTACT_LABELS[member.contactType] || '联系方式'}：${adminText(member.contactValue)}`
+          : '未填写联系方式';
+        return `
+          <article class="admin-project-member-card">
+            <div>
+              <strong>${adminText(member.name)}</strong>
+              <span>${role}</span>
+            </div>
+            <p>${contact}</p>
+            <small>${member.registered ? '已绑定站内账号' : '待成员认领档案'}</small>
+          </article>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function normalizeAdminProjectUpdates(rawUpdates) {
+  if (!Array.isArray(rawUpdates)) return [];
+  return rawUpdates.map((item) => {
+    if (item && typeof item === 'object') {
+      const rawImages = item.images || item.photos || [];
+      return {
+        content: String(item.content || item.text || item.body || '').trim(),
+        images: (Array.isArray(rawImages) ? rawImages : linesToList(rawImages))
+          .map((image) => String(image || '').trim())
+          .filter(Boolean),
+      };
+    }
+    return { content: String(item || '').trim(), images: [] };
+  }).filter((item) => item.content || item.images.length);
+}
+
+function adminProjectUpdates(project) {
+  const updates = normalizeAdminProjectUpdates(project.updates);
+  if (!updates.length) return '<div class="empty">暂无动态</div>';
+  return `
+    <div class="admin-project-update-list">
+      ${updates.map((update) => {
+        const visibleImages = update.images.slice(0, 6);
+        return `
+          <article class="admin-project-update-card">
+            <p>${update.content ? adminText(update.content) : '<span>仅照片动态</span>'}</p>
+            ${visibleImages.length ? `
+              <div class="admin-project-update-photos">
+                ${visibleImages.map((image, index) => `
+                  <img src="${adminText(safeExternalUrl(image))}" alt="动态照片 ${index + 1}" loading="lazy">
+                `).join('')}
+                ${update.images.length > visibleImages.length ? `<span>+${update.images.length - visibleImages.length}</span>` : ''}
+              </div>
+            ` : '<small>无照片</small>'}
+          </article>
+        `;
+      }).join('')}
     </div>
   `;
 }
@@ -771,7 +953,7 @@ function adminProjectDetail(project) {
       </div>
       <div class="admin-detail-actions">
         <button class="button secondary compact" type="button" data-back-project-list>返回列表</button>
-        <button class="button compact" type="button" data-edit-project="${adminText(project.id)}">编辑项目</button>
+        <button class="button compact" type="button" data-edit-project="${adminText(project.id)}">编辑基本信息</button>
       </div>
     </div>
     <div class="detail-head">
@@ -781,8 +963,8 @@ function adminProjectDetail(project) {
         <div class="meta">
           <span class="badge">${adminText(project.category)}</span>
           <span>${adminText(project.year)}</span>
-          <span>负责人：${adminText(project.leader)}</span>
-          <span>成员：${adminText(project.members)}</span>
+          <span>负责人：${adminText(project.leader || '待确认')}</span>
+          <span>成员：${adminText(project.members || '待添加')}</span>
         </div>
         ${casTags(project.cas)}
       </div>
@@ -793,19 +975,17 @@ function adminProjectDetail(project) {
     </section>
     <section>
       <div class="admin-media-toolbar">
-        <h2>照片 / 视频</h2>
-        <span class="admin-media-note">拖动后自动保存</span>
+        <h2>成员与联系方式</h2>
+        <button class="button secondary compact" type="button" data-edit-project-members="${adminText(project.id)}">管理成员</button>
       </div>
-      <div id="adminProjectMediaList" class="media-grid admin-project-media-grid">
-        ${(project.media || []).length ? project.media.map(adminProjectMediaItem).join('') : '<div class="empty">暂无媒体资料</div>'}
-      </div>
-      <div id="adminProjectMediaMessage" class="auth-message" aria-live="polite"></div>
+      ${adminProjectMembers(project)}
     </section>
     <section>
-      <h2>项目动态</h2>
-      <ul class="update-list">
-        ${(project.updates || []).map((item) => `<li>${adminText(item)}</li>`).join('') || '<li>暂无动态</li>'}
-      </ul>
+      <div class="admin-media-toolbar">
+        <h2>项目动态</h2>
+        <button class="button secondary compact" type="button" data-edit-project-updates="${adminText(project.id)}">管理动态与照片</button>
+      </div>
+      ${adminProjectUpdates(project)}
     </section>
   `;
 }
@@ -815,58 +995,28 @@ function findAdminProject(projectId) {
     || (String(adminState.currentProject?.id) === String(projectId) ? adminState.currentProject : null);
 }
 
-async function saveProjectMediaOrder() {
-  if (!adminState.currentProject) return;
-  const media = [...adminEls.projectDetailView.querySelectorAll('[data-project-media-item]')]
-    .map((item) => item.dataset.projectMediaUrl)
-    .filter(Boolean);
-  const message = adminQuery('#adminProjectMediaMessage');
-  if (message) {
-    message.textContent = '正在保存媒体顺序...';
-    message.classList.remove('error');
-  }
-  try {
-    const updated = await adminEndpoint(`/admin/projects/${adminState.currentProject.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ media }),
-    });
-    adminState.projectMediaOrderChanged = false;
-    adminState.currentProject = updated;
-    adminState.projects = adminState.projects.map((item) => item.id === updated.id ? updated : item);
-    showProjectDetailView(updated);
-    const nextMessage = adminQuery('#adminProjectMediaMessage');
-    if (nextMessage) nextMessage.textContent = '媒体顺序已自动保存';
-  } catch (error) {
-    if (message) {
-      message.textContent = error.message;
-      message.classList.add('error');
-    }
-  }
-}
-
-function projectFields(project = {}) {
+function projectBasicFields(project = {}) {
   return [
     { name: 'name', label: '项目名称', value: project.name, required: true },
-    { name: 'leader', label: '负责人', value: project.leader, required: true },
-    { name: 'members', label: '成员', value: project.members, required: true },
     { name: 'category', label: '分类', value: project.category, required: true },
     { name: 'year', label: '年份', value: project.year || new Date().getFullYear(), type: 'number', required: true },
     { name: 'icon', label: '图标 URL', value: project.icon || '', browse: 'file' },
     { name: 'description', label: '简介', value: project.description, type: 'textarea', required: true },
-    { name: 'media', label: '媒体 URL（一行一个）', value: (project.media || []).join('\n'), type: 'textarea', browse: 'file' },
     { name: 'casCreativity', label: 'CAS Creativity', value: project.cas?.creativity, type: 'checkbox' },
     { name: 'casActivity', label: 'CAS Activity', value: project.cas?.activity, type: 'checkbox' },
     { name: 'casService', label: 'CAS Service', value: project.cas?.service, type: 'checkbox' },
-    { name: 'popularity', label: '热度', value: project.popularity || 0, type: 'number' },
-    { name: 'updates', label: '动态（一行一个）', value: (project.updates || []).join('\n'), type: 'textarea' },
   ];
+}
+
+function updateAdminProjectState(project) {
+  adminState.currentProject = project;
+  adminState.projects = adminState.projects.map((item) => item.id === project.id ? project : item);
+  showProjectDetailView(project);
 }
 
 function openProjectModal(project = {}) {
   const isEdit = Boolean(project?.id);
-  openAdminModal(isEdit ? '编辑 CAS 项目' : '新建 CAS 项目', projectFields(project), async (payload) => {
-    payload.media = linesToList(payload.media);
-    payload.updates = linesToList(payload.updates);
+  openAdminModal(isEdit ? '编辑项目基本信息' : '新建 CAS 项目', projectBasicFields(project), async (payload) => {
     const saved = await adminEndpoint(isEdit ? `/admin/projects/${project.id}` : '/admin/projects', {
       method: isEdit ? 'PATCH' : 'POST',
       body: JSON.stringify(payload),
@@ -874,12 +1024,176 @@ function openProjectModal(project = {}) {
     adminState.projectMetaLoaded = false;
     await loadProjectAdminMeta();
     await loadAdminProjects();
-    if (isEdit) {
-      showProjectDetailView(saved);
-    } else {
-      showProjectListView();
-    }
+    updateAdminProjectState(saved);
   });
+}
+
+let projectUpdateEditorSequence = 0;
+
+function projectUpdateEditorItem(update = {}) {
+  const normalized = normalizeAdminProjectUpdates([update])[0] || { content: '', images: [] };
+  projectUpdateEditorSequence += 1;
+  const imageFieldName = `projectUpdateImages${projectUpdateEditorSequence}`;
+  return `
+    <div class="admin-project-update-editor-item admin-sortable-list-item" draggable="true" data-sortable-list-item data-project-update-editor-item>
+      <span class="admin-sortable-list-handle">拖动</span>
+      <div class="admin-project-update-editor-fields">
+        <label>
+          <span>动态内容</span>
+          <textarea class="input" rows="4" data-project-update-content>${adminText(normalized.content)}</textarea>
+        </label>
+        <label>
+          <span>本条动态的照片 URL（一行一张）</span>
+          <div class="admin-input-row">
+            <textarea class="input" rows="3" name="${imageFieldName}" data-project-update-images>${adminText(normalized.images.join('\n'))}</textarea>
+            <button class="button secondary compact" type="button" data-browse-target="${imageFieldName}" data-browse-mode="file">浏览</button>
+          </div>
+        </label>
+      </div>
+      <button class="button secondary compact danger" type="button" data-remove-project-update>删除</button>
+    </div>
+  `;
+}
+
+function openProjectUpdatesModal(project) {
+  const updates = normalizeAdminProjectUpdates(project.updates);
+  adminEls.modalTitle.textContent = '管理项目动态与照片';
+  adminEls.modalForm.innerHTML = `
+    <p class="admin-form-note">每条动态单独填写内容和照片；照片只属于当前这条动态。动态可以只有文字或只有照片。</p>
+    <div class="admin-project-update-editor-list" data-project-update-editor>
+      ${updates.length ? updates.map(projectUpdateEditorItem).join('') : projectUpdateEditorItem()}
+    </div>
+    <button class="button secondary compact" type="button" data-add-project-update>新增动态</button>
+    <div id="adminModalMessage" class="auth-message"></div>
+    <div class="admin-modal-actions">
+      <button class="button secondary" type="button" data-admin-modal-close>取消</button>
+      <button class="button" type="submit">保存动态</button>
+    </div>
+  `;
+  adminEls.modal.classList.add('is-open');
+  adminEls.modal.setAttribute('aria-hidden', 'false');
+  adminEls.modalForm.onsubmit = async (event) => {
+    event.preventDefault();
+    const message = adminQuery('#adminModalMessage');
+    message.textContent = '正在保存...';
+    message.classList.remove('error');
+    try {
+      const updatesPayload = [...adminEls.modalForm.querySelectorAll('[data-project-update-editor-item]')]
+        .map((row) => ({
+          content: row.querySelector('[data-project-update-content]').value.trim(),
+          images: linesToList(row.querySelector('[data-project-update-images]').value),
+        }))
+        .filter((item) => item.content || item.images.length);
+      const saved = await adminEndpoint(`/admin/projects/${project.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ updates: updatesPayload }),
+      });
+      updateAdminProjectState(saved);
+      closeAdminModal();
+    } catch (error) {
+      message.textContent = error.message;
+      message.classList.add('error');
+    }
+  };
+}
+
+function projectMemberEditorItem(member = {}) {
+  const role = member.role === 'leader' ? 'leader' : 'member';
+  const contactType = member.contactType || '';
+  return `
+    <div class="admin-member-editor-item" data-project-member-editor-item data-person-id="${adminText(member.personId || '')}">
+      <label>
+        <span>姓名</span>
+        <input class="input" type="text" value="${adminText(member.name || '')}" data-project-member-name required>
+      </label>
+      <label>
+        <span>身份</span>
+        <select class="input" data-project-member-role>
+          <option value="leader" ${role === 'leader' ? 'selected' : ''}>负责人</option>
+          <option value="member" ${role === 'member' ? 'selected' : ''}>成员</option>
+        </select>
+      </label>
+      <label>
+        <span>联系方式</span>
+        <select class="input" data-project-member-contact-type>
+          <option value="" ${contactType ? '' : 'selected'}>未提供</option>
+          <option value="wechat" ${contactType === 'wechat' ? 'selected' : ''}>微信</option>
+          <option value="phone" ${contactType === 'phone' ? 'selected' : ''}>电话</option>
+          <option value="email" ${contactType === 'email' ? 'selected' : ''}>邮箱</option>
+          <option value="other" ${contactType === 'other' ? 'selected' : ''}>其他</option>
+        </select>
+      </label>
+      <label>
+        <span>联系值</span>
+        <input class="input" type="text" value="${adminText(member.contactValue || '')}" placeholder="微信号、电话、邮箱等" data-project-member-contact-value>
+      </label>
+      <button class="button secondary compact danger" type="button" data-remove-project-member>删除</button>
+    </div>
+  `;
+}
+
+function openProjectMembersModal(project) {
+  const members = Array.isArray(project.memberList) && project.memberList.length
+    ? project.memberList
+    : [{ name: '', role: 'leader' }];
+  adminEls.modalTitle.textContent = '管理成员与联系方式';
+  adminEls.modalForm.innerHTML = `
+    <p class="admin-form-note">成员逐条维护；负责人尚未确认时可以暂不设置，确认后最多只能有一名负责人。联系方式不公开时可以留空。</p>
+    <div class="admin-member-editor-list" data-project-member-editor>
+      ${members.map(projectMemberEditorItem).join('')}
+    </div>
+    <button class="button secondary compact" type="button" data-add-project-member>新增成员</button>
+    <div id="adminModalMessage" class="auth-message"></div>
+    <div class="admin-modal-actions">
+      <button class="button secondary" type="button" data-admin-modal-close>取消</button>
+      <button class="button" type="submit">保存成员</button>
+    </div>
+  `;
+  adminEls.modal.classList.add('is-open');
+  adminEls.modal.setAttribute('aria-hidden', 'false');
+  adminEls.modalForm.onchange = (event) => {
+    if (!event.target.matches('[data-project-member-role]') || event.target.value !== 'leader') return;
+    adminEls.modalForm.querySelectorAll('[data-project-member-role]').forEach((select) => {
+      if (select !== event.target) select.value = 'member';
+    });
+  };
+  adminEls.modalForm.onsubmit = async (event) => {
+    event.preventDefault();
+    const message = adminQuery('#adminModalMessage');
+    message.textContent = '正在保存...';
+    message.classList.remove('error');
+    try {
+      const rows = [...adminEls.modalForm.querySelectorAll('[data-project-member-editor-item]')];
+      const memberItems = rows.map((row) => ({
+        personId: row.dataset.personId ? adminNumber(row.dataset.personId) : null,
+        name: row.querySelector('[data-project-member-name]').value.trim(),
+        role: row.querySelector('[data-project-member-role]').value,
+        contactType: row.querySelector('[data-project-member-contact-type]').value || null,
+        contactValue: row.querySelector('[data-project-member-contact-value]').value.trim() || null,
+      }));
+      if (!memberItems.length) throw new Error('项目至少需要一名成员');
+      if (memberItems.some((member) => !member.name)) throw new Error('成员姓名不能为空');
+      if (memberItems.filter((member) => member.role === 'leader').length > 1) {
+        throw new Error('项目最多只能有一名负责人');
+      }
+      const names = memberItems.map((member) => member.name.toLocaleLowerCase());
+      if (new Set(names).size !== names.length) throw new Error('成员姓名不能重复');
+      const incompleteContact = memberItems.find(
+        (member) => Boolean(member.contactType) !== Boolean(member.contactValue),
+      );
+      if (incompleteContact) throw new Error(`请为 ${incompleteContact.name} 同时填写联系方式类型和联系值`);
+
+      const saved = await adminEndpoint(`/admin/projects/${project.id}/members`, {
+        method: 'PATCH',
+        body: JSON.stringify({ members: memberItems }),
+      });
+      updateAdminProjectState(saved);
+      closeAdminModal();
+    } catch (error) {
+      message.textContent = error.message;
+      message.classList.add('error');
+    }
+  };
 }
 
 async function loadResourceAdminMeta() {
@@ -889,9 +1203,6 @@ async function loadResourceAdminMeta() {
     adminEndpoint('/admin/resource-categories'),
   ]);
   meta.categories = adminCategories.data.filter((category) => category.isActive);
-  if (!meta.categories.some((category) => category.value === 'photos')) {
-    meta.categories.push({ value: 'photos', label: '活动照片', sortOrder: 20 });
-  }
   const categories = [
     { value: '', label: '全部资源' },
     ...meta.categories,
@@ -901,7 +1212,6 @@ async function loadResourceAdminMeta() {
       class="category-button ${category.value === adminState.resourceCategory ? 'active' : ''}"
       type="button"
       data-admin-resource-category="${adminText(category.value)}"
-      ${category.id ? `data-sortable="resource-category" data-sortable-id="${adminText(category.id)}" draggable="true"` : ''}
     >
       ${adminText(category.label)}
     </button>
@@ -997,6 +1307,7 @@ async function loadResources() {
     adminEls.resourcesTable.innerHTML = combined.length
       ? combined.map((item) => (item.kind === 'resource' ? resourceAdminCard(item.data) : photoActivityCard(item.data))).join('')
       : '<div class="empty">暂无资源</div>';
+    bindAdminTeacherVideos();
     return;
   }
   const query = buildQuery({
@@ -1011,6 +1322,7 @@ async function loadResources() {
   adminEls.resourcesTable.innerHTML = adminState.resources.length
     ? adminState.resources.map(resourceAdminCard).join('')
     : '<div class="empty">暂无资源</div>';
+  bindAdminTeacherVideos();
 }
 
 function selectResourceCategory(category) {
@@ -1027,15 +1339,28 @@ function resourceAdminCard(resource) {
   const image = safeExternalUrl(resource.image);
   const resourceUrl = safeExternalUrl(resource.resourceUrl);
   const isYearbook = resource.category === 'yearbook';
+  const isTeacherVideo = resource.category === 'teacher';
   const thumb = `
     <span class="resource-thumb">
       <img src="${image}" alt="${adminText(resource.title)}" loading="lazy">
       <span class="badge">${adminText(resource.label)}</span>
     </span>
   `;
+  const teacherVideo = `
+    <div class="resource-video-frame">
+      <video class="resource-video" controls preload="metadata" playsinline aria-label="${adminText(resource.title)}">
+        <source src="${resourceUrl}">
+        您的浏览器不支持 HTML5 视频。
+      </video>
+      <span class="badge">${adminText(resource.label)}</span>
+      <a class="resource-video-fallback is-hidden" href="${resourceUrl}" target="_blank" rel="noopener noreferrer">无法播放？打开视频</a>
+    </div>
+  `;
   return `
-    <article class="resource-card admin-resource-card">
-      ${isYearbook
+    <article class="resource-card admin-resource-card${isTeacherVideo ? ' teacher-video-card' : ''}">
+      ${isTeacherVideo
+        ? teacherVideo
+        : isYearbook
         ? `<button class="resource-card-link" type="button" data-admin-yearbook-resource-id="${adminText(resource.id)}">${thumb}</button>`
         : `<a class="resource-card-link" href="${resourceUrl}" target="_blank" rel="noopener noreferrer">${thumb}</a>`}
       <div class="resource-body">
@@ -1046,12 +1371,21 @@ function resourceAdminCard(resource) {
         <p>${adminText(resource.description)}</p>
         <div class="meta">
           <span>${adminText(resource.year)}</span>
-          <span>热度 ${adminText(resource.hot)}</span>
-          <span>下载 ${adminText(resource.downloads)}</span>
+          ${isTeacherVideo ? '' : `<span>热度 ${adminText(resource.hot)}</span><span>下载 ${adminText(resource.downloads)}</span>`}
         </div>
       </div>
     </article>
   `;
+}
+
+function bindAdminTeacherVideos() {
+  adminEls.resourcesTable.querySelectorAll('.resource-video').forEach((video) => {
+    const showFallback = () => {
+      video.closest('.resource-video-frame')?.querySelector('.resource-video-fallback')?.classList.remove('is-hidden');
+    };
+    video.addEventListener('error', showFallback);
+    if (video.error) showFallback();
+  });
 }
 
 async function openAdminYearbook(resourceId) {
@@ -1152,29 +1486,41 @@ function resourceFields(resource = {}) {
   const defaultCategory = categoryOptions[0]?.value || 'other';
   const category = resource.category || defaultCategory;
   const isYearbook = category === 'yearbook';
-  return [
-    { name: 'title', label: '标题', value: resource.title, required: true },
-    { name: 'description', label: '简介', value: resource.description, type: 'textarea' },
-    { name: 'year', label: '年份', value: resource.year || new Date().getFullYear(), type: 'number', required: true },
-    {
+  const isTeacherVideo = category === 'teacher';
+  const categoryField = isTeacherVideo
+    ? { name: 'category', value: category, type: 'hidden', includeHidden: true }
+    : {
       name: 'category',
       label: '分类',
       value: category,
       type: 'select',
       required: true,
       options: categoryOptions,
-    },
-    { name: 'hot', label: '热度', value: resource.hot || 0, type: 'number' },
-    { name: 'downloads', label: '下载数', value: resource.downloads || 0, type: 'number' },
-    ...(isYearbook ? [] : [{ name: 'image', label: '封面 URL', value: resource.image, required: true, browse: 'file' }]),
+    };
+  return [
+    { name: 'title', label: isTeacherVideo ? '名称' : '标题', value: resource.title, required: true },
+    { name: 'description', label: '简介', value: resource.description, type: 'textarea', required: isTeacherVideo },
+    { name: 'year', label: '年份', value: resource.year || new Date().getFullYear(), type: 'number', required: true },
+    categoryField,
+    ...(isTeacherVideo ? [] : [
+      { name: 'downloads', label: '下载数', value: resource.downloads || 0, type: 'number' },
+    ]),
+    ...(isYearbook || isTeacherVideo ? [] : [{ name: 'image', label: '封面 URL', value: resource.image, required: true, browse: 'file' }]),
     {
       name: 'resourceUrl',
-      label: isYearbook ? 'Yearbook 目录' : '资源 URL',
+      label: isYearbook ? 'Yearbook 目录' : isTeacherVideo ? '视频文件 / URL' : '资源 URL',
       value: resource.resourceUrl,
       required: true,
-      browse: isYearbook ? 'folder' : 'fileOrFolder',
+      browse: isYearbook ? 'folder' : isTeacherVideo ? 'file' : 'fileOrFolder',
     },
   ];
+}
+
+function resourceFormMode(category) {
+  if (category === 'yearbook') return 'yearbook';
+  if (category === 'teacher') return 'teacher';
+  if (category === 'photos') return 'photos';
+  return 'resource';
 }
 
 function openResourceModal(resource) {
@@ -1198,18 +1544,19 @@ function openResourceModal(resource) {
   const categorySelect = adminEls.modalForm.elements.category;
   if (!isEdit && categorySelect) {
     categorySelect.addEventListener('change', () => {
-      if (categorySelect.value === 'yearbook') {
-        const selectedCategory = resourceCategoryOptions().find((category) => category.value === categorySelect.value);
+      const nextCategory = categorySelect.value;
+      if (nextCategory === 'photos') {
         closeAdminModal();
-        setTimeout(() => openResourceModal({ category: categorySelect.value, label: selectedCategory?.label }), 0);
+        selectResourceCategory('photos');
+        loadResourceManagementView()
+          .then(() => openActivityModal({}))
+          .catch((error) => window.alert(error.message));
         return;
       }
-      if (categorySelect.value !== 'photos') return;
+      if (resourceFormMode(nextCategory) === resourceFormMode(category)) return;
+      const selectedCategory = resourceCategoryOptions().find((item) => item.value === nextCategory);
       closeAdminModal();
-      selectResourceCategory('photos');
-      loadResourceManagementView()
-        .then(() => openActivityModal({}))
-        .catch((error) => window.alert(error.message));
+      setTimeout(() => openResourceModal({ category: nextCategory, label: selectedCategory?.label }), 0);
     });
   }
   if (isEdit) {
@@ -1439,7 +1786,6 @@ function activityFields(activity = {}, options = {}) {
     { name: 'description', label: '活动简介', value: activity.description, type: 'textarea', required: true },
     { name: 'year', label: '年份', value: activity.year || new Date().getFullYear(), type: 'number', required: true },
     ...(options.includeCategory ? [categoryField] : []),
-    { name: 'hot', label: '热度', value: activity.hot || 0, type: 'number' },
     { name: 'downloads', label: '下载数', value: activity.downloads || 0, type: 'number' },
     { name: 'sortOrder', label: 'sortOrder', value: activity.sortOrder || 0, type: 'number' },
     { name: 'photoDir', label: '照片目录', value: activity.photoDir || '', browse: 'folder' },
@@ -1520,6 +1866,13 @@ function bindAdminEvents() {
   });
   adminEls.userRoleFilter.addEventListener('change', loadUsers);
   adminEls.userActiveFilter.addEventListener('change', loadUsers);
+  adminEls.refreshPeople.addEventListener('click', loadPeopleAdmin);
+  adminEls.peopleSearch.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') loadPeopleAdmin();
+  });
+  adminEls.peopleStatusFilter.addEventListener('change', loadPeopleAdmin);
+  adminEls.createAnnouncementButton.addEventListener('click', () => openAnnouncementModal({ status: 'published' }));
+  adminEls.refreshCommunity.addEventListener('click', loadCommunityAdmin);
 
   adminEls.createProjectButton.addEventListener('click', () => openProjectModal({}));
   adminEls.projectSearch.addEventListener('keydown', (event) => {
@@ -1619,8 +1972,88 @@ function bindAdminEvents() {
         if (input) input.value = '';
       }
     }
+    if (target.dataset.addProjectMember !== undefined) {
+      const list = adminEls.modalForm.querySelector('[data-project-member-editor]');
+      if (list) list.insertAdjacentHTML('beforeend', projectMemberEditorItem({ role: 'member' }));
+    }
+    if (target.dataset.removeProjectMember !== undefined) {
+      const item = target.closest('[data-project-member-editor-item]');
+      const list = item?.parentElement;
+      if (!item || !list) return;
+      if (list.children.length <= 1) {
+        window.alert('项目至少需要一名成员');
+        return;
+      }
+      item.remove();
+    }
+    if (target.dataset.addProjectUpdate !== undefined) {
+      const list = adminEls.modalForm.querySelector('[data-project-update-editor]');
+      if (list) list.insertAdjacentHTML('beforeend', projectUpdateEditorItem());
+    }
+    if (target.dataset.removeProjectUpdate !== undefined) {
+      const item = target.closest('[data-project-update-editor-item]');
+      const list = item?.parentElement;
+      if (!item || !list) return;
+      if (list.children.length > 1) {
+        item.remove();
+      } else {
+        const content = item.querySelector('[data-project-update-content]');
+        const images = item.querySelector('[data-project-update-images]');
+        if (content) content.value = '';
+        if (images) images.value = '';
+      }
+    }
     if (target.dataset.editUser) {
       openUserModal(adminState.users.find((item) => String(item.id) === target.dataset.editUser));
+    }
+    if (target.dataset.reviewClaim) {
+      adminEndpoint(`/admin/person-claims/${target.dataset.reviewClaim}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: target.dataset.claimDecision }),
+      }).then(loadPeopleAdmin).catch((error) => window.alert(error.message));
+    }
+    if (target.dataset.reviewReport) {
+      adminEndpoint(`/admin/message-reports/${target.dataset.reviewReport}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: target.dataset.reportDecision }),
+      }).then(loadPeopleAdmin).catch((error) => window.alert(error.message));
+    }
+    if (target.dataset.editAnnouncement) {
+      const announcement = adminState.announcements.find(
+        (item) => String(item.id) === target.dataset.editAnnouncement,
+      );
+      if (announcement) openAnnouncementModal(announcement);
+    }
+    if (target.dataset.archiveAnnouncement) {
+      archiveAnnouncement(target.dataset.archiveAnnouncement).catch((error) => window.alert(error.message));
+    }
+    if (target.dataset.reviewCommentReport) {
+      const hideComment = target.dataset.commentReportDecision === 'hide';
+      adminEndpoint(`/admin/comment-reports/${target.dataset.reviewCommentReport}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          status: hideComment ? 'resolved' : 'dismissed',
+          hideComment,
+        }),
+      }).then(loadCommunityAdmin).catch((error) => window.alert(error.message));
+    }
+    if (target.dataset.bindPerson) {
+      const person = adminState.people.find((item) => String(item.id) === target.dataset.bindPerson);
+      const value = window.prompt(
+        '输入要绑定的用户 ID；留空表示解除绑定。',
+        person?.userId ? String(person.userId) : '',
+      );
+      if (value !== null) {
+        const clean = value.trim();
+        if (clean && !/^\d+$/.test(clean)) {
+          window.alert('用户 ID 必须是数字');
+        } else {
+          adminEndpoint(`/admin/people/${target.dataset.bindPerson}/binding`, {
+            method: 'PATCH',
+            body: JSON.stringify({ userId: clean ? Number(clean) : null }),
+          }).then(loadPeopleAdmin).catch((error) => window.alert(error.message));
+        }
+      }
     }
     if (target.dataset.adminProjectCategory !== undefined) {
       adminState.projectCategory = target.dataset.adminProjectCategory;
@@ -1631,18 +2064,22 @@ function bindAdminEvents() {
       loadProjectManagementView();
     }
     if (target.dataset.openProjectDetail) {
-      const project = findAdminProject(target.dataset.openProjectDetail);
-      if (project) showProjectDetailView(project);
+      openProjectDetail(target.dataset.openProjectDetail).catch((error) => window.alert(error.message));
     }
     if (target.dataset.backProjectList !== undefined) {
       showProjectListView();
     }
-    if (target.dataset.saveProjectMediaOrder !== undefined) {
-      saveProjectMediaOrder();
-    }
     if (target.dataset.editProject) {
       const project = findAdminProject(target.dataset.editProject);
       if (project) openProjectModal(project);
+    }
+    if (target.dataset.editProjectMembers) {
+      const project = findAdminProject(target.dataset.editProjectMembers);
+      if (project) openProjectMembersModal(project);
+    }
+    if (target.dataset.editProjectUpdates) {
+      const project = findAdminProject(target.dataset.editProjectUpdates);
+      if (project) openProjectUpdatesModal(project);
     }
     if (target.dataset.adminResourceCategory !== undefined) {
       selectResourceCategory(target.dataset.adminResourceCategory);
@@ -1746,6 +2183,16 @@ async function initAdmin() {
     userRoleFilter: adminQuery('#userRoleFilter'),
     userActiveFilter: adminQuery('#userActiveFilter'),
     usersTable: adminQuery('#usersTable'),
+    refreshPeople: adminQuery('#refreshPeople'),
+    peopleSearch: adminQuery('#peopleSearch'),
+    peopleStatusFilter: adminQuery('#peopleStatusFilter'),
+    peopleTable: adminQuery('#peopleTable'),
+    claimsTable: adminQuery('#personClaimsTable'),
+    messageReportsTable: adminQuery('#messageReportsTable'),
+    createAnnouncementButton: adminQuery('#createAnnouncementButton'),
+    refreshCommunity: adminQuery('#refreshCommunity'),
+    announcementsTable: adminQuery('#announcementsTable'),
+    commentReportsTable: adminQuery('#commentReportsTable'),
     createProjectButton: adminQuery('#createProjectButton'),
     projectSearch: adminQuery('#projectAdminSearch'),
     projectYear: adminQuery('#adminProjectYear'),

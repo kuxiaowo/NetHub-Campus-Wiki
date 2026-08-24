@@ -7,6 +7,7 @@ Pydantic 模型用于三件事：
 """
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -20,20 +21,22 @@ class HealthResponse(BaseModel):
     detail: str | None = Field(default=None, description="更具体的诊断信息。")
 
 
-class AnnouncementsResponse(BaseModel):
-    """首页公告响应。"""
-
-    data: list[str] = Field(description="公告文本列表。")
-
-
 class User(BaseModel):
     """登录用户信息。"""
 
     id: int
     username: str
     displayName: str | None = None
+    avatarUrl: str | None = None
+    bio: str = ""
     role: str = Field(pattern="^(admin|user)$")
     isActive: bool
+    campusVerified: bool = False
+    messagingPermission: str = Field(
+        default="everyone",
+        pattern="^(everyone|following|mutual|nobody)$",
+    )
+    linkedPersonId: int | None = None
     createdAt: datetime | None = None
 
 
@@ -88,6 +91,28 @@ class CasFlags(BaseModel):
     service: bool = Field(description="是否包含 Service。")
 
 
+class ProjectMember(BaseModel):
+    """结构化 CAS 项目成员。"""
+
+    personId: int
+    name: str
+    role: str = Field(pattern="^(leader|member)$")
+    avatarUrl: str | None = None
+    userId: int | None = None
+    username: str | None = None
+    registered: bool = False
+    sortOrder: int = 0
+    contactType: str | None = Field(default=None, pattern="^(wechat|phone|email|other)$")
+    contactValue: str | None = None
+
+
+class ProjectUpdate(BaseModel):
+    """一条可携带独立照片的 CAS 项目动态。"""
+
+    content: str = ""
+    images: list[str] = Field(default_factory=list)
+
+
 class Project(BaseModel):
     """项目对象。
 
@@ -105,10 +130,15 @@ class Project(BaseModel):
                 "year": 2026,
                 "icon": "https://picsum.photos/seed/noise-map-icon/300/300",
                 "description": "使用传感器采集校园不同地点的噪音数据。",
-                "media": ["https://picsum.photos/seed/noise-map/900/520"],
+                "media": [],
                 "cas": {"creativity": True, "activity": True, "service": True},
                 "popularity": 96,
-                "updates": ["完成第一版传感器数据模拟器"],
+                "updates": [
+                    {
+                        "content": "完成第一版传感器数据模拟器",
+                        "images": ["https://picsum.photos/seed/noise-map/900/520"],
+                    }
+                ],
                 "createdAt": "2026-05-10T10:00:00",
                 "updatedAt": "2026-05-10T10:00:00",
             }
@@ -119,14 +149,15 @@ class Project(BaseModel):
     name: str
     leader: str
     members: str
+    memberList: list[ProjectMember] = Field(default_factory=list)
     category: str
     year: int
-    icon: str
+    icon: str | None = None
     description: str
     media: list[str]
     cas: CasFlags
     popularity: int
-    updates: list[str]
+    updates: list[str | ProjectUpdate]
     createdAt: datetime | None = None
     updatedAt: datetime | None = None
 
@@ -146,7 +177,7 @@ class ProjectDetailResponse(BaseModel):
 class ResourceCategory(BaseModel):
     """资源分类筛选项。"""
 
-    value: str = Field(description="分类值，用于查询参数。")
+    value: Literal["yearbook", "photos", "teacher", "other"] = Field(description="固定分类值，用于查询参数。")
     label: str = Field(description="分类展示名称。")
     sortOrder: int = Field(description="人工排序权重，数字越小越靠前。")
 
@@ -166,7 +197,7 @@ class Resource(BaseModel):
     title: str
     description: str
     year: int
-    category: str
+    category: Literal["yearbook", "teacher", "other"]
     label: str
     hot: int
     downloads: int

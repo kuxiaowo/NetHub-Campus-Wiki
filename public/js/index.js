@@ -2,11 +2,24 @@ const announcementList = document.querySelector('#announcementList');
 const recommendProjects = document.querySelector('#recommendProjects');
 const recommendSort = document.querySelector('#recommendSort');
 
-// 加载首页公告。公告数据目前来自后端内存常量，后续可改成数据库表。
+function homeAnnouncementDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' }).format(date);
+}
+
+// 首页只展示最新三条，完整列表进入全部公告页面。
 async function loadAnnouncements() {
-  const result = await request('/announcements');
+  const result = await request('/announcements?page=1&pageSize=3');
   announcementList.classList.remove('skeleton-list');
-  announcementList.innerHTML = result.data.map((text) => `<li>${escapeHtml(text)}</li>`).join('');
+  announcementList.innerHTML = result.data.map((announcement) => `
+    <li>
+      <a href="/announcement.html?id=${encodeURIComponent(announcement.id)}">
+        <span>${announcement.isPinned ? '<strong>置顶</strong>' : ''}${escapeHtml(announcement.title)}</span>
+        <time>${escapeHtml(homeAnnouncementDate(announcement.publishedAt))}</time>
+      </a>
+    </li>
+  `).join('');
 }
 
 // 加载推荐项目。首页只展示前三个，完整列表在项目库页面。

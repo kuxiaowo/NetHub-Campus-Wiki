@@ -23,7 +23,16 @@ from backend.auth import (
     validate_username,
 )
 from backend.database import get_db_connection
-from backend.projects import format_project
+from backend.projects import (
+    format_project,
+    list_project_members,
+    replace_project_members,
+)
+from backend.resource_types import (
+    ResourceTypeDefinition,
+    get_resource_type,
+    resource_type_options,
+)
 from backend.resources import format_resource, photo_archive_url, yearbook_cover_url
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -152,7 +161,7 @@ def _fetch_project(project_id: int) -> dict[str, Any]:
             row = cursor.fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    return format_project(row)
+    return format_project(row, list_project_members(project_id))
 
 
 def _format_photo_item(row: dict[str, Any]) -> dict[str, Any]:
@@ -216,18 +225,6 @@ def _scan_public_photo_count(photo_dir: str | None) -> int:
     )
 
 
-def _format_resource_category(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": row["id"],
-        "value": row["value"],
-        "label": row["label"],
-        "sortOrder": row["sort_order"],
-        "isActive": bool(row["is_active"]),
-        "createdAt": row.get("created_at"),
-        "updatedAt": row.get("updated_at"),
-    }
-
-
 def _format_project_category(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": row["id"],
@@ -245,8 +242,103 @@ def _json_list(value: Any, field_name: str) -> str:
     return json.dumps(clean_items, ensure_ascii=False)
 
 
+def _project_updates_json(value: Any) -> str:
+    if not isinstance(value, list):
+        raise HTTPException(status_code=422, detail="updates 必须是数组")
+
+    clean_updates: list[dict[str, Any]] = []
+    for index, item in enumerate(value, start=1):
+        if isinstance(item, str):
+            content = item.strip()
+            images: list[str] = []
+        elif isinstance(item, dict):
+            unknown = sorted(set(item) - {"content", "images"})
+            if unknown:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"第 {index} 条动态包含不支持的字段：{', '.join(unknown)}",
+                )
+            content = str(item.get("content") or "").strip()
+            raw_images = item.get("images", [])
+            if not isinstance(raw_images, list):
+                raise HTTPException(status_code=422, detail=f"第 {index} 条动态的 images 必须是数组")
+            images = []
+            seen_images: set[str] = set()
+            for image in raw_images:
+                clean_image = str(image or "").strip()
+                if not clean_image or clean_image in seen_images:
+                    continue
+                seen_images.add(clean_image)
+                images.append(clean_image)
+        else:
+            raise HTTPException(status_code=422, detail=f"第 {index} 条动态格式不正确")
+
+        if not content and not images:
+            continue
+        clean_updates.append({"content": content, "images": images})
+
+    return json.dumps(clean_updates, ensure_ascii=False)
+
+
 def _normalize_bool(value: Any) -> int:
     return 1 if value is True or str(value).lower() in {"1", "true", "yes", "on"} else 0
+
+
+def _normalize_project_member_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_items = payload.get("members")
+    if not isinstance(raw_items, list) or not raw_items:
+        raise HTTPException(status_code=422, detail="项目至少需要一名成员")
+
+    items: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    seen_person_ids: set[int] = set()
+    leader_count = 0
+    allowed_contact_types = {"wechat", "phone", "email", "other"}
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            raise HTTPException(status_code=422, detail="成员格式不正确")
+        name = str(raw_item.get("name") or "").strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="成员姓名不能为空")
+        name_key = name.casefold()
+        if name_key in seen_names:
+            raise HTTPException(status_code=422, detail=f"成员姓名不能重复：{name}")
+        seen_names.add(name_key)
+
+        role = str(raw_item.get("role") or "member").strip().lower()
+        if role not in {"leader", "member"}:
+            raise HTTPException(status_code=422, detail="成员身份只能是负责人或成员")
+        leader_count += 1 if role == "leader" else 0
+
+        person_id = raw_item.get("personId")
+        if person_id not in {None, ""}:
+            person_id = _normalize_int(person_id, "personId")
+            if person_id <= 0 or person_id in seen_person_ids:
+                raise HTTPException(status_code=422, detail="成员档案 ID 不合法或重复")
+            seen_person_ids.add(person_id)
+        else:
+            person_id = None
+
+        contact_type = str(raw_item.get("contactType") or "").strip().lower() or None
+        contact_value = str(raw_item.get("contactValue") or "").strip() or None
+        if contact_type and contact_type not in allowed_contact_types:
+            raise HTTPException(status_code=422, detail="联系方式类型不支持")
+        if bool(contact_type) != bool(contact_value):
+            raise HTTPException(status_code=422, detail=f"请为 {name} 同时填写联系方式类型和联系值")
+
+        items.append(
+            {
+                "personId": person_id,
+                "name": name,
+                "role": role,
+                "contactType": contact_type,
+                "contactValue": contact_value,
+            }
+        )
+
+    if leader_count > 1:
+        raise HTTPException(status_code=422, detail="项目最多只能有一名负责人")
+    return items
 
 
 def _ensure_project_category(cursor: Any, category: str) -> None:
@@ -265,6 +357,15 @@ def _ensure_project_category(cursor: Any, category: str) -> None:
         """,
         (clean_category, next_sort_order),
     )
+
+
+def _require_resource_row_type(value: object) -> ResourceTypeDefinition:
+    resource_type = get_resource_type(value)
+    if resource_type is None:
+        raise HTTPException(status_code=422, detail="不支持的资源类型")
+    if resource_type.storage != "resource":
+        raise HTTPException(status_code=422, detail="活动照片必须通过活动照片接口管理")
+    return resource_type
 
 
 def _next_activity_sort_order(cursor: Any) -> int:
@@ -308,17 +409,12 @@ def _apply_reorder(cursor: Any, table: str, items: list[dict[str, int]], missing
 
 @router.get("/resource-categories")
 def admin_list_resource_categories(_: dict[str, Any] = Depends(require_admin_user)):
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT *
-                FROM resource_categories
-                ORDER BY sort_order ASC, id ASC
-                """
-            )
-            rows = cursor.fetchall()
-    return {"data": [_format_resource_category(row) for row in rows]}
+    return {
+        "data": [
+            {**resource_type, "isActive": True}
+            for resource_type in resource_type_options()
+        ]
+    }
 
 
 @router.patch("/resource-categories/reorder")
@@ -326,11 +422,7 @@ def admin_reorder_resource_categories(
     payload: dict[str, Any],
     _: dict[str, Any] = Depends(require_admin_user),
 ):
-    items = _normalize_reorder_items(payload)
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            _apply_reorder(cursor, "resource_categories", items, "资源分类不存在")
-    return {"ok": True}
+    raise HTTPException(status_code=409, detail="资源类型及其顺序已固定在代码中")
 
 
 @router.get("/project-categories")
@@ -389,9 +481,27 @@ def admin_list_projects(
     return {"data": [format_project(row) for row in rows]}
 
 
+@router.get("/projects/{project_id}")
+def admin_get_project(project_id: int, _: dict[str, Any] = Depends(require_admin_user)):
+    return _fetch_project(project_id)
+
+
 @router.post("/projects")
 def admin_create_project(payload: dict[str, Any], _: dict[str, Any] = Depends(require_admin_user)):
-    required = ["name", "leader", "members", "category", "year", "description"]
+    allowed_fields = {
+        "name",
+        "category",
+        "year",
+        "icon",
+        "description",
+        "casCreativity",
+        "casActivity",
+        "casService",
+    }
+    unknown = sorted(set(payload) - allowed_fields)
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"首次创建不接受字段：{', '.join(unknown)}")
+    required = ["name", "category", "year", "description"]
     missing = [field for field in required if payload.get(field) in {None, ""}]
     if missing:
         raise HTTPException(status_code=422, detail=f"缺少字段：{', '.join(missing)}")
@@ -407,21 +517,37 @@ def admin_create_project(payload: dict[str, Any], _: dict[str, Any] = Depends(re
                 """,
                 (
                     payload["name"],
-                    payload["leader"],
-                    payload["members"],
+                    "",
+                    "",
                     payload["category"],
                     _normalize_int(payload["year"], "year"),
                     payload.get("icon") or None,
                     payload["description"],
-                    _json_list(payload.get("media"), "media"),
+                    _json_list([], "media"),
                     _normalize_bool(payload.get("casCreativity")),
                     _normalize_bool(payload.get("casActivity")),
                     _normalize_bool(payload.get("casService")),
-                    _normalize_int(payload.get("popularity", 0), "popularity"),
-                    _json_list(payload.get("updates"), "updates"),
+                    0,
+                    _json_list([], "updates"),
                 ),
             )
             project_id = cursor.lastrowid
+    return _fetch_project(project_id)
+
+
+@router.patch("/projects/{project_id}/members")
+def admin_replace_project_members(
+    project_id: int,
+    payload: dict[str, Any],
+    _: dict[str, Any] = Depends(require_admin_user),
+):
+    members = _normalize_project_member_items(payload)
+    try:
+        replace_project_members(project_id, members)
+    except ValueError as error:
+        detail = str(error)
+        status_code = 404 if detail == "项目不存在" else 422
+        raise HTTPException(status_code=status_code, detail=detail) from error
     return _fetch_project(project_id)
 
 
@@ -433,13 +559,10 @@ def admin_update_project(
 ):
     field_map = {
         "name": "name",
-        "leader": "leader",
-        "members": "members",
         "category": "category",
         "year": "year",
         "icon": "icon",
         "description": "description",
-        "media": "media",
         "casCreativity": "cas_creativity",
         "casActivity": "cas_activity",
         "casService": "cas_service",
@@ -449,6 +572,13 @@ def admin_update_project(
     unknown = sorted(set(payload) - set(field_map))
     if unknown:
         raise HTTPException(status_code=422, detail=f"字段不允许编辑：{', '.join(unknown)}")
+    for required_text_field in {"name", "category", "description"}:
+        if required_text_field not in payload:
+            continue
+        clean_value = str(payload[required_text_field] or "").strip()
+        if not clean_value:
+            raise HTTPException(status_code=422, detail=f"{required_text_field} 不能为空")
+        payload[required_text_field] = clean_value
     updates = []
     params: list[Any] = []
     with get_db_connection() as conn:
@@ -463,8 +593,8 @@ def admin_update_project(
                     value = _normalize_int(value, api_field)
                 if api_field in {"casCreativity", "casActivity", "casService"}:
                     value = _normalize_bool(value)
-                if api_field in {"media", "updates"}:
-                    value = _json_list(value, api_field)
+                if api_field == "updates":
+                    value = _project_updates_json(value)
                 if api_field == "icon" and value == "":
                     value = None
                 updates.append(f"{column} = %s")
@@ -589,6 +719,7 @@ def admin_list_resources(
     params: list[Any] = []
     where_parts: list[str] = []
     if category:
+        _require_resource_row_type(category)
         where_parts.append("category = %s")
         params.append(category)
     if year:
@@ -608,17 +739,23 @@ def admin_list_resources(
 
 @router.post("/resources")
 def admin_create_resource(payload: dict[str, Any], _: dict[str, Any] = Depends(require_admin_user)):
-    required = ["title", "year", "category", "label", "resourceUrl"]
-    if payload.get("category") != "yearbook":
+    resource_type = _require_resource_row_type(payload.get("category"))
+    required = ["title", "year", "category", "resourceUrl"]
+    if resource_type.value == "teacher":
+        required.append("description")
+    elif resource_type.value != "yearbook":
         required.append("image")
     missing = [field for field in required if payload.get(field) in {None, ""}]
     if missing:
         raise HTTPException(status_code=422, detail=f"缺少字段：{', '.join(missing)}")
     image = payload.get("image")
-    if payload.get("category") == "yearbook":
+    if resource_type.value == "yearbook":
         image = yearbook_cover_url(payload.get("resourceUrl"))
         if not image:
             raise HTTPException(status_code=422, detail="Yearbook 目录中必须至少有一张图片作为封面和第一页")
+    elif resource_type.value == "teacher":
+        image = ""
+        payload["downloads"] = 0
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
@@ -631,9 +768,9 @@ def admin_create_resource(payload: dict[str, Any], _: dict[str, Any] = Depends(r
                     payload["title"],
                     payload.get("description") or "",
                     _normalize_int(payload["year"], "year"),
-                    payload["category"],
-                    payload["label"],
-                    _normalize_int(payload.get("hot", 0), "hot"),
+                    resource_type.value,
+                    resource_type.label,
+                    0,
                     _normalize_int(payload.get("downloads", 0), "downloads"),
                     image,
                     payload["resourceUrl"],
@@ -655,7 +792,6 @@ def admin_update_resource(
         "year": "year",
         "category": "category",
         "label": "label",
-        "hot": "hot",
         "downloads": "downloads",
         "image": "image",
         "resourceUrl": "resource_url",
@@ -663,29 +799,52 @@ def admin_update_resource(
     unknown = sorted(set(payload) - set(field_map))
     if unknown:
         raise HTTPException(status_code=422, detail=f"字段不允许编辑：{', '.join(unknown)}")
-    if payload.get("category") == "yearbook" or "resourceUrl" in payload:
-        next_resource_url = payload.get("resourceUrl")
-        next_category = payload.get("category")
-        if next_resource_url is None or next_category is None:
-            with get_db_connection() as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute("SELECT category, resource_url FROM resources WHERE id = %s LIMIT 1", (resource_id,))
-                    current = cursor.fetchone()
-            if current is None:
-                raise HTTPException(status_code=404, detail="资源不存在")
-            next_resource_url = next_resource_url if next_resource_url is not None else current["resource_url"]
-            next_category = next_category if next_category is not None else current["category"]
-        if next_category == "yearbook":
-            image = yearbook_cover_url(next_resource_url)
-            if not image:
-                raise HTTPException(status_code=422, detail="Yearbook 目录中必须至少有一张图片作为封面和第一页")
-            payload["image"] = image
+    if not payload:
+        raise HTTPException(status_code=422, detail="请求体不能为空")
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT title, description, year, category, image, resource_url
+                FROM resources
+                WHERE id = %s
+                LIMIT 1
+                """,
+                (resource_id,),
+            )
+            current = cursor.fetchone()
+    if current is None:
+        raise HTTPException(status_code=404, detail="资源不存在")
+
+    next_resource_url = payload.get("resourceUrl", current["resource_url"])
+    resource_type = _require_resource_row_type(payload.get("category", current["category"]))
+    payload["category"] = resource_type.value
+    payload["label"] = resource_type.label
+    if resource_type.value == "yearbook":
+        image = yearbook_cover_url(next_resource_url)
+        if not image:
+            raise HTTPException(status_code=422, detail="Yearbook 目录中必须至少有一张图片作为封面和第一页")
+        payload["image"] = image
+    elif resource_type.value == "teacher":
+        required_values = {
+            "title": payload.get("title", current["title"]),
+            "description": payload.get("description", current["description"]),
+            "year": payload.get("year", current["year"]),
+            "resourceUrl": next_resource_url,
+        }
+        missing = [field for field, value in required_values.items() if value in {None, ""}]
+        if missing:
+            raise HTTPException(status_code=422, detail=f"缺少字段：{', '.join(missing)}")
+        payload["image"] = ""
+    elif not payload.get("image", current["image"]):
+        raise HTTPException(status_code=422, detail="缺少字段：image")
     updates = []
     params: list[Any] = []
     for api_field, column in field_map.items():
         if api_field in payload:
             value = payload[api_field]
-            if api_field in {"year", "hot", "downloads"}:
+            if api_field in {"year", "downloads"}:
                 value = _normalize_int(value, api_field)
             updates.append(f"{column} = %s")
             params.append(value)
@@ -763,7 +922,7 @@ def admin_create_photo_activity(
                     payload["activity"],
                     payload["description"],
                     _normalize_int(payload["year"], "year"),
-                    _normalize_int(payload.get("hot", 0), "hot"),
+                    0,
                     _normalize_int(payload.get("downloads", 0), "downloads"),
                     _normalize_int(payload.get("sortOrder", _next_activity_sort_order(cursor)), "sortOrder"),
                     _normalize_public_url(payload.get("photoDir")),
@@ -797,7 +956,6 @@ def admin_update_photo_activity(
         "activity": "activity",
         "description": "description",
         "year": "year",
-        "hot": "hot",
         "downloads": "downloads",
         "sortOrder": "sort_order",
         "photoDir": "photo_dir",
@@ -810,7 +968,7 @@ def admin_update_photo_activity(
     for api_field, column in field_map.items():
         if api_field in payload:
             value = payload[api_field]
-            if api_field in {"year", "hot", "downloads", "sortOrder"}:
+            if api_field in {"year", "downloads", "sortOrder"}:
                 value = _normalize_int(value, api_field)
             if api_field == "photoDir":
                 value = _normalize_public_url(value)

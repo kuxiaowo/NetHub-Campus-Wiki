@@ -3,17 +3,30 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta property="og:site_name" content="NetHub Campus Wiki" />
+  <meta property="og:title" content="资源中心 - NetHub Campus Wiki" />
+  <meta property="og:image" content="/og.png" />
+  <meta name="twitter:card" content="summary_large_image" />
   <title>资源中心</title>
-  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=2" />
+  <link rel="stylesheet" href="/css/styles.css?v=nethub-social3" />
 </head>
 <body>
   <header class="site-header">
     <nav class="navbar container">
-      <a class="brand" href="/index.html">校园论坛</a>
+      <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
+        <img class="site-logo" src="/assets/nethub-icon.png?v=2" alt="" />
+        <span class="brand-copy">
+          <strong>NetHub</strong>
+          <small>Campus Wiki</small>
+        </span>
+      </a>
       <div class="nav-links" aria-label="主导航">
         <a href="/index.html">首页</a>
         <a href="/projects.html">CAS 项目库</a>
-        <a class="active" href="/resources.html">资源中心</a>
+        <a class="active" href="/resources.html" aria-current="page">资源中心</a>
+        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到<span class="nav-new-badge">new</span></a>
+        <a href="/about.html">关于我们</a>
       </div>
     </nav>
   </header>
@@ -52,11 +65,6 @@
     <aside class="card sidebar resource-sidebar">
       <h2>资源类型</h2>
       <div id="resourceCategoryList" class="category-list"></div>
-
-      <section id="photoFilters" class="photo-filters" aria-label="照片筛选">
-        <h3>选择活动</h3>
-        <div id="activityList" class="category-list"></div>
-      </section>
     </aside>
 
     <section class="card content-panel resource-panel">
@@ -74,7 +82,7 @@
         <div class="section-title with-control">
           <div>
             <h1 id="photoTitle">活动照片</h1>
-            <span id="photoMeta">选择活动查看照片</span>
+            <span id="photoMeta">正在加载活动...</span>
           </div>
           <button id="downloadActivity" class="button secondary" type="button">下载压缩文件</button>
         </div>
@@ -122,9 +130,26 @@
     </section>
   </div>
 
-  <footer class="footer">资源中心支持年鉴、活动照片和常用资料筛选</footer>
+  <footer class="site-footer">
+    <div class="container site-footer-inner">
+      <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
+        <img class="site-logo" src="/assets/nethub-icon.png?v=2" alt="" />
+        <span class="brand-copy">
+          <strong>NetHub</strong>
+          <small>Campus Wiki</small>
+        </span>
+      </a>
+      <nav class="site-footer-links" aria-label="页脚导航">
+        <a href="/index.html">首页</a>
+        <a href="/projects.html">CAS 项目库</a>
+        <a href="/resources.html">资源中心</a>
+        <a href="/about.html">关于我们</a>
+      </nav>
+      <p class="site-footer-copy">© 2026 NetHub Campus Wiki</p>
+    </div>
+  </footer>
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=auth-ui8"></script>
+  <script src="/js/api.js?v=nethub-social3"></script>
   <script src="/js/resources.js"></script>
 </body>
 </html>

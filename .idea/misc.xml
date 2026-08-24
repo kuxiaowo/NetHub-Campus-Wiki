@@ -3,5 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="campus_wiki" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="campus_wiki" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="nethub_campus_wiki" project-jdk-type="Python SDK" />
 </project>

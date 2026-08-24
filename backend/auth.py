@@ -81,8 +81,13 @@ def format_user(row: dict[str, Any]) -> dict[str, Any]:
         "id": row["id"],
         "username": row["username"],
         "displayName": row.get("display_name"),
+        "avatarUrl": row.get("avatar_url"),
+        "bio": row.get("bio") or "",
         "role": row["role"],
         "isActive": bool(row.get("is_active")),
+        "campusVerified": bool(row.get("campus_verified")),
+        "messagingPermission": row.get("messaging_permission") or "everyone",
+        "linkedPersonId": row.get("person_id"),
         "createdAt": row.get("created_at"),
     }
 
@@ -241,7 +246,16 @@ def decode_access_token(token: str) -> dict[str, Any]:
 def get_user_by_id(user_id: int) -> dict[str, Any] | None:
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM users WHERE id = %s LIMIT 1", (user_id,))
+            cursor.execute(
+                """
+                SELECT u.*, p.id AS person_id
+                FROM users u
+                LEFT JOIN people p ON p.user_id = u.id
+                WHERE u.id = %s
+                LIMIT 1
+                """,
+                (user_id,),
+            )
             row = cursor.fetchone()
     return None if row is None else format_user(row)
 

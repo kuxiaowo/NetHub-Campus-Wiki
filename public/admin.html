@@ -4,17 +4,26 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>管理后台</title>
-  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=2" />
+  <link rel="stylesheet" href="/css/styles.css?v=nethub-social3" />
 </head>
 <body>
   <main class="admin-shell">
     <aside class="admin-sidebar">
-      <a class="brand admin-brand" href="/index.html">校园论坛</a>
+      <a class="brand site-brand admin-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
+        <img class="site-logo" src="/assets/nethub-icon.png?v=2" alt="" />
+        <span class="brand-copy">
+          <strong>NetHub</strong>
+          <small>Campus Wiki</small>
+        </span>
+      </a>
       <nav class="admin-nav" aria-label="管理后台导航">
-        <button class="admin-nav-item active" type="button" data-admin-view="users">用户管理</button>
-        <button class="admin-nav-item" type="button" data-admin-view="files">文件管理</button>
-        <button class="admin-nav-item" type="button" data-admin-view="projects">CAS 项目管理</button>
-        <button class="admin-nav-item" type="button" data-admin-view="resources">资源管理</button>
+        <button class="admin-nav-item active" type="button" data-admin-view="users" aria-pressed="true">用户管理</button>
+        <button class="admin-nav-item" type="button" data-admin-view="people" aria-pressed="false">人员与认领</button>
+        <button class="admin-nav-item" type="button" data-admin-view="files" aria-pressed="false">文件管理</button>
+        <button class="admin-nav-item" type="button" data-admin-view="projects" aria-pressed="false">CAS 项目管理</button>
+        <button class="admin-nav-item" type="button" data-admin-view="resources" aria-pressed="false">资源管理</button>
+        <button class="admin-nav-item" type="button" data-admin-view="community" aria-pressed="false">公告与留言</button>
       </nav>
       <a class="button secondary admin-home-link" href="/index.html">返回前台</a>
     </aside>
@@ -58,6 +67,37 @@
             <button id="refreshUsers" class="button secondary compact" type="button">刷新</button>
           </div>
           <div id="usersTable" class="admin-table-wrap"></div>
+        </section>
+
+        <section class="admin-view" data-admin-panel="people">
+          <div class="admin-section-head">
+            <div>
+              <h2>人员档案与认领</h2>
+              <p>管理已收录但尚未注册的 CAS 成员，并审核账号认领申请。</p>
+            </div>
+            <button id="refreshPeople" class="button secondary compact" type="button">刷新</button>
+          </div>
+          <div class="admin-toolbar">
+            <input id="peopleSearch" class="input" type="search" placeholder="搜索姓名或已绑定昵称" />
+            <select id="peopleStatusFilter" class="input small">
+              <option value="">全部状态</option>
+              <option value="provisional">待认领</option>
+              <option value="claimed">已认领</option>
+              <option value="archived">已归档</option>
+            </select>
+          </div>
+          <section class="admin-subsection">
+            <h3>待审核认领</h3>
+            <div id="personClaimsTable" class="admin-table-wrap"></div>
+          </section>
+          <section class="admin-subsection">
+            <h3>人员档案</h3>
+            <div id="peopleTable" class="admin-table-wrap"></div>
+          </section>
+          <section class="admin-subsection">
+            <h3>待处理私信举报</h3>
+            <div id="messageReportsTable" class="admin-table-wrap"></div>
+          </section>
         </section>
 
         <section class="admin-view" data-admin-panel="files">
@@ -234,6 +274,27 @@
           </div>
         </section>
 
+        <section class="admin-view" data-admin-panel="community">
+          <div class="admin-section-head">
+            <div>
+              <h2>公告与留言</h2>
+              <p>发布首页公告，并集中处理资源、项目和公告下的留言举报。</p>
+            </div>
+            <div class="admin-detail-actions">
+              <button id="refreshCommunity" class="button secondary compact" type="button">刷新</button>
+              <button id="createAnnouncementButton" class="button compact" type="button">新建公告</button>
+            </div>
+          </div>
+          <section class="admin-subsection">
+            <h3>公告管理</h3>
+            <div id="announcementsTable" class="admin-table-wrap"></div>
+          </section>
+          <section class="admin-subsection">
+            <h3>待处理留言举报</h3>
+            <div id="commentReportsTable" class="admin-table-wrap"></div>
+          </section>
+        </section>
+
       </div>
     </section>
   </main>
@@ -292,7 +353,7 @@
   </div>
 
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=admin-user-name"></script>
-  <script src="/js/admin.js?v=user-name"></script>
+  <script src="/js/api.js?v=nethub-social3"></script>
+  <script src="/js/admin.js?v=nethub-comments1"></script>
 </body>
 </html>

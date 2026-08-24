@@ -89,13 +89,6 @@ function enabledCasTags(cas) {
   )).join('');
 }
 
-function collectProjectMedia(project) {
-  return asArray(project.media)
-    .map((item) => mediaUrl(item))
-    .map(safeDetailUrl)
-    .filter(Boolean);
-}
-
 function mediaUrl(item) {
   return typeof item === 'object' && item !== null
     ? firstFilled(item.url, item.src, item.href, item.poster, item.cover, item.thumbnail)
@@ -108,9 +101,7 @@ function mediaKind(item) {
 }
 
 function firstProjectImage(project) {
-  const mediaImage = collectProjectMedia(project).find(isImageUrl);
-  const icon = safeDetailUrl(project.icon);
-  return icon || mediaImage || null;
+  return safeDetailUrl(project.icon) || null;
 }
 
 function renderHero(project) {
@@ -121,7 +112,7 @@ function renderHero(project) {
 
   return `
     <section class="card detail-hero">
-      <div class="detail-hero-visual project-visual" data-initial="${initials(project.name)}">
+      <div class="detail-hero-visual project-visual${image ? ' has-image' : ''}" data-initial="${initials(project.name)}">
         ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(project.name)}" data-fallback loading="lazy" />` : ''}
       </div>
       <div class="detail-hero-copy">
@@ -185,7 +176,6 @@ function metricValue(...values) {
 
 function normalizeUpdates(project) {
   const rawUpdates = asArray(project.updates);
-  const projectMedia = asArray(project.media);
   const fallbackDate = firstFilled(project.updatedAt, project.createdAt);
 
   const updates = rawUpdates.map((item, index) => {
@@ -234,25 +224,6 @@ function normalizeUpdates(project) {
       shares: null,
     };
   }).filter((item) => item.content || item.images.length || item.videos.length);
-
-  const legacyMediaImages = normalizeImages(projectMedia);
-  const legacyMediaVideos = normalizeVideos(projectMedia);
-  if (legacyMediaImages.length || legacyMediaVideos.length) {
-    updates.push({
-      index: rawUpdates.length,
-      author: firstFilled(project.leader, '项目成员'),
-      avatar: null,
-      role: project.leader ? '负责人' : '成员',
-      date: fallbackDate,
-      content: '',
-      images: legacyMediaImages,
-      videos: legacyMediaVideos,
-      likes: null,
-      comments: null,
-      shares: null,
-      isMediaOnly: true,
-    });
-  }
 
   return updates.sort((a, b) => {
     const timeA = new Date(a.date).getTime();
@@ -351,8 +322,8 @@ function renderFeed(project) {
 function normalizeMembers(project) {
   const parsed = tryJson(project.members);
   const memberSources = [
-    parsed,
     project.memberList,
+    parsed,
     project.memberContacts,
     project.contacts,
   ].map(tryJson).find((value) => {
@@ -364,10 +335,16 @@ function normalizeMembers(project) {
   const memberFromObject = (member) => ({
     name: firstFilled(member.name, member.displayName, member.username),
     role: cleanText(member.role),
-    avatar: safeDetailUrl(firstFilled(member.avatar, member.photo, member.image)),
+    avatar: safeDetailUrl(firstFilled(member.avatarUrl, member.avatar, member.photo, member.image)),
     phone: firstFilled(member.phone, member.tel, member.mobile),
     email: firstFilled(member.email, member.mail),
+    contactType: firstFilled(member.contactType, member.contact_type).toLowerCase(),
+    contactValue: firstFilled(member.contactValue, member.contact_value, member.contact),
     info: [member.className, member.class, member.grade, member.major, member.school].map(cleanText).filter(Boolean).join(' · '),
+    personId: member.personId || null,
+    userId: member.userId || null,
+    username: cleanText(member.username),
+    registered: Boolean(member.registered || member.userId),
   });
 
   if (Array.isArray(memberSources)) {
@@ -375,7 +352,7 @@ function normalizeMembers(project) {
       if (member && typeof member === 'object') {
         return memberFromObject(member);
       }
-      return { name: cleanText(member), role: '', avatar: null, phone: '', email: '', info: '' };
+      return { name: cleanText(member), role: '', avatar: null, phone: '', email: '', info: '', personId: null, userId: null, username: '', registered: false };
     });
   } else if (memberSources && typeof memberSources === 'object') {
     const nestedMembers = firstFilled(memberSources.members, memberSources.items, memberSources.list)
@@ -385,24 +362,39 @@ function normalizeMembers(project) {
       if (member && typeof member === 'object') {
         return memberFromObject(member);
       }
-      return { name: cleanText(member), role: '', avatar: null, phone: '', email: '', info: '' };
+      return { name: cleanText(member), role: '', avatar: null, phone: '', email: '', info: '', personId: null, userId: null, username: '', registered: false };
     });
   } else {
     members = cleanText(memberSources)
       .split(/[,，、\n]/)
-      .map((name) => ({ name: cleanText(name), role: '', avatar: null, phone: '', email: '', info: '' }));
+      .map((name) => ({ name: cleanText(name), role: '', avatar: null, phone: '', email: '', info: '', personId: null, userId: null, username: '', registered: false }));
   }
 
   const leader = cleanText(project.leader);
   members = members.filter((member) => member.name);
   if (leader && !members.some((member) => member.name === leader)) {
-    members.unshift({ name: leader, role: '负责人', avatar: null, phone: '', email: '', info: '' });
+    members.unshift({ name: leader, role: '负责人', avatar: null, phone: '', email: '', info: '', personId: null, userId: null, username: '', registered: false });
   }
 
   return members.map((member) => ({
     ...member,
     role: member.role || (leader && member.name === leader ? '负责人' : '成员'),
   }));
+}
+
+function renderMemberContact(member) {
+  const type = cleanText(member.contactType).toLowerCase();
+  const value = cleanText(member.contactValue);
+  if (value) {
+    if (type === 'phone') return `<a href="tel:${escapeHtml(value)}">电话 ${escapeHtml(value)}</a>`;
+    if (type === 'email') return `<a href="mailto:${escapeHtml(value)}">邮箱 ${escapeHtml(value)}</a>`;
+    const labels = { wechat: '微信', other: '其他联系方式' };
+    return `<span>${escapeHtml(labels[type] || '联系方式')} ${escapeHtml(value)}</span>`;
+  }
+  return `
+    ${member.phone ? `<a href="tel:${escapeHtml(member.phone)}">电话 ${escapeHtml(member.phone)}</a>` : ''}
+    ${member.email ? `<a href="mailto:${escapeHtml(member.email)}">邮箱 ${escapeHtml(member.email)}</a>` : ''}
+  `;
 }
 
 function renderMembers(project) {
@@ -422,13 +414,19 @@ function renderMembers(project) {
               </span>
               <div class="member-body">
                 <div class="member-title">
-                  <strong>${escapeHtml(member.name)}</strong>
-                  ${member.role ? `<span>${escapeHtml(member.role)}</span>` : ''}
+                  ${member.userId
+                    ? `<a href="/user.html?id=${encodeURIComponent(member.userId)}"><strong>${escapeHtml(member.name)}</strong></a>`
+                    : `<strong>${escapeHtml(member.name)}</strong>`}
+                  ${member.role ? `<span>${escapeHtml(member.role === 'leader' ? '负责人' : member.role === 'member' ? '成员' : member.role)}</span>` : ''}
                 </div>
                 ${member.info ? `<p>${escapeHtml(member.info)}</p>` : ''}
                 <div class="member-contact">
-                  ${member.phone ? `<a href="tel:${escapeHtml(member.phone)}">电话 ${escapeHtml(member.phone)}</a>` : ''}
-                  ${member.email ? `<a href="mailto:${escapeHtml(member.email)}">邮箱 ${escapeHtml(member.email)}</a>` : ''}
+                  ${renderMemberContact(member)}
+                  ${member.userId
+                    ? `<a class="member-action-link" href="/messages.html?targetUserId=${encodeURIComponent(member.userId)}&projectId=${encodeURIComponent(project.id)}">发私信</a>`
+                    : member.personId
+                      ? `<button class="member-action-link" type="button" data-claim-person="${escapeHtml(member.personId)}">尚未注册 · 认领档案</button>`
+                      : '<span class="member-unregistered">尚未注册</span>'}
                 </div>
               </div>
             </article>
@@ -444,6 +442,7 @@ function bindDetailInteractions() {
   document.querySelectorAll('img[data-fallback]').forEach((img) => {
     img.addEventListener('error', () => {
       const frame = img.closest('.image-frame, .project-visual, .member-avatar');
+      frame?.classList.remove('has-image');
       frame?.classList.add('is-failed');
       img.remove();
     }, { once: true });
@@ -454,9 +453,32 @@ function bindDetailInteractions() {
     const expanded = panel.classList.toggle('is-expanded');
     event.currentTarget.textContent = expanded ? '收起成员列表' : '查看全部成员';
   });
+
+  document.querySelectorAll('[data-claim-person]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      if (!getAuthToken()) {
+        window.alert('请先登录，再提交人员档案认领申请。');
+        return;
+      }
+      const note = window.prompt('请填写便于管理员核验的说明（例如班级、项目分工）。', '') ?? null;
+      if (note === null) return;
+      button.disabled = true;
+      try {
+        await request(`/people/${encodeURIComponent(button.dataset.claimPerson)}/claims`, {
+          method: 'POST',
+          body: JSON.stringify({ note: note.trim() }),
+        });
+        button.textContent = '已提交认领，等待审核';
+      } catch (error) {
+        window.alert(error.message);
+        button.disabled = false;
+      }
+    });
+  });
 }
 
 function renderProject(project) {
+  document.querySelector('#projectComments')?.classList.remove('is-hidden');
   document.title = `${project.name || '项目详情'} - NetHub Campus Wiki`;
   renderBreadcrumb(project);
   projectDetail.innerHTML = `
@@ -468,9 +490,11 @@ function renderProject(project) {
     </div>
   `;
   bindDetailInteractions();
+  mountCommentSection(document.querySelector('#projectComments'), 'project', project.id);
 }
 
 function renderError(message) {
+  document.querySelector('#projectComments')?.classList.add('is-hidden');
   detailBreadcrumb.innerHTML = '<a href="/projects.html">项目库</a><span>无法加载</span>';
   projectDetail.innerHTML = `
     <section class="card detail-state">

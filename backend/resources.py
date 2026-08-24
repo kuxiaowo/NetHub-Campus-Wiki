@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 from backend.config import settings
 from backend.database import get_db_connection
+from backend.resource_types import resource_type_options
 
 ResourceSort = Literal["hot", "new", "old", "download"]
 PhotoSort = Literal["hot", "new", "old", "photoCount", "download"]
@@ -247,6 +248,25 @@ def format_resource(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def get_resource(
+    resource_id: int,
+    *,
+    track_view: bool = False,
+    viewer_user_id: int | None = None,
+) -> dict[str, Any] | None:
+    """读取单个普通资源，并可按前台浏览行为自动累计热度。"""
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            if track_view and _can_track_hot("resource", resource_id, viewer_user_id):
+                cursor.execute("UPDATE resources SET hot = hot + 1 WHERE id = %s", (resource_id,))
+                if cursor.rowcount:
+                    _mark_hot_tracked("resource", resource_id, viewer_user_id)
+            cursor.execute("SELECT * FROM resources WHERE id = %s LIMIT 1", (resource_id,))
+            row = cursor.fetchone()
+    return format_resource(row) if row else None
+
+
 def bump_resource_metric(resource_id: int, metric: ResourceMetric) -> dict[str, Any] | None:
     """Increment one public resource counter and return the updated resource."""
 
@@ -371,30 +391,17 @@ def get_yearbook_detail(
 
 
 def list_resource_meta() -> dict[str, list[dict[str, Any]] | list[int]]:
-    """查询资源中心筛选器需要的分类和年份。"""
+    """Return fixed resource types and the years currently present in data."""
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT value, label, sort_order
-                FROM resource_categories
-                WHERE is_active = 1
-                ORDER BY sort_order ASC, id ASC
-                """
-            )
-            categories = [
-                {"value": row["value"], "label": row["label"], "sortOrder": row["sort_order"]}
-                for row in cursor.fetchall()
-            ]
-
             cursor.execute("SELECT DISTINCT year FROM resources ORDER BY year DESC")
             years = [row["year"] for row in cursor.fetchall()]
 
             cursor.execute("SELECT DISTINCT year FROM photo_activities ORDER BY year DESC")
             photo_years = [row["year"] for row in cursor.fetchall()]
 
-    return {"categories": categories, "years": years, "photoYears": photo_years}
+    return {"categories": resource_type_options(), "years": years, "photoYears": photo_years}
 
 
 def list_resources(

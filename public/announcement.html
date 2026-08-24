@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="NetHub Campus Wiki 公告详情与留言。" />
+  <meta property="og:site_name" content="NetHub Campus Wiki" />
+  <meta property="og:title" content="公告详情 - NetHub Campus Wiki" />
+  <meta property="og:image" content="/og.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <title>公告详情 - NetHub Campus Wiki</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=2" />
+  <link rel="stylesheet" href="/css/styles.css?v=nethub-social3" />
+</head>
+<body>
+  <header class="site-header">
+    <nav class="navbar container">
+      <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
+        <img class="site-logo" src="/assets/nethub-icon.png?v=2" alt="" />
+        <span class="brand-copy"><strong>NetHub</strong><small>Campus Wiki</small></span>
+      </a>
+      <div class="nav-links" aria-label="主导航">
+        <a href="/index.html">首页</a>
+        <a href="/projects.html">CAS 项目库</a>
+        <a href="/resources.html">资源中心</a>
+        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到<span class="nav-new-badge">new</span></a>
+        <a href="/about.html">关于我们</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="container content-detail-layout">
+    <nav class="detail-breadcrumb" aria-label="面包屑"><a href="/announcements.html">全部公告</a><span id="announcementBreadcrumb">加载中</span></nav>
+    <article id="announcementDetail" class="card announcement-detail" aria-live="polite">
+      <div class="empty">正在加载公告...</div>
+    </article>
+    <section id="announcementComments" class="card comments-section" aria-label="公告留言"></section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container site-footer-inner">
+      <a class="brand site-brand" href="/index.html"><img class="site-logo" src="/assets/nethub-icon.png?v=2" alt="" /><span class="brand-copy"><strong>NetHub</strong><small>Campus Wiki</small></span></a>
+      <nav class="site-footer-links"><a href="/index.html">首页</a><a href="/announcements.html">全部公告</a><a href="/projects.html">CAS 项目库</a><a href="/resources.html">资源中心</a></nav>
+      <p class="site-footer-copy">© 2026 NetHub Campus Wiki</p>
+    </div>
+  </footer>
+
+  <script src="/js/config.js"></script>
+  <script src="/js/api.js?v=nethub-social3"></script>
+  <script src="/js/comments.js?v=nethub-comments1"></script>
+  <script src="/js/announcement.js?v=nethub-comments1"></script>
+</body>
+</html>
