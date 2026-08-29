@@ -17,6 +17,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse
 from PIL import Image, UnidentifiedImageError
+from backend.config import settings
 from backend.auth import (
     create_user,
     format_user,
@@ -88,8 +89,8 @@ WINDOWS_RESERVED_NAMES = {
     *(f"COM{index}" for index in range(1, 10)),
     *(f"LPT{index}" for index in range(1, 10)),
 }
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024
-MAX_PROJECT_PHOTO_BYTES = 50 * 1024 * 1024
+MAX_UPLOAD_BYTES = settings.upload_max_bytes
+MAX_PROJECT_PHOTO_BYTES = settings.project_photo_max_bytes
 
 
 def require_admin_user(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
@@ -1112,9 +1113,7 @@ def admin_list_resources(
 def admin_create_resource(payload: dict[str, Any], _: dict[str, Any] = Depends(require_admin_user)):
     resource_type = _require_resource_row_type(payload.get("category"))
     required = ["title", "year", "category", "resourceUrl"]
-    if resource_type.value == "teacher":
-        required.append("description")
-    elif resource_type.value != "yearbook":
+    if resource_type.value not in {"teacher", "yearbook"}:
         required.append("image")
     missing = [field for field in required if payload.get(field) in {None, ""}]
     if missing:
@@ -1125,7 +1124,7 @@ def admin_create_resource(payload: dict[str, Any], _: dict[str, Any] = Depends(r
         if not image:
             raise HTTPException(status_code=422, detail="Yearbook 目录中必须至少有一张图片作为封面和第一页")
     elif resource_type.value == "teacher":
-        image = ""
+        image = str(image or "").strip()
         payload["downloads"] = 0
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
@@ -1200,14 +1199,13 @@ def admin_update_resource(
     elif resource_type.value == "teacher":
         required_values = {
             "title": payload.get("title", current["title"]),
-            "description": payload.get("description", current["description"]),
             "year": payload.get("year", current["year"]),
             "resourceUrl": next_resource_url,
         }
         missing = [field for field, value in required_values.items() if value in {None, ""}]
         if missing:
             raise HTTPException(status_code=422, detail=f"缺少字段：{', '.join(missing)}")
-        payload["image"] = ""
+        payload["image"] = str(payload.get("image", current["image"]) or "").strip()
     elif not payload.get("image", current["image"]):
         raise HTTPException(status_code=422, detail="缺少字段：image")
     updates = []

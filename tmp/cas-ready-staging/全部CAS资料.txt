@@ -23,7 +23,7 @@ CAS 小组人工录入资料索引
 仍待确认的共性信息：
 - Herspark 的正式英文大小写及是否分词。
 - Herspark、The Familish 的负责人。
-- Herspark 的 Aurora 唐家悦、Ride Royce 全体成员、NetHub 的李亦涵和李柏鸿缺少联系方式。
+- Herspark 的唐家悦 Aurora、Ride Royce 全体成员、NetHub 的李亦涵 Nimo 和李柏鸿 Brandon 缺少联系方式。
 - The Familish 的联系值类型未注明。
 - COMPESISTANT 尚未提供近期线下活动资料，学期计划也未注明日期、负责人和完成标准。
 - COMPESISTANT 除 David 外的其他成员未提供联系方式；David 被设为负责人属于基于唯一对外联系方式作出的录入判断。

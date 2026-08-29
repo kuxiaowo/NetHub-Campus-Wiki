@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from backend.config import PROJECT_ROOT
+from backend.config import PROJECT_ROOT, settings
 from backend.database import get_db_connection
 from backend.project_assets import (
     ProjectAssetError,
@@ -29,7 +29,7 @@ from backend.resource_types import get_resource_type
 
 TRANSFER_FORMAT = "nethub-campus-wiki-data"
 TRANSFER_VERSION = 2
-MAX_IMPORT_BYTES = 5 * 1024 * 1024
+MAX_IMPORT_BYTES = settings.data_import_max_bytes
 PUBLIC_DIR = PROJECT_ROOT / "public"
 WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:[/\\]")
 URL_SCHEME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
@@ -321,7 +321,7 @@ def _normalize_resource(
     image_required = category == "other"
     return {
         "title": _text(item.get("title"), f"{path}.title", errors, required=True),
-        "description": _text(item.get("description"), f"{path}.description", errors, required=category == "teacher"),
+        "description": _text(item.get("description"), f"{path}.description", errors),
         "year": _integer(item.get("year"), f"{path}.year", errors, minimum=1900),
         "category": category,
         "label": resource_type.label,

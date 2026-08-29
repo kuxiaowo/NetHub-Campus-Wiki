@@ -115,5 +115,5 @@ WHEN NEW.updated_at = OLD.updated_at BEGIN
   UPDATE photo_activities SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
--- 空数据库初始化时只创建结构，不预置业务数据或账号。
+-- 新数据库只创建结构。业务数据和首个管理员均由部署者显式录入。
 PRAGMA user_version = 1;

@@ -483,12 +483,12 @@ curl http://127.0.0.1:3100/api/resources/meta
 | `label` | `string` | 资源分类展示名 |
 | `hot` | `number` | 热度 |
 | `downloads` | `number` | 下载次数 |
-| `image` | `string` | 卡片缩略图或详情封面 URL；本地 `teacher` 视频会动态返回首帧缩略图，外部视频无法生成时为空字符串 |
+| `image` | `string` | 卡片缩略图或详情封面 URL；`teacher` 优先返回自定义封面，未填写时本地视频动态返回首帧缩略图，外部视频无法生成时为空字符串 |
 | `resourceUrl` | `string` | 资源访问、下载或浏览器可直接播放的视频 URL |
 | `createdAt` | `string | null` | 创建时间 |
 | `updatedAt` | `string | null` | 更新时间 |
 
-资源中心卡片不再使用 icon 字段，展示缩略图，文字只显示标题和年份，点击整张卡片进入资源详情页。普通资源的 `image` 同时用于卡片和详情页；本地 `teacher` 视频的 `image` 是动态生成的首帧 WebP，列表不内嵌视频，详情页才使用 `resourceUrl` 渲染播放器。
+资源中心卡片不再使用 icon 字段，展示缩略图，文字只显示标题和年份，点击整张卡片进入资源详情页。普通资源的 `image` 同时用于卡片和详情页；`teacher` 可填写自定义封面，未填写时本地视频的 `image` 是动态生成的首帧 WebP。列表不内嵌视频，详情页才使用 `resourceUrl` 渲染播放器，并将最终封面用作播放器 poster。
 
 ### 参数错误
 
@@ -813,7 +813,7 @@ JSON 迁移覆盖 CAS 项目（含成员联系方式与动态）、普通资源�
 
 资源字段包括：`title`、`description`、`year`、`category`、`label`、`hot`、`downloads`、`image`、`resourceUrl`。其中 `hot` 是只读统计字段：创建时固定为 `0`，后台创建和编辑接口均不接受人工设置。
 
-创建 `teacher` 分类资源时，`title`、`description`、`year` 和 `resourceUrl` 必填；后端将 `label` 固定为“老师驾到”、数据库中的 `image` 固定为空字符串，并让热度和下载数使用默认值。公开接口会为 `public/` 下的本地视频动态补充首帧缩略图 URL。视频 URL 必须指向浏览器可直接播放的文件或直链，而不是视频平台的普通页面地址。
+创建 `teacher` 分类资源时，`title`、`year` 和 `resourceUrl` 必填，`description` 与 `image` 选填；后端将 `label` 固定为“老师驾到”，并让热度和下载数使用默认值。填写 `image` 时公开接口优先返回该封面；未填写时会为 `public/` 下的本地视频动态补充首帧缩略图 URL。视频 URL 必须指向浏览器可直接播放的文件或直链，而不是视频平台的普通页面地址。
 
 活动的 `sortOrder` 是人工排序权重，数字越小越靠前；固定资源类型的顺序由代码定义。普通资源卡片和单张照片卡片不使用人工排序。
 

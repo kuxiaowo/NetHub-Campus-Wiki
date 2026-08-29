@@ -11,15 +11,16 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from backend.auth import get_current_user
+from backend.config import settings
 from backend.database import get_db_connection
 from backend.project_assets import project_icon_url
 
 router = APIRouter(prefix="/api", tags=["messages"])
 
-MAX_MESSAGE_LENGTH = 2000
-RECALL_WINDOW_SECONDS = 120
-SEND_RATE_PER_MINUTE = 30
-STREAM_TICKET_TTL_SECONDS = 60
+MAX_MESSAGE_LENGTH = settings.message_max_length
+RECALL_WINDOW_SECONDS = settings.message_recall_window_seconds
+SEND_RATE_PER_MINUTE = settings.message_rate_per_minute
+STREAM_TICKET_TTL_SECONDS = settings.stream_ticket_ttl_seconds
 _stream_tickets: dict[str, tuple[int, float]] = {}
 
 

@@ -680,14 +680,34 @@ function initAuthNav() {
   refreshCurrentUser().then(renderUser);
 }
 
-function projectIconImage(project) {
+const PROJECT_LOGO_FALLBACK_MAX_LENGTH = 8;
+
+function projectLogoFallbackText(value) {
+  const compactName = String(value || '项目')
+    .trim()
+    .replace(/[\s._·•—–-]+/g, '');
+  return Array.from(compactName || '项目')
+    .slice(0, PROJECT_LOGO_FALLBACK_MAX_LENGTH)
+    .join('')
+    .toLocaleUpperCase('en-US');
+}
+
+function projectLogoTextClass(value) {
+  const length = Array.from(value).length;
+  if (length <= 4) return 'logo-text-short';
+  if (length <= 6) return 'logo-text-medium';
+  return 'logo-text-long';
+}
+
+function projectIconImage(project, options = {}) {
   const rawIcon = String(project.icon || '');
   const iconSource = /^(https?:|\/)/i.test(rawIcon) ? rawIcon : '';
   const iconUrl = safeExternalUrl(iconSource);
   const hasIcon = Boolean(iconSource && iconUrl !== '#');
-  const initial = String(project.name || '项').trim().charAt(0).toUpperCase() || '项';
+  const fallbackText = projectLogoFallbackText(project.name);
+  const frameClass = String(options.className || 'project-icon').trim() || 'project-icon';
   return `
-    <div class="project-icon${hasIcon ? ' has-image' : ''}" data-initial="${escapeHtml(initial)}">
+    <div class="${frameClass} project-logo-frame ${projectLogoTextClass(fallbackText)}${hasIcon ? ' has-image' : ''}" data-project-logo data-logo-text="${escapeHtml(fallbackText)}">
       ${hasIcon ? `<img src="${iconUrl}" alt="${escapeHtml(project.name)}" loading="lazy" data-project-icon>` : ''}
     </div>
   `;
@@ -696,7 +716,7 @@ function projectIconImage(project) {
 document.addEventListener('error', (event) => {
   const image = event.target;
   if (!(image instanceof HTMLImageElement) || !image.matches('[data-project-icon]')) return;
-  const frame = image.closest('.project-icon');
+  const frame = image.closest('[data-project-logo]');
   frame?.classList.remove('has-image');
   frame?.classList.add('is-failed');
   image.remove();

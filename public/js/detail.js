@@ -100,21 +100,14 @@ function mediaKind(item) {
   return firstFilled(item.type, item.kind, item.mediaType).toLowerCase();
 }
 
-function firstProjectImage(project) {
-  return safeDetailUrl(project.icon) || null;
-}
-
 function renderHero(project) {
-  const image = firstProjectImage(project);
   const summary = truncateText(project.description || '', 128);
   const year = cleanText(project.year);
   const category = cleanText(project.category);
 
   return `
     <section class="card detail-hero">
-      <div class="detail-hero-visual project-visual${image ? ' has-image' : ''}" data-initial="${initials(project.name)}">
-        ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(project.name)}" data-fallback loading="lazy" />` : ''}
-      </div>
+      ${projectIconImage(project, { className: 'detail-hero-visual project-visual' })}
       <div class="detail-hero-copy">
         <h1>${escapeHtml(project.name || '未命名项目')}</h1>
         <div class="detail-hero-meta">

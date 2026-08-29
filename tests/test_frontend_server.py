@@ -5,17 +5,22 @@ from __future__ import annotations
 import os
 import threading
 import unittest
-from urllib.request import urlopen
+from unittest.mock import patch
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 os.environ["FRONTEND_API_BASE_URL"] = "http://127.0.0.1:33100/api"
 
-from frontend_server import FrontendHandler  # noqa: E402
+from frontend_server import FrontendHandler, PUBLIC_DIR, frontend_api_base_url  # noqa: E402
 from http.server import ThreadingHTTPServer  # noqa: E402
 
 
 class FrontendServerTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        cls.range_fixture = PUBLIC_DIR / "__range-test__.mp4"
+        cls.range_fixture_bytes = bytes(range(256)) * 8
+        cls.range_fixture.write_bytes(cls.range_fixture_bytes)
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), FrontendHandler)
         cls.port = cls.server.server_address[1]
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
@@ -26,6 +31,7 @@ class FrontendServerTest(unittest.TestCase):
         cls.server.shutdown()
         cls.server.server_close()
         cls.thread.join(timeout=2)
+        cls.range_fixture.unlink(missing_ok=True)
 
     def fetch(self, path: str) -> tuple[int, bytes, str]:
         with urlopen(f"http://127.0.0.1:{self.port}{path}", timeout=3) as response:
@@ -73,6 +79,47 @@ class FrontendServerTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(content_type, "application/javascript")
         self.assertIn(b"http://127.0.0.1:33100/api", body)
+
+    def test_default_api_config_follows_request_hostname(self) -> None:
+        with patch.dict(os.environ, {"FRONTEND_API_BASE_URL": "", "API_PORT": "3100"}):
+            self.assertEqual(
+                frontend_api_base_url("192.168.1.20:3200"),
+                "http://192.168.1.20:3100/api",
+            )
+            self.assertEqual(
+                frontend_api_base_url("[fd00::20]:3200"),
+                "http://[fd00::20]:3100/api",
+            )
+
+    def test_static_files_support_single_byte_ranges(self) -> None:
+        request = Request(
+            f"http://127.0.0.1:{self.port}/__range-test__.mp4",
+            headers={"Range": "bytes=100-199"},
+        )
+        with urlopen(request, timeout=3) as response:
+            self.assertEqual(response.status, 206)
+            self.assertEqual(response.headers["Accept-Ranges"], "bytes")
+            self.assertEqual(response.headers["Content-Range"], "bytes 100-199/2048")
+            self.assertEqual(response.headers["Content-Length"], "100")
+            self.assertEqual(response.read(), self.range_fixture_bytes[100:200])
+
+        request = Request(
+            f"http://127.0.0.1:{self.port}/__range-test__.mp4",
+            headers={"Range": "bytes=-32"},
+        )
+        with urlopen(request, timeout=3) as response:
+            self.assertEqual(response.status, 206)
+            self.assertEqual(response.headers["Content-Range"], "bytes 2016-2047/2048")
+            self.assertEqual(response.read(), self.range_fixture_bytes[-32:])
+
+        request = Request(
+            f"http://127.0.0.1:{self.port}/__range-test__.mp4",
+            headers={"Range": "bytes=4096-"},
+        )
+        with self.assertRaises(HTTPError) as raised:
+            urlopen(request, timeout=3)
+        self.assertEqual(raised.exception.code, 416)
+        self.assertEqual(raised.exception.headers["Content-Range"], "bytes */2048")
 
     def test_admin_json_transfer_assets_are_served(self) -> None:
         status, body, content_type = self.fetch("/admin.html")
@@ -138,13 +185,30 @@ class FrontendServerTest(unittest.TestCase):
         self.assertEqual(about_page.count(b"data-member-name"), 4)
         self.assertEqual(about_page.count(b"data-member-contact"), 4)
         self.assertEqual(about_page.count("微信：".encode("utf-8")), 4)
-        for member_name in ("庞正心（Steve）", "田思源（Kipper）", "李亦涵（Nimo）", "李柏鸿（Brandon）"):
+        for member_name in ("庞正心 Steve", "田思源 Kipper", "李亦涵 Nimo", "李柏鸿 Brandon"):
             self.assertIn(member_name.encode("utf-8"), about_page)
         self.assertIn(about_script_type, {"application/javascript", "text/javascript"})
         self.assertIn(b"/projects?search=NetHub", about_script)
         self.assertIn(b"/user.html?id=", about_script)
         self.assertIn(b"member.contactValue", about_script)
         self.assertNotIn(b"data-bind-project-member", about_page)
+
+    def test_project_logo_fallback_is_shared_and_fills_the_middle_row(self) -> None:
+        _, shared_script, _ = self.fetch("/js/api.js")
+        _, detail_script, _ = self.fetch("/js/detail.js")
+        _, stylesheet, _ = self.fetch("/css/styles.css")
+
+        self.assertIn(b"PROJECT_LOGO_FALLBACK_MAX_LENGTH = 8", shared_script)
+        self.assertIn(b"projectLogoFallbackText", shared_script)
+        self.assertIn(b"data-logo-text", shared_script)
+        self.assertNotIn(b"charAt(0).toUpperCase()", shared_script)
+        self.assertIn(
+            b"projectIconImage(project, { className: 'detail-hero-visual project-visual' })",
+            detail_script,
+        )
+        self.assertNotIn(b"initials(project.name)", detail_script)
+        self.assertIn(b".project-logo-frame::before", stylesheet)
+        self.assertIn(b"text-align-last: justify", stylesheet)
 
     def test_teacher_video_navigation_and_rendering_assets(self) -> None:
         for path in (
@@ -225,8 +289,14 @@ class FrontendServerTest(unittest.TestCase):
         self.assertNotIn(b"<video", resource_script)
         self.assertNotIn(b"<video", admin_script)
         self.assertIn(b"<video", detail_script)
+        self.assertIn(b"poster=", detail_script)
+        self.assertIn(b"is-video-detail", detail_script)
         self.assertIn(b"?track=false", detail_script)
         self.assertIn(b"preview=admin", admin_script)
+        self.assertIn("封面 URL（选填）".encode("utf-8"), admin_script)
+        self.assertIn("简介（选填）".encode("utf-8"), admin_script)
+        self.assertIn(b"openResourceModal({ category: adminState.resourceCategory || 'other' })", admin_script)
+        self.assertNotIn(b"type: 'hidden', includeHidden: true", admin_script)
         self.assertNotIn("查看详情与留言".encode("utf-8"), resource_script)
 
         self.assertNotIn(b'id="photoFilters"', resource_page)

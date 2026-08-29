@@ -12,7 +12,7 @@ DATABASE_PATH=data/campus_wiki.db
 ```
 
 相对路径以项目根目录为基准，也可以配置绝对路径。后端首次连接一个空数据库时，
-自动执行 `sql/schema.sql`，只创建表、索引、外键和触发器，不创建业务数据或用户账号。
+自动执行 `sql/schema.sql`，只创建表、索引、外键和触发器，不插入业务数据或用户账号。
 脚本最后设置 `PRAGMA user_version = 1`，后端以此判断数据库是否已经初始化。
 
 首次部署通过 `python -m backend.bootstrap_admin --username <昵称>` 交互式创建首个管理员。该命令在已有启用中的管理员时会拒绝执行，密码也不会作为命令行参数传递。
@@ -21,7 +21,8 @@ DATABASE_PATH=data/campus_wiki.db
 
 - `foreign_keys = ON`：启用外键与级联删除。
 - `journal_mode = WAL`：提升并发读写体验。
-- `busy_timeout = 5000`：数据库短暂占用时最多等待 5 秒。
+- `busy_timeout`：由 `.env` 的 `DATABASE_BUSY_TIMEOUT_MS` 控制，默认 5000 毫秒。
+- 连接等待时间：由 `.env` 的 `DATABASE_CONNECT_TIMEOUT_SECONDS` 控制，默认 5 秒。
 - `recursive_triggers = OFF`：更新时间触发器不递归执行。
 
 数据库查看器和在线“修复表结构”接口已经删除。后续结构变更应采用版本化迁移
@@ -77,7 +78,8 @@ resources ─────┘       │
 
 保存普通资源、Yearbook 和“老师驾到”视频。活动照片不写入该表。`resource_url`
 保存资源文件、Yearbook 目录或浏览器可直接播放的视频 URL；“老师驾到”的
-`image` 保存为空字符串，其他普通资源使用 `image` 保存封面 URL。
+`image` 保存选填的自定义封面 URL，留空时接口会尝试使用本地视频首帧；其他普通资源
+使用 `image` 保存封面 URL。
 
 资源类型不是数据库内容。`yearbook`、`photos`、`teacher` 和 `other` 固定定义在
 `backend/resource_types.py`，分别选择 Yearbook、活动照片、老师视频和普通资源处理逻辑。

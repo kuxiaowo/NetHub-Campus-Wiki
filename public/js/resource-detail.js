@@ -1,4 +1,5 @@
 const resourceDetail = document.querySelector('#resourceDetail');
+const resourceDetailLayout = resourceDetail.closest('.content-detail-layout');
 const resourceBreadcrumb = document.querySelector('#resourceBreadcrumb');
 const resourceComments = document.querySelector('#resourceComments');
 const resourceParams = new URLSearchParams(window.location.search);
@@ -14,6 +15,7 @@ async function loadResourceDetail() {
   const image = safeExternalUrl(resource.image);
   const isTeacherVideo = resource.category === 'teacher';
   const videoUrl = safeExternalUrl(resource.resourceUrl);
+  resourceDetailLayout?.classList.toggle('is-video-detail', isTeacherVideo);
   if (isTeacherVideo) {
     document.querySelectorAll('.teacher-nav-link').forEach((link) => {
       link.classList.add('active');
@@ -26,7 +28,7 @@ async function loadResourceDetail() {
   }
   const media = isTeacherVideo
     ? `<div class="resource-detail-video-frame">
-        <video id="resourceDetailVideo" class="resource-detail-video" controls preload="metadata" playsinline aria-label="${escapeHtml(resource.title)}">
+        <video id="resourceDetailVideo" class="resource-detail-video" controls preload="metadata" playsinline ${image && image !== '#' ? `poster="${escapeHtml(image)}"` : ''} aria-label="${escapeHtml(resource.title)}">
           <source src="${videoUrl}">
           您的浏览器不支持 HTML5 视频。
         </video>

@@ -26,12 +26,13 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 YEARBOOK_PDF_EXTENSION = ".pdf"
 WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:/")
 THUMB_DIR_NAME = ".thumbs"
-THUMB_MAX_SIZE = (640, 640)
-THUMB_WEBP_QUALITY = 82
-THUMB_WEBP_METHOD = 6
+THUMB_MAX_SIZE = (settings.thumbnail_max_width, settings.thumbnail_max_height)
+THUMB_WEBP_QUALITY = settings.thumbnail_webp_quality
+THUMB_WEBP_METHOD = settings.thumbnail_webp_method
+VIDEO_THUMBNAIL_TIMEOUT_SECONDS = settings.video_thumbnail_timeout_seconds
 _PHOTO_DIR_CACHE: dict[str, dict[str, Any]] = {}
 _HOT_TRACK: dict[tuple[str, int, int], float] = {}
-HOT_THROTTLE_SECONDS = 5.0
+HOT_THROTTLE_SECONDS = settings.resource_hot_throttle_seconds
 
 
 class YearbookResourceError(Exception):
@@ -245,7 +246,7 @@ def _ensure_video_thumbnail(source: Path) -> str | None:
             ],
             check=True,
             capture_output=True,
-            timeout=20,
+            timeout=VIDEO_THUMBNAIL_TIMEOUT_SECONDS,
         )
         thumb_dir.mkdir(exist_ok=True)
         with Image.open(io.BytesIO(result.stdout)) as image:
@@ -311,11 +312,11 @@ def format_photo_activity(row: dict[str, Any], legacy_photos: list[dict[str, Any
 def format_resource(row: dict[str, Any]) -> dict[str, Any]:
     """把 resources 表行转换为前端资源卡片需要的数据结构。"""
 
-    image = row["image"]
+    image = row.get("image") or ""
     if row["category"] == "yearbook":
         image = yearbook_cover_url(row.get("resource_url")) or image
     elif row["category"] == "teacher":
-        image = teacher_video_cover_url(row.get("resource_url")) or image
+        image = image or teacher_video_cover_url(row.get("resource_url")) or ""
 
     return {
         "id": row["id"],

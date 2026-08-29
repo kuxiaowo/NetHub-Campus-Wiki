@@ -12,7 +12,7 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
-from backend.config import PROJECT_ROOT, get_database_path
+from backend.config import PROJECT_ROOT, get_database_path, settings
 from backend.project_assets import (
     ProjectAssetError,
     infer_asset_dir,
@@ -112,11 +112,15 @@ class Connection:
 
 def _open_connection(database_path: Path) -> sqlite3.Connection:
     database_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(database_path, timeout=5, check_same_thread=False)
+    connection = sqlite3.connect(
+        database_path,
+        timeout=settings.database_connect_timeout_seconds,
+        check_same_thread=False,
+    )
     connection.row_factory = _dict_row_factory
     connection.execute("PRAGMA foreign_keys = ON")
     connection.execute("PRAGMA journal_mode = WAL")
-    connection.execute("PRAGMA busy_timeout = 5000")
+    connection.execute(f"PRAGMA busy_timeout = {settings.database_busy_timeout_ms}")
     connection.execute("PRAGMA recursive_triggers = OFF")
     return connection
 

@@ -1639,25 +1639,28 @@ function resourceFields(resource = {}) {
   const category = resource.category || defaultCategory;
   const isYearbook = category === 'yearbook';
   const isTeacherVideo = category === 'teacher';
-  const categoryField = isTeacherVideo
-    ? { name: 'category', value: category, type: 'hidden', includeHidden: true }
-    : {
+  return [
+    { name: 'title', label: isTeacherVideo ? '名称' : '标题', value: resource.title, required: true },
+    { name: 'description', label: '简介（选填）', value: resource.description, type: 'textarea' },
+    { name: 'year', label: '年份', value: resource.year || new Date().getFullYear(), type: 'number', required: true },
+    {
       name: 'category',
       label: '分类',
       value: category,
       type: 'select',
       required: true,
       options: categoryOptions,
-    };
-  return [
-    { name: 'title', label: isTeacherVideo ? '名称' : '标题', value: resource.title, required: true },
-    { name: 'description', label: '简介', value: resource.description, type: 'textarea', required: isTeacherVideo },
-    { name: 'year', label: '年份', value: resource.year || new Date().getFullYear(), type: 'number', required: true },
-    categoryField,
+    },
     ...(isTeacherVideo ? [] : [
       { name: 'downloads', label: '下载数', value: resource.downloads || 0, type: 'number' },
     ]),
-    ...(isYearbook || isTeacherVideo ? [] : [{ name: 'image', label: '封面 URL', value: resource.image, required: true, browse: 'file' }]),
+    ...(isYearbook ? [] : [{
+      name: 'image',
+      label: isTeacherVideo ? '封面 URL（选填）' : '封面 URL',
+      value: resource.image,
+      required: !isTeacherVideo,
+      browse: 'file',
+    }]),
     {
       name: 'resourceUrl',
       label: isYearbook ? 'Yearbook 目录' : isTeacherVideo ? '视频文件 / URL' : '资源 URL',

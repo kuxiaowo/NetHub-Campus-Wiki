@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.auth import get_current_user, get_optional_current_user
+from backend.config import settings
 from backend.database import get_db_connection
 
 router = APIRouter(prefix="/api", tags=["comments"])
@@ -16,8 +17,8 @@ TARGET_TABLES = {
     "project": "projects",
     "resource": "resources",
 }
-MAX_COMMENT_LENGTH = 1000
-COMMENT_RATE_PER_MINUTE = 10
+MAX_COMMENT_LENGTH = settings.comment_max_length
+COMMENT_RATE_PER_MINUTE = settings.comment_rate_per_minute
 
 
 def _create_notification(

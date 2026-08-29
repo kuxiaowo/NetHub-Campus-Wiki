@@ -41,17 +41,34 @@ class AuthSecretValidationTest(unittest.TestCase):
 
 
 class SchemaSecurityTest(unittest.TestCase):
-    def test_fresh_schema_contains_no_user_accounts(self) -> None:
-        schema_path = Path(__file__).resolve().parents[1] / "sql" / "schema.sql"
+    def test_fresh_schema_contains_no_seed_data(self) -> None:
+        sql_root = Path(__file__).resolve().parents[1] / "sql"
         with tempfile.TemporaryDirectory() as temp_dir:
             connection = sqlite3.connect(Path(temp_dir) / "fresh.db")
             try:
-                connection.executescript(schema_path.read_text(encoding="utf-8"))
-                count = connection.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+                connection.executescript(
+                    (sql_root / "schema.sql").read_text(encoding="utf-8")
+                )
+                for migration_path in sorted((sql_root / "migrations").glob("*.sql")):
+                    connection.executescript(migration_path.read_text(encoding="utf-8"))
+                counts = {
+                    table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                    for table in (
+                        "users",
+                        "projects",
+                        "project_categories",
+                        "resources",
+                        "photo_activities",
+                        "photo_items",
+                        "announcements",
+                    )
+                }
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
             finally:
                 connection.close()
 
-        self.assertEqual(count, 0)
+        self.assertEqual(counts, {table: 0 for table in counts})
+        self.assertEqual(version, 9)
 
     def test_migration_disables_only_unchanged_legacy_admin(self) -> None:
         migration_path = (

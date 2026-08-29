@@ -30,6 +30,11 @@ from backend.database import _backfill_project_members, get_db_connection  # noq
 class SocialMessagingFlowTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        cls.database_path = Path(_TEMP_DIR.name) / "campus_wiki_test.db"
+        cls.database_path_patcher = patch(
+            "backend.database.get_database_path", return_value=cls.database_path
+        )
+        cls.database_path_patcher.start()
         cls.project_asset_dir = Path(__file__).resolve().parents[1] / "public" / "CAS" / "__test_project_assets__"
         cls.project_asset_dir.mkdir(parents=True, exist_ok=True)
         Image.new("RGB", (8, 8), "blue").save(cls.project_asset_dir / "icon.png")
@@ -39,8 +44,9 @@ class SocialMessagingFlowTest(unittest.TestCase):
         upload_buffer = io.BytesIO()
         Image.new("RGB", (10, 10), "purple").save(upload_buffer, format="PNG")
         cls.upload_photo = upload_buffer.getvalue()
+        cls._create_explicit_test_fixtures()
         create_initial_admin("test_admin", "test-admin-password-123", "Test Admin")
-        cls._seed_business_fixtures()
+        cls._create_migrated_test_fixtures()
         cls.client = TestClient(app)
         cls.admin_token = cls._login("test_admin", "test-admin-password-123")
         cls.alice = cls._register("alice_user", "Alice")
@@ -51,9 +57,61 @@ class SocialMessagingFlowTest(unittest.TestCase):
         cls.charlie_token = cls._login("charlie_user", "password123")
 
     @classmethod
+    def _create_explicit_test_fixtures(cls) -> None:
+        """Create v1-only fixtures before migrations exercise member backfill."""
+
+        schema_path = Path(__file__).resolve().parents[1] / "sql" / "schema.sql"
+        connection = sqlite3.connect(cls.database_path)
+        try:
+            connection.executescript(schema_path.read_text(encoding="utf-8"))
+            connection.execute(
+                """
+                INSERT INTO projects
+                  (id, name, leader, members, category, year, icon, description,
+                   media, cas_creativity, cas_activity, cas_service, popularity, updates)
+                VALUES
+                  (1, '测试项目', '李明', '李明, 王小雨, Chen Alex', '测试分类',
+                   2026, '', '仅供集成测试使用', '[]', 1, 1, 1, 0, '[]')
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO resources
+                  (id, title, description, year, category, label, image, resource_url)
+                VALUES
+                  (1, '测试资源', '仅供集成测试使用', 2026, 'other',
+                   '其他资源', 'https://example.com/cover.png',
+                   'https://example.com/resource.pdf')
+                """
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+    @classmethod
+    def _create_migrated_test_fixtures(cls) -> None:
+        """Insert content that belongs to tables created by later migrations."""
+
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.executemany(
+                    """
+                    INSERT INTO announcements
+                      (title, summary, content, status, is_pinned, published_at)
+                    VALUES (%s, %s, %s, 'published', %s, CURRENT_TIMESTAMP)
+                    """,
+                    [
+                        ("测试公告一", "第一条测试摘要", "第一条测试正文", 1),
+                        ("测试公告二", "第二条测试摘要", "第二条测试正文", 0),
+                        ("测试公告三", "第三条测试摘要", "第三条测试正文", 0),
+                    ],
+                )
+
+    @classmethod
     def tearDownClass(cls) -> None:
         shutil.rmtree(cls.project_asset_dir, ignore_errors=True)
         cls.client.close()
+        cls.database_path_patcher.stop()
 
     @classmethod
     def _register(cls, username: str, display_name: str) -> dict:
@@ -239,6 +297,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
                 "description": "测试老师驾到视频资源的创建和筛选。",
                 "year": 2026,
                 "category": "teacher",
+                "image": "https://example.com/images/teacher-class-cover.webp",
                 "resourceUrl": "https://example.com/videos/teacher-class.mp4",
             },
         )
@@ -246,7 +305,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         teacher_resource = response.json()
         self.assertEqual(teacher_resource["category"], "teacher")
         self.assertEqual(teacher_resource["label"], "老师驾到")
-        self.assertEqual(teacher_resource["image"], "")
+        self.assertEqual(teacher_resource["image"], "https://example.com/images/teacher-class-cover.webp")
         self.assertEqual(teacher_resource["year"], 2026)
         self.assertEqual(teacher_resource["hot"], 0)
         self.assertEqual(teacher_resource["downloads"], 0)
@@ -259,14 +318,25 @@ class SocialMessagingFlowTest(unittest.TestCase):
             "/api/admin/resources",
             headers=self._headers(self.admin_token),
             json={
-                "title": "缺少简介的视频",
+                "title": "未填写简介和封面的视频",
                 "year": 2026,
                 "category": "teacher",
                 "resourceUrl": "https://example.com/videos/missing-description.mp4",
             },
         )
-        self.assertEqual(response.status_code, 422, response.text)
-        self.assertIn("description", response.json()["detail"])
+        self.assertEqual(response.status_code, 200, response.text)
+        teacher_without_optional_fields = response.json()
+        self.assertEqual(teacher_without_optional_fields["description"], "")
+        self.assertEqual(teacher_without_optional_fields["image"], "")
+
+        response = self.client.patch(
+            f"/api/admin/resources/{teacher_resource['id']}",
+            headers=self._headers(self.admin_token),
+            json={"description": "", "image": ""},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["description"], "")
+        self.assertEqual(response.json()["image"], "")
 
         response = self.client.post(
             "/api/admin/photo-activities",

@@ -42,6 +42,56 @@ class ResourceThumbnailTest(unittest.TestCase):
                 self.assertEqual(image.format, "WEBP")
                 self.assertEqual(image.size, (640, 360))
 
+    def test_teacher_custom_cover_precedes_generated_default(self) -> None:
+        from backend import resources
+
+        row = {
+            "id": 1,
+            "title": "老师课堂",
+            "description": "",
+            "year": 2026,
+            "category": "teacher",
+            "label": "老师驾到",
+            "hot": 0,
+            "downloads": 0,
+            "image": "/teacher/custom-cover.webp",
+            "resource_url": "/teacher/lesson.mp4",
+            "created_at": None,
+            "updated_at": None,
+        }
+        with patch.object(resources, "teacher_video_cover_url") as generated_cover:
+            resource = resources.format_resource(row)
+
+        self.assertEqual(resource["image"], "/teacher/custom-cover.webp")
+        generated_cover.assert_not_called()
+
+    def test_teacher_without_custom_cover_uses_generated_default(self) -> None:
+        from backend import resources
+
+        row = {
+            "id": 1,
+            "title": "老师课堂",
+            "description": "",
+            "year": 2026,
+            "category": "teacher",
+            "label": "老师驾到",
+            "hot": 0,
+            "downloads": 0,
+            "image": "",
+            "resource_url": "/teacher/lesson.mp4",
+            "created_at": None,
+            "updated_at": None,
+        }
+        with patch.object(
+            resources,
+            "teacher_video_cover_url",
+            return_value="/teacher/.thumbs/lesson.video.webp",
+        ) as generated_cover:
+            resource = resources.format_resource(row)
+
+        self.assertEqual(resource["image"], "/teacher/.thumbs/lesson.video.webp")
+        generated_cover.assert_called_once_with("/teacher/lesson.mp4")
+
     def test_activity_cover_uses_first_filename_and_its_thumbnail(self) -> None:
         from backend import resources
 

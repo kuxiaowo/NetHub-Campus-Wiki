@@ -13,10 +13,10 @@
       "dateNote": "原始资料未注明活动年份"
     },
     "members": [
-      {"name": "刘宙Yoyo", "role": "leader", "contactType": "wechat", "contactValue": "Yoyo20200208"},
-      {"name": "范森雅Selina", "role": "member", "contactType": "wechat", "contactValue": "SELINAFAN_1001"},
-      {"name": "杨喜然Roy", "role": "member", "contactType": "wechat", "contactValue": "Roy-18108002705"},
-      {"name": "汪伯济Eason", "role": "member", "contactType": "wechat", "contactValue": "wbj20090720"}
+      {"name": "刘宙 Yoyo", "role": "leader", "contactType": "wechat", "contactValue": "Yoyo20200208"},
+      {"name": "范森雅 Selina", "role": "member", "contactType": "wechat", "contactValue": "SELINAFAN_1001"},
+      {"name": "杨喜然 Roy", "role": "member", "contactType": "wechat", "contactValue": "Roy-18108002705"},
+      {"name": "汪伯济 Eason", "role": "member", "contactType": "wechat", "contactValue": "wbj20090720"}
     ]
   },
   {
@@ -30,9 +30,9 @@
       "dateNote": "原始资料未注明活动日期"
     },
     "members": [
-      {"name": "Marcia 王美心", "role": "unknown", "contactType": "wechat", "contactValue": "Marciaa0122"},
-      {"name": "Abby 张雅婷", "role": "unknown", "contactType": "wechat", "contactValue": "13350868275"},
-      {"name": "Aurora 唐家悦", "role": "unknown", "contactType": null, "contactValue": null}
+      {"name": "王美心 Marcia", "role": "unknown", "contactType": "wechat", "contactValue": "Marciaa0122"},
+      {"name": "张雅婷 Abby", "role": "unknown", "contactType": "wechat", "contactValue": "13350868275"},
+      {"name": "唐家悦 Aurora", "role": "unknown", "contactType": null, "contactValue": null}
     ],
     "memberNote": "原始资料未标明负责人"
   },
