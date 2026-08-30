@@ -2,13 +2,28 @@ node_modules/
 .env
 .DS_Store
 npm-debug.log*
+*.log
+
+# Python caches and local environments
 __pycache__/
 *.py[cod]
 .venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local editor and generated development artifacts
+.idea/
+.codex-test-artifacts/
+tmp/
+
+# Runtime databases and backups
 data/*.db
 data/*.db-shm
 data/*.db-wal
+data/*.db-journal
 data/backups/
+
 # Large public content directories (keep application assets trackable)
 public/Photos/*
 !public/Photos/.gitkeep
@@ -17,3 +32,14 @@ public/yearbook/*
 public/teacher/*
 public/teacher on stage/*
 public/CAS/*
+
+# Generated thumbnails and large video files
+public/**/.thumbs/
+public/**/*.mp4
+public/**/*.m4v
+public/**/*.mov
+public/**/*.avi
+public/**/*.mkv
+public/**/*.webm
+public/**/*.wmv
+public/**/*.flv
