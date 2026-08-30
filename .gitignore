@@ -9,18 +9,11 @@ data/*.db
 data/*.db-shm
 data/*.db-wal
 data/backups/
+# Large public content directories (keep application assets trackable)
 public/Photos/*
 !public/Photos/.gitkeep
 public/yearbook/*
 !public/yearbook/.gitkeep
-
-# Large public content libraries and generated thumbnails
-public/**/.thumbs/
-public/**/*.mp4
-public/**/*.m4v
-public/**/*.mov
-public/**/*.avi
-public/**/*.mkv
-public/**/*.webm
-public/**/*.wmv
-public/**/*.flv
+public/teacher/*
+public/teacher on stage/*
+public/CAS/*
