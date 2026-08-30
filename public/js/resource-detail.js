@@ -10,6 +10,16 @@ async function loadResourceDetail() {
   if (!resourceId) throw new Error('缺少资源 ID');
   const result = await request(`/resources/${encodeURIComponent(resourceId)}${isAdminPreview ? '?track=false' : ''}`);
   const resource = result.data;
+  if (resource.category === 'yearbook') {
+    const target = new URL('/resources.html', window.location.origin);
+    target.searchParams.set('yearbook', resource.id);
+    if (isAdminPreview) target.searchParams.set('preview', 'admin');
+    const commentId = resourceParams.get('commentId');
+    if (commentId) target.searchParams.set('commentId', commentId);
+    target.hash = window.location.hash;
+    window.location.replace(`${target.pathname}${target.search}${target.hash}`);
+    return;
+  }
   document.title = `${resource.title} - NetHub Campus Wiki`;
   resourceBreadcrumb.textContent = resource.title;
   const image = safeExternalUrl(resource.image);
@@ -35,11 +45,9 @@ async function loadResourceDetail() {
         <a id="resourceDetailVideoFallback" class="resource-video-fallback is-hidden" href="${videoUrl}" target="_blank" rel="noopener noreferrer">无法播放？打开视频</a>
       </div>`
     : `<div class="resource-detail-cover"><img src="${escapeHtml(image)}" alt="${escapeHtml(resource.title)}" /></div>`;
-  const openAction = resource.category === 'yearbook'
-    ? `<a class="button" href="/resources.html?yearbook=${encodeURIComponent(resource.id)}">打开 Yearbook</a>`
-    : isTeacherVideo
-      ? ''
-      : `<a id="openResourceFile" class="button" href="${escapeHtml(authenticatedPublicFileUrl(resource.resourceUrl) || safeExternalUrl(resource.resourceUrl))}" target="_blank" rel="noopener noreferrer">打开资源</a>`;
+  const openAction = isTeacherVideo
+    ? ''
+    : `<a id="openResourceFile" class="button" href="${escapeHtml(authenticatedPublicFileUrl(resource.resourceUrl) || safeExternalUrl(resource.resourceUrl))}" target="_blank" rel="noopener noreferrer">打开资源</a>`;
   resourceDetail.innerHTML = `
     ${media}
     <div class="resource-detail-copy">

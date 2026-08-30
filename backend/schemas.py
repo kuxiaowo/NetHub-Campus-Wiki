@@ -218,6 +218,7 @@ class Resource(BaseModel):
     hot: int
     downloads: int
     image: str
+    coverImage: str | None = None
     resourceUrl: str
     createdAt: datetime | None = None
     updatedAt: datetime | None = None
@@ -279,6 +280,7 @@ class PhotoActivity(BaseModel):
     downloads: int = 0
     sortOrder: int
     photoDir: str | None = None
+    coverImage: str | None = None
     archiveUrl: str | None = None
     coverSrc: str | None = None
     coverThumbSrc: str | None = None

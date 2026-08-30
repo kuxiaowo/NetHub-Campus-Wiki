@@ -1860,7 +1860,9 @@ function selectResourceCategory(category) {
 }
 
 function resourceAdminCard(resource) {
-  const previewUrl = `/resource.html?id=${encodeURIComponent(resource.id)}&preview=admin`;
+  const previewUrl = resource.category === 'yearbook'
+    ? `/resources.html?yearbook=${encodeURIComponent(resource.id)}&preview=admin`
+    : `/resource.html?id=${encodeURIComponent(resource.id)}&preview=admin`;
   return ResourceUI.resourceCard(resource, {
     managed: true,
     newTab: true,
@@ -1896,11 +1898,16 @@ function resourceFields(resource = {}) {
     ...(isTeacherVideo ? [] : [
       { name: 'downloads', label: '下载数', value: resource.downloads || 0, type: 'number' },
     ]),
-    ...(isYearbook ? [] : [{
+    ...((isYearbook || isTeacherVideo) ? [{
       name: 'image',
-      label: isTeacherVideo ? '封面 URL（选填）' : '封面 URL',
+      label: '封面地址（选填）',
+      value: resource.coverImage ?? '',
+      browse: 'file',
+    }] : [{
+      name: 'image',
+      label: '封面 URL',
       value: resource.image,
-      required: !isTeacherVideo,
+      required: true,
       browse: 'file',
     }]),
     {
@@ -2158,12 +2165,13 @@ function activityFields(activity = {}, options = {}) {
   };
   return [
     { name: 'activity', label: '活动名称', value: activity.activity, required: true },
-    { name: 'description', label: '活动简介', value: activity.description, type: 'textarea', required: true },
+    { name: 'description', label: '活动简介（选填）', value: activity.description, type: 'textarea' },
     { name: 'year', label: '年份', value: activity.year || new Date().getFullYear(), type: 'number', required: true },
     ...(options.includeCategory ? [categoryField] : []),
     { name: 'downloads', label: '下载数', value: activity.downloads || 0, type: 'number' },
     { name: 'sortOrder', label: 'sortOrder', value: activity.sortOrder || 0, type: 'number' },
     { name: 'photoDir', label: '照片目录', value: activity.photoDir || '', browse: 'folder' },
+    { name: 'coverImage', label: '封面地址（选填，默认目录第一张）', value: activity.coverImage || '', browse: 'file' },
   ];
 }
 

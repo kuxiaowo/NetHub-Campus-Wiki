@@ -357,7 +357,6 @@ class SocialMessagingFlowTest(unittest.TestCase):
             headers=self._headers(self.admin_token),
             json={
                 "activity": "自动热度测试活动",
-                "description": "验证新活动热度固定从零开始。",
                 "year": 2026,
                 "hot": 88,
             },
@@ -365,6 +364,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         activity = response.json()
         self.assertEqual(activity["hot"], 0)
+        self.assertEqual(activity["description"], "")
 
         response = self.client.get(
             f"/api/photo-activities/{activity['id']}/photos",
@@ -410,7 +410,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         with get_db_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("PRAGMA user_version")
-                self.assertEqual(cursor.fetchone()["user_version"], 12)
+                self.assertEqual(cursor.fetchone()["user_version"], 13)
                 cursor.execute("PRAGMA table_info(conversation_members)")
                 member_columns = {column["name"] for column in cursor.fetchall()}
                 self.assertNotIn("request_status", member_columns)
@@ -1517,7 +1517,6 @@ class SocialMessagingFlowTest(unittest.TestCase):
             "resources": [
                 {
                     "title": "JSON 导入资源",
-                    "description": "普通资源导入测试。",
                     "year": 2026,
                     "category": "other",
                     "label": "会被规范化",
@@ -1530,7 +1529,6 @@ class SocialMessagingFlowTest(unittest.TestCase):
             "photoActivities": [
                 {
                     "activity": "JSON 导入照片活动",
-                    "description": "照片活动导入测试。",
                     "year": 2026,
                     "hot": 6,
                     "downloads": 7,
@@ -1641,6 +1639,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         self.assertEqual(resource_export.status_code, 200, resource_export.text)
         self.assertEqual(resource_export.json()["resources"][0]["label"], "其他资源")
         self.assertEqual(resource_export.json()["resources"][0]["hot"], 8)
+        self.assertEqual(resource_export.json()["resources"][0]["description"], "")
 
         activity_export = self.client.get(
             f"/api/admin/photo-activities/{activity_id}/export",
@@ -1648,6 +1647,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         )
         self.assertEqual(activity_export.status_code, 200, activity_export.text)
         self.assertEqual(activity_export.json()["photoActivities"][0]["photos"][0]["title"], "测试照片")
+        self.assertEqual(activity_export.json()["photoActivities"][0]["description"], "")
 
         all_export = self.client.get(
             "/api/admin/data-export",

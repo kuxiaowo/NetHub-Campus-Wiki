@@ -390,7 +390,10 @@ def _normalize_photo_activity(
     item = _object(value, path, errors)
     _unknown_fields(
         item,
-        {"activity", "description", "year", "hot", "downloads", "sortOrder", "photoDir", "photos"},
+        {
+            "activity", "description", "year", "hot", "downloads", "sortOrder",
+            "photoDir", "coverImage", "photos",
+        },
         path,
         errors,
     )
@@ -400,7 +403,7 @@ def _normalize_photo_activity(
     ]
     return {
         "activity": _text(item.get("activity"), f"{path}.activity", errors, required=True),
-        "description": _text(item.get("description"), f"{path}.description", errors, required=True),
+        "description": _text(item.get("description"), f"{path}.description", errors),
         "year": _integer(item.get("year"), f"{path}.year", errors, minimum=1900),
         "hot": _integer(item.get("hot"), f"{path}.hot", errors, minimum=0),
         "downloads": _integer(item.get("downloads"), f"{path}.downloads", errors, minimum=0),
@@ -412,6 +415,12 @@ def _normalize_photo_activity(
             warnings,
             expected="directory",
             allow_external=False,
+        ),
+        "coverImage": _normalize_asset_url(
+            item.get("coverImage"),
+            f"{path}.coverImage",
+            errors,
+            warnings,
         ),
         "photos": photos,
     }
@@ -617,6 +626,7 @@ def export_transfer_document(
                             "downloads": row.get("downloads", 0),
                             "sortOrder": row["sort_order"],
                             "photoDir": row.get("photo_dir"),
+                            "coverImage": row.get("cover_image"),
                             "photos": [
                                 {
                                     "title": photo["title"],
@@ -731,8 +741,8 @@ def import_transfer_document(document: dict[str, Any]) -> dict[str, Any]:
                 cursor.execute(
                     """
                     INSERT INTO photo_activities
-                      (activity, description, year, hot, downloads, sort_order, photo_dir)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                      (activity, description, year, hot, downloads, sort_order, photo_dir, cover_image)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         activity["activity"],
@@ -742,6 +752,7 @@ def import_transfer_document(document: dict[str, Any]) -> dict[str, Any]:
                         activity["downloads"],
                         activity["sortOrder"],
                         activity["photoDir"],
+                        activity["coverImage"],
                     ),
                 )
                 activity_id = int(cursor.lastrowid)
@@ -805,6 +816,7 @@ def transfer_template() -> dict[str, Any]:
                 "downloads": 0,
                 "sortOrder": 10,
                 "photoDir": "/Photos/example/",
+                "coverImage": "",
                 "photos": [{"title": "照片 1", "src": "/Photos/example/001.jpg", "sortOrder": 10}],
             }
         ],

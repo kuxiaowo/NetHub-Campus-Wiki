@@ -20,6 +20,7 @@ const yearbookMeta = document.querySelector('#yearbookMeta');
 const yearbookPages = document.querySelector('#yearbookPages');
 const yearbookPrev = document.querySelector('#yearbookPrev');
 const yearbookNext = document.querySelector('#yearbookNext');
+const yearbookComments = document.querySelector('#yearbookComments');
 const downloadYearbook = document.querySelector('#downloadYearbook');
 const backToResources = document.querySelector('#backToResources');
 const photoModal = document.querySelector('#photoModal');
@@ -376,10 +377,14 @@ async function openYearbook(resourceId) {
   updateYearbookControls();
 
   try {
-    const result = await request(`/resources/${resourceId}/yearbook`);
+    const previewQuery = new URLSearchParams(window.location.search).get('preview') === 'admin'
+      ? '?track=false'
+      : '';
+    const result = await request(`/resources/${resourceId}/yearbook${previewQuery}`);
     currentYearbook = result.data;
     currentYearbookPage = 0;
     renderYearbook();
+    await mountCommentSection(yearbookComments, 'resource', currentYearbook.resource.id);
   } catch (error) {
     yearbookMeta.textContent = 'Yearbook 加载失败';
     yearbookPages.innerHTML = `<div class="empty error">${escapeHtml(error.message)}</div>`;

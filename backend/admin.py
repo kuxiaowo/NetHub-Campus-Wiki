@@ -61,7 +61,11 @@ from backend.resource_types import (
     get_resource_type,
     resource_type_options,
 )
-from backend.resources import format_resource, photo_archive_url, yearbook_cover_url
+from backend.resources import (
+    format_photo_activity,
+    format_resource,
+    yearbook_cover_url,
+)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -263,22 +267,9 @@ def _format_photo_item(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _format_activity(row: dict[str, Any]) -> dict[str, Any]:
-    directory_count = _scan_public_photo_count(row.get("photo_dir"))
-    archive_url = photo_archive_url(row.get("photo_dir"))
-    return {
-        "id": row["id"],
-        "activity": row["activity"],
-        "description": row["description"],
-        "year": row["year"],
-        "hot": row["hot"],
-        "downloads": row.get("downloads", 0),
-        "sortOrder": row.get("sort_order", 0),
-        "photoDir": row.get("photo_dir"),
-        "archiveUrl": archive_url,
-        "photoCount": directory_count or row.get("photo_count", 0),
-        "createdAt": row.get("created_at"),
-        "updatedAt": row.get("updated_at"),
-    }
+    activity = format_photo_activity(row, [])
+    activity["updatedAt"] = row.get("updated_at")
+    return activity
 
 
 def _normalize_public_url(value: Any) -> str | None:
@@ -296,20 +287,6 @@ def _normalize_public_url(value: Any) -> str | None:
     if target != public_root and public_root not in target.parents:
         raise HTTPException(status_code=422, detail="目录必须位于 public 内")
     return "/" if not relative else f"/{relative.rstrip('/')}/"
-
-
-def _scan_public_photo_count(photo_dir: str | None) -> int:
-    normalized = _normalize_public_url(photo_dir)
-    if not normalized or normalized == "/":
-        return 0
-    target = (PUBLIC_DIR.resolve() / normalized.strip("/")).resolve()
-    if not target.exists() or not target.is_dir():
-        return 0
-    return sum(
-        1
-        for item in target.iterdir()
-        if item.is_file() and item.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".gif"}
-    )
 
 
 def _format_project_category(row: dict[str, Any]) -> dict[str, Any]:
@@ -1365,9 +1342,9 @@ def admin_create_resource(payload: dict[str, Any], _: dict[str, Any] = Depends(r
         raise HTTPException(status_code=422, detail=f"缺少字段：{', '.join(missing)}")
     image = payload.get("image")
     if resource_type.value == "yearbook":
-        image = yearbook_cover_url(payload.get("resourceUrl"))
-        if not image:
+        if not yearbook_cover_url(payload.get("resourceUrl")):
             raise HTTPException(status_code=422, detail="Yearbook 目录中必须至少有一张图片作为封面和第一页")
+        image = str(image or "").strip()
     elif resource_type.value == "teacher":
         image = str(image or "").strip()
         payload["downloads"] = 0
@@ -1437,10 +1414,9 @@ def admin_update_resource(
     payload["category"] = resource_type.value
     payload["label"] = resource_type.label
     if resource_type.value == "yearbook":
-        image = yearbook_cover_url(next_resource_url)
-        if not image:
+        if not yearbook_cover_url(next_resource_url):
             raise HTTPException(status_code=422, detail="Yearbook 目录中必须至少有一张图片作为封面和第一页")
-        payload["image"] = image
+        payload["image"] = str(payload.get("image", current["image"]) or "").strip()
     elif resource_type.value == "teacher":
         required_values = {
             "title": payload.get("title", current["title"]),
@@ -1507,7 +1483,7 @@ def admin_list_photo_activities(
                 FROM photo_activities pa
                 LEFT JOIN photo_items pi ON pi.activity_id = pa.id
                 {where_sql}
-                GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads, pa.sort_order, pa.photo_dir, pa.created_at, pa.updated_at
+                GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads, pa.sort_order, pa.photo_dir, pa.cover_image, pa.created_at, pa.updated_at
                 ORDER BY pa.sort_order ASC, pa.id DESC
                 """,
                 params,
@@ -1521,7 +1497,7 @@ def admin_create_photo_activity(
     payload: dict[str, Any],
     _: dict[str, Any] = Depends(require_admin_user),
 ):
-    required = ["activity", "description", "year"]
+    required = ["activity", "year"]
     missing = [field for field in required if payload.get(field) in {None, ""}]
     if missing:
         raise HTTPException(status_code=422, detail=f"缺少字段：{', '.join(missing)}")
@@ -1529,17 +1505,19 @@ def admin_create_photo_activity(
         with conn.cursor() as cursor:
             cursor.execute(
                 """
-                INSERT INTO photo_activities (activity, description, year, hot, downloads, sort_order, photo_dir)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO photo_activities
+                  (activity, description, year, hot, downloads, sort_order, photo_dir, cover_image)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     payload["activity"],
-                    payload["description"],
+                    payload.get("description") or "",
                     _normalize_int(payload["year"], "year"),
                     0,
                     _normalize_int(payload.get("downloads", 0), "downloads"),
                     _normalize_int(payload.get("sortOrder", _next_activity_sort_order(cursor)), "sortOrder"),
                     _normalize_public_url(payload.get("photoDir")),
+                    str(payload.get("coverImage") or "").strip() or None,
                 ),
             )
             activity_id = cursor.lastrowid
@@ -1573,6 +1551,7 @@ def admin_update_photo_activity(
         "downloads": "downloads",
         "sortOrder": "sort_order",
         "photoDir": "photo_dir",
+        "coverImage": "cover_image",
     }
     unknown = sorted(set(payload) - set(field_map))
     if unknown:
@@ -1602,7 +1581,7 @@ def admin_update_photo_activity(
                 FROM photo_activities pa
                 LEFT JOIN photo_items pi ON pi.activity_id = pa.id
                 WHERE pa.id = %s
-                GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads, pa.sort_order, pa.photo_dir, pa.created_at, pa.updated_at
+                GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads, pa.sort_order, pa.photo_dir, pa.cover_image, pa.created_at, pa.updated_at
                 """,
                 (activity_id,),
             )

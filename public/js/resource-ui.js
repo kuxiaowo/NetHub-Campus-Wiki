@@ -66,7 +66,10 @@
   }
 
   function resourceCard(resource, options = {}) {
-    const href = options.href || `/resource.html?id=${encodeURIComponent(resource.id)}`;
+    const defaultHref = resource.category === 'yearbook'
+      ? `/resources.html?yearbook=${encodeURIComponent(resource.id)}`
+      : `/resource.html?id=${encodeURIComponent(resource.id)}`;
+    const href = options.href || defaultHref;
     const content = cardContent(resource.title, resource.year, resource.image);
     if (!options.managed) {
       return `

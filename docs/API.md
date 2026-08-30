@@ -517,13 +517,14 @@ curl http://127.0.0.1:3100/api/resources/meta
 | --- | --- | --- |
 | `id` | `number` | 资源 ID |
 | `title` | `string` | 资源标题 |
-| `description` | `string` | 资源简介 |
+| `description` | `string` | 资源简介，可为空 |
 | `year` | `number` | 资源年份 |
 | `category` | `string` | 资源分类值 |
 | `label` | `string` | 资源分类展示名 |
 | `hot` | `number` | 热度 |
 | `downloads` | `number` | 下载次数 |
 | `image` | `string` | 卡片缩略图或详情封面 URL；`teacher` 优先返回自定义封面，未填写时本地视频动态返回首帧缩略图，外部视频无法生成时为空字符串 |
+| `coverImage` | `string \| null` | 自定义封面地址；Yearbook 和老师视频均可选填 |
 | `resourceUrl` | `string` | 资源访问、下载或浏览器可直接播放的视频 URL |
 | `createdAt` | `string | null` | 创建时间 |
 | `updatedAt` | `string | null` | 更新时间 |
@@ -555,7 +556,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 目录约定：
 
 - 页面文件扫描 `.jpg`、`.jpeg`、`.png`、`.webp`、`.gif`，按文件名自然升序排列。
-- 封面不单独维护，资源详情页和资源列表卡片均使用目录中排序第一张图片的缩略图；卡片文字只显示标题和年份。
+- 封面地址可选填；未填写时资源详情页和资源列表卡片使用目录中排序第一张图片的缩略图。
 - PDF 下载文件扫描 `.pdf`，如果有多个，使用文件名自然升序的第一个。
 - 推荐文件名：`001.png`、`002.png`、`003.png`、`yearbook.pdf`。
 
@@ -617,19 +618,20 @@ curl http://127.0.0.1:3100/api/resources/meta
 | --- | --- | --- |
 | `id` | `number` | 活动 ID |
 | `activity` | `string` | 活动名称 |
-| `description` | `string` | 活动照片简介 |
+| `description` | `string` | 活动照片简介，可为空 |
 | `year` | `number` | 活动年份 |
 | `hot` | `number` | 活动热度 |
 | `downloads` | `number` | 活动下载次数 |
 | `sortOrder` | `number` | 活动列表人工排序权重，数字越小越靠前 |
 | `photoDir` | `string \| null` | 活动照片目录 |
+| `coverImage` | `string \| null` | 自定义封面地址；未填写时使用照片目录第一张 |
 | `archiveUrl` | `string \| null` | 活动压缩文件 URL，存在同名 `.rar` 时返回 |
 | `coverSrc` | `string \| null` | 活动封面原图 URL |
 | `coverThumbSrc` | `string \| null` | 活动封面缩略图 URL |
 | `photoCount` | `number` | 活动照片数量 |
 | `createdAt` | `string | null` | 创建时间 |
 
-活动卡片不使用 icon 字段，使用按文件名自然排序的第一张照片作为缩略图，文字只显示标题和年份。活动列表接口只返回封面和数量，不返回完整照片数组。
+活动卡片不使用 icon 字段；优先使用选填的自定义封面，未填写时使用按文件名自然排序的第一张照片。活动列表接口只返回封面和数量，不返回完整照片数组。
 
 活动级整包下载使用照片目录下的同名压缩文件。例如 `photoDir` 是 `/uploads/photos/春季运动会/` 时，压缩文件应放在 `/uploads/photos/春季运动会/春季运动会.rar`。只有该文件实际存在时，接口才返回 `archiveUrl`。前台点击活动整包下载或在照片放大弹窗中下载单张照片，都会让活动级 `downloads` 加 1。
 
@@ -864,16 +866,16 @@ JSON 迁移覆盖 CAS 项目（含成员联系方式与动态）、普通资源�
 - `PATCH /api/admin/resources/{resource_id}`：更新资源。
 - `DELETE /api/admin/resources/{resource_id}`：删除资源。
 
-资源字段包括：`title`、`description`、`year`、`category`、`label`、`hot`、`downloads`、`image`、`resourceUrl`。其中 `hot` 是只读统计字段：创建时固定为 `0`，后台创建和编辑接口均不接受人工设置。
+资源字段包括：`title`、`description`、`year`、`category`、`label`、`hot`、`downloads`、`image`、`resourceUrl`。其中 `description`（简介）选填，未填写时保存为空字符串；`hot` 是只读统计字段：创建时固定为 `0`，后台创建和编辑接口均不接受人工设置。
 
-创建 `teacher` 分类资源时，`title`、`year` 和 `resourceUrl` 必填，`description` 与 `image` 选填；后端将 `label` 固定为“老师驾到”，并让热度和下载数使用默认值。填写 `image` 时公开接口优先返回该封面；未填写时会为 `public/` 下的本地视频动态补充首帧缩略图 URL。视频 URL 必须指向浏览器可直接播放的文件或直链，而不是视频平台的普通页面地址。
+创建 `teacher` 或 `yearbook` 分类资源时，`image`（封面地址）均为选填；Yearbook 未填写时使用目录第一张图片，老师视频未填写时尝试动态生成本地视频首帧。视频 URL 必须指向浏览器可直接播放的文件或直链，而不是视频平台的普通页面地址。
 
 活动的 `sortOrder` 是人工排序权重，数字越小越靠前；固定资源类型的顺序由代码定义。普通资源卡片和单张照片卡片不使用人工排序。
 
 ### 活动照片管理
 
 - `GET /api/admin/photo-activities`：查询活动列表，支持 `search`、`year`。该接口由后台资源管理中的 `photos` 分类使用。
-- `POST /api/admin/photo-activities`：创建活动。字段：`activity`、`description`、`year`、`sortOrder`、`photoDir`；热度固定从 `0` 开始。
+- `POST /api/admin/photo-activities`：创建活动。字段：`activity`、`year`、`sortOrder`、`photoDir`，选填 `description` 和 `coverImage`；未填写简介时保存为空字符串，热度固定从 `0` 开始。
 - `PATCH /api/admin/photo-activities/{activity_id}`：更新活动。
 - `PATCH /api/admin/photo-activities/reorder`：批量更新活动列表顺序。请求体：`{"items":[{"id":1,"sortOrder":10}]}`。
 - `DELETE /api/admin/photo-activities/{activity_id}`：删除活动，活动下照片记录会被外键级联删除。

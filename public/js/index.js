@@ -71,12 +71,15 @@ document.addEventListener('error', (event) => {
 
 function popularResourceCard(resource, index) {
   const image = safeExternalUrl(resource.image);
+  const href = resource.href || (resource.category === 'yearbook'
+    ? `/resources.html?yearbook=${encodeURIComponent(resource.id)}`
+    : `/resource.html?id=${encodeURIComponent(resource.id)}`);
   const thumbnail = image === '#'
     ? '<span class="home-popular-placeholder" aria-hidden="true"></span>'
     : `<img src="${image}" alt="" loading="lazy" decoding="async">`;
 
   return `
-    <a class="home-popular-card" href="${escapeHtml(resource.href || `/resource.html?id=${encodeURIComponent(resource.id)}`)}">
+    <a class="home-popular-card" href="${escapeHtml(href)}">
       <div class="home-popular-media resource-media">
         <b class="home-popular-rank">${index + 1}</b>
         ${thumbnail}

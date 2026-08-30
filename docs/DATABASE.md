@@ -97,8 +97,9 @@ resources ─────┘       │
 
 ### `photo_activities`
 
-保存活动照片分组、热度、下载量、排序以及可选的 `photo_dir`。配置目录时，后端
-优先扫描 `public/` 下的实际图片；未配置时兼容 `photo_items` 中的记录。
+保存活动照片分组、热度、下载量、排序以及可选的 `photo_dir` 和 `cover_image`。配置目录时，后端
+优先扫描 `public/` 下的实际图片；未配置时兼容 `photo_items` 中的记录。`cover_image`
+为空时使用照片目录中的第一张图片作为封面。
 
 ### `photo_items`
 

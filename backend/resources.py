@@ -8,6 +8,7 @@ import io
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Literal
 
@@ -94,6 +95,18 @@ def yearbook_cover_url(resource_url: str | None) -> str | None:
         if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS:
             return _ensure_thumbnail(item) or _public_file_url(item)
     return None
+
+
+def image_thumbnail_url(image_url: str | None) -> str | None:
+    """Return a generated thumbnail when an image URL points inside ``public/``."""
+
+    resolved = _public_url_to_path(image_url)
+    if resolved is None:
+        return None
+    source, _ = resolved
+    if not source.is_file() or source.suffix.lower() not in IMAGE_EXTENSIONS:
+        return None
+    return _ensure_thumbnail(source)
 
 
 def teacher_video_cover_url(resource_url: str | None) -> str | None:
@@ -287,7 +300,14 @@ def format_photo_activity(row: dict[str, Any], legacy_photos: list[dict[str, Any
     """Return the public activity card shape with directory-derived cover data."""
 
     scanned_photos = _scan_photo_dir(row.get("photo_dir"), cover_only=True)
-    cover_images = scanned_photos or legacy_photos[:1]
+    default_cover_images = scanned_photos or legacy_photos[:1]
+    custom_cover = str(row.get("cover_image") or "").strip()
+    cover_src = custom_cover or (default_cover_images[0]["src"] if default_cover_images else None)
+    cover_thumb_src = (
+        image_thumbnail_url(custom_cover)
+        if custom_cover
+        else (default_cover_images[0].get("thumbSrc") if default_cover_images else None)
+    )
     directory_photo_count = len(_scan_photo_dir(row.get("photo_dir"), count_only=True)) if row.get("photo_dir") else 0
     archive_url = photo_archive_url(row.get("photo_dir"))
     return {
@@ -299,9 +319,10 @@ def format_photo_activity(row: dict[str, Any], legacy_photos: list[dict[str, Any
         "downloads": row.get("downloads", 0),
         "sortOrder": row["sort_order"],
         "photoDir": row.get("photo_dir"),
+        "coverImage": custom_cover or None,
         "archiveUrl": archive_url,
-        "coverSrc": cover_images[0]["src"] if cover_images else None,
-        "coverThumbSrc": cover_images[0].get("thumbSrc") if cover_images else None,
+        "coverSrc": cover_src,
+        "coverThumbSrc": cover_thumb_src,
         "photoCount": directory_photo_count or row["photo_count"],
         "createdAt": row.get("created_at"),
     }
@@ -310,9 +331,10 @@ def format_photo_activity(row: dict[str, Any], legacy_photos: list[dict[str, Any
 def format_resource(row: dict[str, Any]) -> dict[str, Any]:
     """把 resources 表行转换为前端资源卡片需要的数据结构。"""
 
-    image = row.get("image") or ""
+    custom_image = row.get("image") or ""
+    image = custom_image
     if row["category"] == "yearbook":
-        image = yearbook_cover_url(row.get("resource_url")) or image
+        image = image or yearbook_cover_url(row.get("resource_url")) or ""
     elif row["category"] == "teacher":
         image = image or teacher_video_cover_url(row.get("resource_url")) or ""
 
@@ -326,6 +348,7 @@ def format_resource(row: dict[str, Any]) -> dict[str, Any]:
         "hot": row["hot"],
         "downloads": row["downloads"],
         "image": image,
+        "coverImage": custom_image or None,
         "resourceUrl": row["resource_url"],
         "createdAt": row.get("created_at"),
         "updatedAt": row.get("updated_at"),
@@ -381,7 +404,7 @@ def bump_photo_activity_downloads(activity_id: int) -> dict[str, Any] | None:
                 WHERE pa.id = %s
                 GROUP BY
                   pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads,
-                  pa.sort_order, pa.photo_dir, pa.created_at, pa.updated_at
+                  pa.sort_order, pa.photo_dir, pa.cover_image, pa.created_at, pa.updated_at
                 """,
                 (activity_id,),
             )
@@ -542,12 +565,13 @@ def list_photo_activities(
           pa.downloads,
           pa.sort_order,
           pa.photo_dir,
+          pa.cover_image,
           pa.created_at,
           COUNT(pi.id) AS photo_count
         FROM photo_activities pa
         LEFT JOIN photo_items pi ON pi.activity_id = pa.id
         {where_sql}
-        GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads, pa.sort_order, pa.photo_dir, pa.created_at
+        GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads, pa.sort_order, pa.photo_dir, pa.cover_image, pa.created_at
         ORDER BY {order_map[sort]}, pa.id DESC
     """
 
@@ -619,7 +643,7 @@ def get_activity_photo_detail(
                 WHERE pa.id = %s
                 GROUP BY
                   pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads,
-                  pa.sort_order, pa.photo_dir, pa.created_at, pa.updated_at
+                  pa.sort_order, pa.photo_dir, pa.cover_image, pa.created_at, pa.updated_at
                 """,
                 (activity_id,),
             )
