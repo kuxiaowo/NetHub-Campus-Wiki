@@ -1878,9 +1878,9 @@ function resourceCategoryOptions() {
 }
 
 function resourceFields(resource = {}) {
-  const categoryOptions = resourceCategoryOptions();
-  const defaultCategory = categoryOptions[0]?.value || 'other';
-  const category = resource.category || defaultCategory;
+  const categoryOptions = resourceCategoryOptions()
+    .filter((option) => !resource.id || option.value !== 'photos');
+  const category = resource.category || 'other';
   const isYearbook = category === 'yearbook';
   const isTeacherVideo = category === 'teacher';
   return [
@@ -1901,7 +1901,7 @@ function resourceFields(resource = {}) {
     ...((isYearbook || isTeacherVideo) ? [{
       name: 'image',
       label: '封面地址（选填）',
-      value: resource.coverImage ?? '',
+      value: resource.coverDraft ?? resource.coverImage ?? '',
       browse: 'file',
     }] : [{
       name: 'image',
@@ -1920,47 +1920,80 @@ function resourceFields(resource = {}) {
   ];
 }
 
-function resourceFormMode(category) {
-  if (category === 'yearbook') return 'yearbook';
-  if (category === 'teacher') return 'teacher';
-  if (category === 'photos') return 'photos';
-  return 'resource';
+function currentAdminModalDraft(base = {}) {
+  const draft = { ...base };
+  const formData = new FormData(adminEls.modalForm);
+  formData.forEach((value, name) => {
+    if (typeof value === 'string') draft[name] = value;
+  });
+  return draft;
+}
+
+function resourceDraftForCategory(resource, category) {
+  const draft = currentAdminModalDraft(resource);
+  if (resource.category === 'teacher' || resource.category === 'yearbook') {
+    draft.coverDraft = draft.image || '';
+  } else if (category === 'teacher' || category === 'yearbook') {
+    draft.coverDraft = draft.image || '';
+  }
+  draft.category = category;
+  return draft;
+}
+
+function resourceDraftToActivity(resource) {
+  return {
+    ...resource,
+    category: 'photos',
+    activity: resource.activity || resource.title || '',
+    description: resource.description || '',
+    year: resource.year,
+    downloads: resource.downloads || 0,
+    sortOrder: resource.sortOrder || 0,
+    photoDir: resource.photoDir || '',
+    coverImage: resource.coverDraft ?? resource.coverImage ?? resource.image ?? '',
+  };
+}
+
+function activityDraftToResource(activity, category) {
+  return {
+    ...activity,
+    category,
+    title: activity.title || activity.activity || '',
+    description: activity.description || '',
+    year: activity.year,
+    downloads: activity.downloads || 0,
+    image: activity.image || activity.coverImage || '',
+    coverDraft: activity.coverImage || '',
+    resourceUrl: activity.resourceUrl || '',
+  };
 }
 
 function openResourceModal(resource) {
   const isEdit = Boolean(resource?.id);
-  openAdminModal(isEdit ? '编辑资源' : '新建资源', resourceFields(resource), async (payload) => {
-    if (!isEdit && payload.category === 'photos') {
-      selectResourceCategory('photos');
-      await loadResourceManagementView();
-      setTimeout(() => openActivityModal({}), 0);
-      return;
-    }
-    const selectedCategory = resourceCategoryOptions().find((category) => category.value === payload.category);
+  const selectedCategory = resourceCategoryOptions().find((category) => category.value === resource.category);
+  const modalTitle = `${isEdit ? '编辑' : '新建'}资源 · ${selectedCategory?.label || '其他资源'}`;
+  openAdminModal(modalTitle, resourceFields(resource), async (payload) => {
     payload.label = selectedCategory?.label || payload.category;
     await adminEndpoint(isEdit ? `/admin/resources/${resource.id}` : '/admin/resources', {
       method: isEdit ? 'PATCH' : 'POST',
       body: JSON.stringify(payload),
     });
+    if (!isEdit || (adminState.resourceCategory && adminState.resourceCategory !== payload.category)) {
+      selectResourceCategory(payload.category);
+    }
     adminState.resourceMetaLoaded = false;
     await loadResourceManagementView();
   });
   const categorySelect = adminEls.modalForm.elements.category;
-  if (!isEdit && categorySelect) {
+  if (categorySelect) {
     categorySelect.addEventListener('change', () => {
       const nextCategory = categorySelect.value;
-      if (nextCategory === 'photos') {
-        closeAdminModal();
-        selectResourceCategory('photos');
-        loadResourceManagementView()
-          .then(() => openActivityModal({}))
-          .catch((error) => window.alert(error.message));
+      const draft = resourceDraftForCategory(resource, nextCategory);
+      if (!isEdit && nextCategory === 'photos') {
+        openActivityModal(resourceDraftToActivity(draft));
         return;
       }
-      if (resourceFormMode(nextCategory) === resourceFormMode(category)) return;
-      const selectedCategory = resourceCategoryOptions().find((item) => item.value === nextCategory);
-      closeAdminModal();
-      setTimeout(() => openResourceModal({ category: nextCategory, label: selectedCategory?.label }), 0);
+      openResourceModal(draft);
     });
   }
   if (isEdit) {
@@ -2160,7 +2193,7 @@ function activityFields(activity = {}, options = {}) {
   const categoryField = {
     name: 'category',
     label: '分类',
-    value: 'photos',
+    value: activity.category || 'photos',
     type: 'select',
     required: true,
     options: resourceCategoryOptions(),
@@ -2179,32 +2212,27 @@ function activityFields(activity = {}, options = {}) {
 
 function openActivityModal(activity) {
   const isEdit = Boolean(activity?.id);
-  openAdminModal(isEdit ? '编辑活动' : '新建活动', activityFields(activity, { includeCategory: !isEdit }), async (payload) => {
-    if (!isEdit && payload.category && payload.category !== 'photos') {
-      const selectedCategory = resourceCategoryOptions().find((category) => category.value === payload.category);
-      selectResourceCategory(payload.category);
+  openAdminModal(
+    isEdit ? '编辑活动照片' : '新建资源 · 活动照片',
+    activityFields(activity, { includeCategory: !isEdit }),
+    async (payload) => {
+      delete payload.category;
+      await adminEndpoint(isEdit ? `/admin/photo-activities/${activity.id}` : '/admin/photo-activities', {
+        method: isEdit ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload),
+      });
+      if (!isEdit) selectResourceCategory('photos');
+      adminState.resourceMetaLoaded = false;
       await loadResourceManagementView();
-      setTimeout(() => openResourceModal({ category: payload.category, label: selectedCategory?.label }), 0);
-      return;
-    }
-    delete payload.category;
-    await adminEndpoint(isEdit ? `/admin/photo-activities/${activity.id}` : '/admin/photo-activities', {
-      method: isEdit ? 'PATCH' : 'POST',
-      body: JSON.stringify(payload),
-    });
-    adminState.resourceMetaLoaded = false;
-    await loadActivities();
-  });
+    },
+  );
   const categorySelect = adminEls.modalForm.elements.category;
   if (!isEdit && categorySelect) {
     categorySelect.addEventListener('change', () => {
-      if (categorySelect.value === 'photos') return;
-      const selectedCategory = resourceCategoryOptions().find((category) => category.value === categorySelect.value);
-      closeAdminModal();
-      selectResourceCategory(categorySelect.value);
-      loadResourceManagementView()
-        .then(() => openResourceModal({ category: categorySelect.value, label: selectedCategory?.label }))
-        .catch((error) => window.alert(error.message));
+      const nextCategory = categorySelect.value;
+      if (nextCategory === 'photos') return;
+      const draft = currentAdminModalDraft(activity);
+      openResourceModal(activityDraftToResource(draft, nextCategory));
     });
   }
   if (isEdit) {
