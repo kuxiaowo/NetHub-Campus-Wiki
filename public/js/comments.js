@@ -36,7 +36,9 @@
   function renderCommentBody(comment) {
     if (comment.status === 'deleted') return '<p class="comment-deleted">该留言已删除</p>';
     const replyTo = comment.replyToUser
-      ? `<a class="comment-reply-to" href="/user.html?id=${encodeURIComponent(comment.replyToUser.id)}">回复 @${escapeHtml(commentDisplayName(comment.replyToUser))}</a>`
+      ? comment.replyToUser.deleted
+        ? `<span class="comment-reply-to">回复 ${escapeHtml(commentDisplayName(comment.replyToUser))}</span>`
+        : `<a class="comment-reply-to" href="/user.html?id=${encodeURIComponent(comment.replyToUser.id)}">回复 @${escapeHtml(commentDisplayName(comment.replyToUser))}</a>`
       : '';
     return `<p class="comment-content">${replyTo}${replyTo ? '：' : ''}${escapeHtml(comment.content)}</p>`;
   }
@@ -69,7 +71,9 @@
         ${commentAvatar(comment.author, reply ? 'comment-avatar small' : 'comment-avatar')}
         <div class="comment-main">
           <header class="comment-author-line">
-            <a href="/user.html?id=${encodeURIComponent(comment.author.id)}">${escapeHtml(commentDisplayName(comment.author))}</a>
+            ${comment.author.deleted
+              ? `<span>${escapeHtml(commentDisplayName(comment.author))}</span>`
+              : `<a href="/user.html?id=${encodeURIComponent(comment.author.id)}">${escapeHtml(commentDisplayName(comment.author))}</a>`}
             ${comment.author.campusVerified ? '<span class="comment-verified" title="已关联校园档案">✓</span>' : ''}
             <time>${escapeHtml(commentDate(comment.createdAt))}</time>
           </header>

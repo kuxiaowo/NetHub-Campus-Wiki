@@ -33,6 +33,7 @@ const adminState = {
   dragJustEnded: false,
   importDocument: null,
   importPreview: null,
+  securitySettings: null,
 };
 
 const adminEls = {};
@@ -362,16 +363,43 @@ function openAdminModal(title, fields, onSubmit) {
         return `<input type="hidden" name="${adminText(field.name)}" value="${adminText(value)}">`;
       }
       if (field.type === 'select') {
+        if (field.searchable) {
+          const selectedOption = (field.options || []).find(
+            (option) => String(option.value) === String(value),
+          );
+          const listId = `admin-${field.name}-options`;
+          return `
+            <label>
+              <span>${adminText(field.label)}</span>
+              <input
+                class="input"
+                type="text"
+                list="${adminText(listId)}"
+                value="${String(value) === '' ? '' : adminText(selectedOption?.label || '')}"
+                placeholder="${adminText(field.searchPlaceholder || '输入内容进行搜索')}"
+                autocomplete="off"
+                data-admin-combobox="${adminText(field.name)}"
+              >
+              <input type="hidden" name="${adminText(field.name)}" value="${adminText(value)}" data-admin-combobox-value="${adminText(field.name)}">
+              <datalist id="${adminText(listId)}">
+                ${(field.options || []).map((option) => `<option value="${adminText(option.label)}"></option>`).join('')}
+              </datalist>
+            </label>
+          `;
+        }
+        const select = `
+          <select class="input" name="${adminText(field.name)}" ${field.required ? 'required' : ''}>
+            ${(field.options || []).map((option) => `
+              <option value="${adminText(option.value)}" ${String(option.value) === String(value) ? 'selected' : ''}>
+                ${adminText(option.label)}
+              </option>
+            `).join('')}
+          </select>
+        `;
         return `
           <label>
             <span>${adminText(field.label)}</span>
-            <select class="input" name="${adminText(field.name)}" ${field.required ? 'required' : ''}>
-              ${(field.options || []).map((option) => `
-                <option value="${adminText(option.value)}" ${String(option.value) === String(value) ? 'selected' : ''}>
-                  ${adminText(option.label)}
-                </option>
-              `).join('')}
-            </select>
+            ${select}
           </label>
         `;
       }
@@ -430,6 +458,21 @@ function openAdminModal(title, fields, onSubmit) {
       <button class="button" type="submit">保存</button>
     </div>
   `;
+  fields.filter((field) => field.type === 'select' && field.searchable).forEach((field) => {
+    const input = adminEls.modalForm.querySelector(`[data-admin-combobox="${field.name}"]`);
+    const hiddenInput = adminEls.modalForm.querySelector(`[data-admin-combobox-value="${field.name}"]`);
+    const options = field.options || [];
+    const syncComboboxValue = () => {
+      const text = input.value.trim();
+      const matched = options.find(
+        (option) => String(option.label).toLocaleLowerCase() === text.toLocaleLowerCase(),
+      );
+      hiddenInput.value = matched ? String(matched.value) : '';
+      input.setCustomValidity(!text || matched ? '' : '请从下拉候选账号中选择');
+    };
+    input.addEventListener('input', syncComboboxValue);
+    input.addEventListener('change', syncComboboxValue);
+  });
   adminEls.modal.classList.add('is-open');
   adminEls.modal.setAttribute('aria-hidden', 'false');
   adminEls.modalForm.onsubmit = async (event) => {
@@ -721,6 +764,69 @@ function switchAdminView(view) {
   if (view === 'projects') loadProjectManagementView();
   if (view === 'resources') loadResourceManagementView();
   if (view === 'community') loadCommunityAdmin();
+  if (view === 'security') loadSecuritySettings();
+}
+
+const SECURITY_SETTING_FIELDS = [
+  'loginIpLimit',
+  'adminLoginIpLimit',
+  'loginFailureLimit',
+  'loginFailureCooldownMinutes',
+  'registerHourlyLimit',
+  'registerDailyLimit',
+  'passwordChangeHourlyLimit',
+];
+
+function setSecuritySettingsMessage(message, isError = false) {
+  adminEls.securitySettingsMessage.textContent = message;
+  adminEls.securitySettingsMessage.classList.toggle('error-text', isError);
+}
+
+function fillSecuritySettingsForm(settings) {
+  SECURITY_SETTING_FIELDS.forEach((field) => {
+    adminEls.securitySettingsForm.elements[field].value = settings[field];
+  });
+}
+
+async function loadSecuritySettings() {
+  adminEls.saveSecuritySettings.disabled = true;
+  setSecuritySettingsMessage('正在读取当前设置...');
+  try {
+    const settings = await adminEndpoint('/admin/auth-security-settings');
+    adminState.securitySettings = settings;
+    fillSecuritySettingsForm(settings);
+    setSecuritySettingsMessage(
+      settings.updatedAt ? `当前设置最后更新于 ${settings.updatedAt}` : '已加载当前设置。',
+    );
+  } catch (error) {
+    setSecuritySettingsMessage(error.message, true);
+  } finally {
+    adminEls.saveSecuritySettings.disabled = false;
+  }
+}
+
+async function saveSecuritySettings(event) {
+  event.preventDefault();
+  if (!adminEls.securitySettingsForm.reportValidity()) return;
+  const payload = {};
+  SECURITY_SETTING_FIELDS.forEach((field) => {
+    payload[field] = Number(adminEls.securitySettingsForm.elements[field].value);
+  });
+  adminEls.saveSecuritySettings.disabled = true;
+  setSecuritySettingsMessage('正在保存...');
+  try {
+    const settings = await adminEndpoint('/admin/auth-security-settings', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    adminState.securitySettings = settings;
+    fillSecuritySettingsForm(settings);
+    setSecuritySettingsMessage('保存成功，新限制已即时生效。');
+  } catch (error) {
+    setSecuritySettingsMessage(error.message, true);
+  } finally {
+    adminEls.saveSecuritySettings.disabled = false;
+  }
 }
 
 async function loadUsers() {
@@ -741,13 +847,17 @@ async function loadUsers() {
       { key: 'createdAt', label: '创建时间' },
     ],
     adminState.users,
-    (row) => `<button class="button secondary compact" type="button" data-edit-user="${adminText(row.id)}">编辑</button>`,
+    (row) => `
+      <div class="admin-inline-actions">
+        <button class="button secondary compact" type="button" data-edit-user="${adminText(row.id)}">编辑</button>
+        ${Number(row.id) === Number(adminState.currentUser?.id) ? '' : `<button class="button secondary compact danger" type="button" data-delete-user="${adminText(row.id)}">删除</button>`}
+      </div>
+    `,
   );
 }
 
 function announcementStatusLabel(status) {
   return {
-    draft: '草稿',
     published: '已发布',
     archived: '已归档',
   }[status] || status;
@@ -766,8 +876,54 @@ function commentTargetLink(report) {
   }[report.targetType] || report.targetType;
   const route = routes[report.targetType];
   return route
-    ? `<a class="admin-table-link" href="${route}?id=${adminText(report.targetId)}" target="_blank" rel="noopener">${adminText(label)} #${adminText(report.targetId)}</a>`
+    ? `<a class="admin-table-link" href="${route}?id=${adminText(report.targetId)}&commentId=${adminText(report.commentId)}#comment-${adminText(report.commentId)}" target="_blank" rel="noopener">定位留言 #${adminText(report.commentId)}</a>`
     : `${adminText(label)} #${adminText(report.targetId)}`;
+}
+
+function closeMessageReportContext() {
+  adminEls.messageReportModal.classList.remove('is-open');
+  adminEls.messageReportModal.setAttribute('aria-hidden', 'true');
+  adminEls.messageReportContext.innerHTML = '';
+}
+
+async function openMessageReportContext(reportId) {
+  adminEls.messageReportModal.classList.add('is-open');
+  adminEls.messageReportModal.setAttribute('aria-hidden', 'false');
+  adminEls.messageReportContext.innerHTML = '<div class="empty">正在加载消息上下文...</div>';
+  try {
+    const result = await adminEndpoint(`/admin/message-reports/${encodeURIComponent(reportId)}/context`);
+    const context = result.data;
+    adminEls.messageReportContext.innerHTML = `
+      <p class="admin-report-reason"><strong>举报理由：</strong>${adminText(context.reason)}</p>
+      <div class="admin-report-message-list">
+        ${context.messages.map((message) => `
+          <article class="admin-report-message${message.reported ? ' reported' : ''}" id="admin-report-message-${adminText(message.id)}">
+            <header>
+              <strong>${adminText(message.sender.displayName || message.sender.username || '校园用户')}${message.reported ? ' · 被举报消息' : ''}</strong>
+              <time>${adminText(message.createdAt)}</time>
+            </header>
+            <p>${message.recalled ? '消息已删除或撤回' : adminText(message.body || (message.project ? `CAS 项目：${message.project.name}` : ''))}</p>
+          </article>
+        `).join('')}
+      </div>
+    `;
+    adminEls.messageReportContext.querySelector('.admin-report-message.reported')?.scrollIntoView({ block: 'center' });
+  } catch (error) {
+    adminEls.messageReportContext.innerHTML = `<div class="empty error-text">${adminText(error.message)}</div>`;
+  }
+}
+
+async function deleteReportedComment(reportId) {
+  if (!window.confirm('确认删除这条被举报留言？正文会从前台隐藏，回复关系会保留。')) return;
+  await adminEndpoint(`/admin/comment-reports/${reportId}/content`, { method: 'DELETE' });
+  await loadCommunityAdmin();
+}
+
+async function deleteReportedMessage(reportId) {
+  if (!window.confirm('确认删除这条被举报私信？双方会话中将显示为已撤回，此操作无法恢复。')) return;
+  await adminEndpoint(`/admin/message-reports/${reportId}/content`, { method: 'DELETE' });
+  closeMessageReportContext();
+  await loadCommunityAdmin();
 }
 
 async function loadCommunityAdmin() {
@@ -791,7 +947,8 @@ async function loadCommunityAdmin() {
     (row) => `
       <div class="admin-inline-actions">
         <button class="button secondary compact" type="button" data-edit-announcement="${adminText(row.id)}">编辑</button>
-        ${row.status !== 'archived' ? `<button class="button secondary compact danger" type="button" data-archive-announcement="${adminText(row.id)}">归档</button>` : ''}
+        ${row.status === 'published' ? `<button class="button secondary compact" type="button" data-archive-announcement="${adminText(row.id)}">归档</button>` : ''}
+        <button class="button secondary compact danger" type="button" data-delete-announcement="${adminText(row.id)}">永久删除</button>
       </div>
     `,
   );
@@ -808,13 +965,14 @@ async function loadCommunityAdmin() {
     (row) => `
       <div class="admin-inline-actions">
         <button class="button compact" type="button" data-review-comment-report="${adminText(row.id)}" data-comment-report-decision="hide">隐藏并处理</button>
+        <button class="button secondary compact danger" type="button" data-delete-reported-comment="${adminText(row.id)}">删除内容</button>
         <button class="button secondary compact" type="button" data-review-comment-report="${adminText(row.id)}" data-comment-report-decision="dismiss">忽略</button>
       </div>
     `,
   );
   adminEls.messageReportsTable.innerHTML = renderAdminTable(
     [
-      { key: 'messageBody', label: '消息内容' },
+      { key: 'messageBody', label: '消息内容', render: (row) => row.messageRecalled ? '消息已删除或撤回' : adminText(row.messageBody) },
       { key: 'senderUsername', label: '发送者', render: (row) => `@${adminText(row.senderUsername)}` },
       { key: 'reporterUsername', label: '举报人', render: (row) => `@${adminText(row.reporterUsername)}` },
       { key: 'reason', label: '举报理由' },
@@ -823,6 +981,8 @@ async function loadCommunityAdmin() {
     adminState.messageReports,
     (row) => `
       <div class="admin-inline-actions">
+        <button class="button secondary compact" type="button" data-view-message-report="${adminText(row.id)}">定位消息</button>
+        ${row.messageRecalled ? '' : `<button class="button secondary compact danger" type="button" data-delete-reported-message="${adminText(row.id)}">删除内容</button>`}
         <button class="button compact" type="button" data-review-report="${adminText(row.id)}" data-report-decision="resolved">已处理</button>
         <button class="button secondary compact" type="button" data-review-report="${adminText(row.id)}" data-report-decision="dismissed">忽略</button>
       </div>
@@ -841,7 +1001,6 @@ function announcementFields(announcement = {}) {
       type: 'select',
       value: announcement.status || 'published',
       options: [
-        { value: 'draft', label: '草稿' },
         { value: 'published', label: '发布' },
         { value: 'archived', label: '归档' },
       ],
@@ -863,6 +1022,15 @@ function openAnnouncementModal(announcement = {}) {
 
 async function archiveAnnouncement(id) {
   if (!window.confirm('确认归档这条公告？归档后前台将不再显示，但留言数据会保留。')) return;
+  await adminEndpoint(`/admin/announcements/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'archived' }),
+  });
+  await loadCommunityAdmin();
+}
+
+async function deleteAnnouncement(id) {
+  if (!window.confirm('确认永久删除这条公告及其全部留言？此操作无法恢复。')) return;
   await adminEndpoint(`/admin/announcements/${id}`, { method: 'DELETE' });
   await loadCommunityAdmin();
 }
@@ -1063,19 +1231,55 @@ function adminProjectMembers(project) {
 
 function normalizeAdminProjectUpdates(rawUpdates) {
   if (!Array.isArray(rawUpdates)) return [];
-  return rawUpdates.map((item) => {
+  return rawUpdates.map((item, index) => {
     if (item && typeof item === 'object') {
       const rawImages = item.images || item.photos || [];
       return {
+        sourceIndex: index,
         id: String(item.id || '').trim(),
         content: String(item.content || item.text || item.body || '').trim(),
         images: (Array.isArray(rawImages) ? rawImages : linesToList(rawImages))
           .map((image) => String(image || '').trim())
           .filter(Boolean),
+        authorPersonId: item.authorPersonId ?? null,
+        authorUserId: item.authorUserId ?? null,
+        authorName: String(item.authorName || '').trim(),
+        authorRole: String(item.authorRole || '').trim(),
+        createdAt: String(item.createdAt || '').trim(),
       };
     }
-    return { id: '', content: String(item || '').trim(), images: [] };
-  }).filter((item) => item.content || item.images.length);
+    return {
+      sourceIndex: index,
+      id: '',
+      content: String(item || '').trim(),
+      images: [],
+      authorPersonId: null,
+      authorUserId: null,
+      authorName: '',
+      authorRole: '',
+      createdAt: '',
+    };
+  }).filter((item) => item.content || item.images.length).sort((a, b) => {
+    const timeA = Date.parse(a.createdAt);
+    const timeB = Date.parse(b.createdAt);
+    if (Number.isNaN(timeA) && Number.isNaN(timeB)) return a.sourceIndex - b.sourceIndex;
+    if (Number.isNaN(timeA)) return 1;
+    if (Number.isNaN(timeB)) return -1;
+    return timeB - timeA || a.sourceIndex - b.sourceIndex;
+  });
+}
+
+function projectUpdateAuthors(project) {
+  return (Array.isArray(project.memberList) ? project.memberList : [])
+    .filter((member) => member.personId);
+}
+
+async function deleteUser(id) {
+  const user = adminState.users.find((item) => String(item.id) === String(id));
+  const name = user?.displayName || user?.username || `#${id}`;
+  if (!window.confirm(`确认删除用户“${name}”？账号将匿名化且无法恢复，历史留言和私信会保留。`)) return;
+  await adminEndpoint(`/admin/users/${id}`, { method: 'DELETE' });
+  await loadUsers();
 }
 
 function projectAssetUrl(project, path) {
@@ -1094,6 +1298,7 @@ function adminProjectUpdates(project) {
         const visibleImages = update.images.slice(0, 6);
         return `
           <article class="admin-project-update-card">
+            ${update.authorName ? `<small>发布成员：${adminText(update.authorName)}${update.authorRole ? ` · ${adminText(update.authorRole === 'leader' ? '负责人' : '成员')}` : ''}${update.createdAt ? ` · ${adminText(update.createdAt)}` : ''}</small>` : ''}
             <p>${update.content ? adminText(update.content) : '<span>仅照片动态</span>'}</p>
             ${visibleImages.length ? `
               <div class="admin-project-update-photos">
@@ -1219,13 +1424,40 @@ function projectUpdateEditorItem(update = {}, project = adminState.currentProjec
     id: String(update.id || ''),
     content: String(update.content || ''),
     images: Array.isArray(update.images) ? update.images : [],
+    authorPersonId: update.authorPersonId ?? null,
+    authorUserId: update.authorUserId ?? null,
+    authorName: String(update.authorName || ''),
+    authorRole: String(update.authorRole || ''),
+    createdAt: String(update.createdAt || ''),
   };
+  const authors = projectUpdateAuthors(project);
+  const selectedAuthor = authors.find(
+    (member) => String(member.personId) === String(normalized.authorPersonId || ''),
+  ) || authors.find(
+    (member) => String(member.userId || '') === String(normalized.authorUserId || ''),
+  ) || authors.find((member) => member.role === 'leader') || authors[0];
+  const authorLabel = selectedAuthor?.name || normalized.authorName || '未记录发布成员';
   projectUpdateEditorSequence += 1;
   const imageFieldName = `projectUpdateImages${projectUpdateEditorSequence}`;
   return `
     <div class="admin-project-update-editor-item admin-sortable-list-item" draggable="true" data-sortable-list-item data-project-update-editor-item data-update-id="${adminText(normalized.id || '')}">
       <span class="admin-sortable-list-handle">拖动</span>
       <div class="admin-project-update-editor-fields">
+        ${normalized.id ? `
+          <label>
+            <span>发布成员</span>
+            <input class="input" type="text" value="${adminText(authorLabel)}" disabled>
+          </label>
+        ` : `
+          <label>
+            <span>发布成员</span>
+            <select class="input" data-project-update-author-person ${authors.length ? '' : 'disabled'} required>
+              ${authors.length
+                ? authors.map((member) => `<option value="${adminText(member.personId)}" ${String(member.personId) === String(selectedAuthor?.personId) ? 'selected' : ''}>${adminText(member.name)}（${member.role === 'leader' ? '负责人' : '成员'}）</option>`).join('')
+                : '<option value="">请先添加项目成员</option>'}
+            </select>
+          </label>
+        `}
         <label>
           <span>动态内容</span>
           <textarea class="input" rows="4" data-project-update-content>${adminText(normalized.content)}</textarea>
@@ -1274,11 +1506,14 @@ function openProjectUpdatesModal(project) {
       const rows = [...adminEls.modalForm.querySelectorAll('[data-project-update-editor-item]')];
       const existingIds = new Set(updates.map((update) => update.id).filter(Boolean));
       const retainedExistingIds = new Set(
-        rows.map((row) => row.dataset.updateId).filter((id) => id && (
-          row.querySelector('[data-project-update-content]').value.trim()
-          || linesToList(row.querySelector('[data-project-update-images]').value).length
-          || row.querySelector('[data-project-update-photos]').files.length
-        )),
+        rows.filter((row) => (
+          row.dataset.updateId
+          && (
+            row.querySelector('[data-project-update-content]').value.trim()
+            || linesToList(row.querySelector('[data-project-update-images]').value).length
+            || row.querySelector('[data-project-update-photos]').files.length
+          )
+        )).map((row) => row.dataset.updateId),
       );
       let saved = project;
       for (const updateId of existingIds) {
@@ -1300,6 +1535,11 @@ function openProjectUpdatesModal(project) {
         body.append('images', JSON.stringify(imagePaths));
         photoFiles.forEach((file) => body.append('photos', file));
         const currentId = row.dataset.updateId;
+        if (!currentId) {
+          const authorPersonId = row.querySelector('[data-project-update-author-person]')?.value;
+          if (!authorPersonId) throw new Error('请先添加项目成员，并选择发布成员');
+          body.append('authorPersonId', authorPersonId);
+        }
         const beforeIds = new Set(normalizeAdminProjectUpdates(saved.updates).map((update) => update.id));
         saved = await adminEndpoint(
           currentId
@@ -1455,6 +1695,8 @@ async function openProjectMemberBindingModal(project, member) {
       type: 'select',
       value: member.userId || '',
       options,
+      searchable: true,
+      searchPlaceholder: '搜索用户名或展示名',
     }],
     async (payload) => {
       const userId = payload.userId ? adminNumber(payload.userId) : null;
@@ -2028,6 +2270,8 @@ function bindAdminEvents() {
   adminEls.userActiveFilter.addEventListener('change', loadUsers);
   adminEls.createAnnouncementButton.addEventListener('click', () => openAnnouncementModal({ status: 'published' }));
   adminEls.refreshCommunity.addEventListener('click', loadCommunityAdmin);
+  adminEls.refreshSecuritySettings.addEventListener('click', loadSecuritySettings);
+  adminEls.securitySettingsForm.addEventListener('submit', saveSecuritySettings);
 
   adminEls.createProjectButton.addEventListener('click', () => openProjectModal({}));
   adminEls.projectSearch.addEventListener('keydown', (event) => {
@@ -2104,6 +2348,7 @@ function bindAdminEvents() {
 
     if (target.dataset.adminModalClose !== undefined) closeAdminModal();
     if (target.dataset.filePickerClose !== undefined) closeFilePicker();
+    if (target.dataset.messageReportModalClose !== undefined) closeMessageReportContext();
     if (target.dataset.adminPhotoModalClose !== undefined) closeAdminPhotoModal();
     if (target.dataset.browseTarget) {
       openFilePicker(
@@ -2160,7 +2405,7 @@ function bindAdminEvents() {
     }
     if (target.dataset.addProjectUpdate !== undefined) {
       const list = adminEls.modalForm.querySelector('[data-project-update-editor]');
-      if (list) list.insertAdjacentHTML('beforeend', projectUpdateEditorItem({}, adminState.currentProject));
+      if (list) list.insertAdjacentHTML('afterbegin', projectUpdateEditorItem({}, adminState.currentProject));
     }
     if (target.dataset.removeProjectUpdate !== undefined) {
       const item = target.closest('[data-project-update-editor-item]');
@@ -2178,6 +2423,9 @@ function bindAdminEvents() {
     if (target.dataset.editUser) {
       openUserModal(adminState.users.find((item) => String(item.id) === target.dataset.editUser));
     }
+    if (target.dataset.deleteUser) {
+      deleteUser(target.dataset.deleteUser).catch((error) => window.alert(error.message));
+    }
     if (target.dataset.reviewReport) {
       adminEndpoint(`/admin/message-reports/${target.dataset.reviewReport}`, {
         method: 'PATCH',
@@ -2192,6 +2440,18 @@ function bindAdminEvents() {
     }
     if (target.dataset.archiveAnnouncement) {
       archiveAnnouncement(target.dataset.archiveAnnouncement).catch((error) => window.alert(error.message));
+    }
+    if (target.dataset.viewMessageReport) {
+      openMessageReportContext(target.dataset.viewMessageReport);
+    }
+    if (target.dataset.deleteReportedMessage) {
+      deleteReportedMessage(target.dataset.deleteReportedMessage).catch((error) => window.alert(error.message));
+    }
+    if (target.dataset.deleteReportedComment) {
+      deleteReportedComment(target.dataset.deleteReportedComment).catch((error) => window.alert(error.message));
+    }
+    if (target.dataset.deleteAnnouncement) {
+      deleteAnnouncement(target.dataset.deleteAnnouncement).catch((error) => window.alert(error.message));
     }
     if (target.dataset.reviewCommentReport) {
       const hideComment = target.dataset.commentReportDecision === 'hide';
@@ -2337,6 +2597,8 @@ async function initAdmin() {
     modal: adminQuery('#adminModal'),
     modalTitle: adminQuery('#adminModalTitle'),
     modalForm: adminQuery('#adminModalForm'),
+    messageReportModal: adminQuery('#messageReportModal'),
+    messageReportContext: adminQuery('#messageReportContext'),
     filePickerModal: adminQuery('#filePickerModal'),
     filePickerTitle: adminQuery('#filePickerTitle'),
     pickCurrentFolder: adminQuery('#pickCurrentFolder'),
@@ -2368,6 +2630,10 @@ async function initAdmin() {
     refreshCommunity: adminQuery('#refreshCommunity'),
     announcementsTable: adminQuery('#announcementsTable'),
     commentReportsTable: adminQuery('#commentReportsTable'),
+    securitySettingsForm: adminQuery('#securitySettingsForm'),
+    refreshSecuritySettings: adminQuery('#refreshSecuritySettings'),
+    saveSecuritySettings: adminQuery('#saveSecuritySettings'),
+    securitySettingsMessage: adminQuery('#securitySettingsMessage'),
     createProjectButton: adminQuery('#createProjectButton'),
     projectSearch: adminQuery('#projectAdminSearch'),
     projectYear: adminQuery('#adminProjectYear'),

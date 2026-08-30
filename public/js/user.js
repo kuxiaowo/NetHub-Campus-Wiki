@@ -20,7 +20,6 @@ function renderPublicProfile(profile, currentUser) {
       <div class="public-profile-copy">
         <div class="public-profile-name">
           <h1>${escapeHtml(profile.displayName || profile.username)}</h1>
-          ${profile.campusVerified ? '<span class="verified-chip">已关联校园档案</span>' : ''}
         </div>
         <p class="public-profile-handle">@${escapeHtml(profile.username)}</p>
         <p class="public-profile-bio">${escapeHtml(profile.bio || '这个用户还没有填写个人简介。')}</p>

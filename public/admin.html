@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>管理后台</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=3" />
-  <link rel="stylesheet" href="/css/styles.css?v=admin-folder-upload1" />
+  <link rel="stylesheet" href="/css/styles.css?v=member-binding-combobox1" />
 </head>
 <body>
   <main class="admin-shell">
@@ -24,6 +24,7 @@
         <button class="admin-nav-item" type="button" data-admin-view="projects" aria-pressed="false">CAS 项目管理</button>
         <button class="admin-nav-item" type="button" data-admin-view="resources" aria-pressed="false">资源管理</button>
         <button class="admin-nav-item" type="button" data-admin-view="community" aria-pressed="false">公告与留言</button>
+        <button class="admin-nav-item" type="button" data-admin-view="security" aria-pressed="false">访问限制</button>
       </nav>
       <a class="button secondary admin-home-link" href="/index.html">返回前台</a>
     </aside>
@@ -317,6 +318,69 @@
           </section>
         </section>
 
+        <section class="admin-view" data-admin-panel="security">
+          <div class="admin-section-head">
+            <div>
+              <h2>访问限制</h2>
+              <p>控制注册、登录和修改密码接口的请求频率。保存后立即生效，无需重启服务。</p>
+            </div>
+            <button id="refreshSecuritySettings" class="button secondary compact" type="button">重新加载</button>
+          </div>
+
+          <form id="securitySettingsForm" class="card admin-security-form">
+            <div class="admin-security-group">
+              <div>
+                <h3>登录请求</h3>
+                <p>同时限制来源 IP；管理员账号会额外应用一组独立限制。</p>
+              </div>
+              <div class="admin-security-fields">
+                <label>
+                  <span>每 IP 每分钟登录次数</span>
+                  <input class="input" type="number" name="loginIpLimit" min="1" max="100000" required />
+                </label>
+                <label>
+                  <span>管理员每 IP 每分钟登录次数</span>
+                  <input class="input" type="number" name="adminLoginIpLimit" min="1" max="100000" required />
+                </label>
+                <label>
+                  <span>同一用户名连续失败次数</span>
+                  <input class="input" type="number" name="loginFailureLimit" min="1" max="100000" required />
+                </label>
+                <label>
+                  <span>登录失败冷却时间（分钟）</span>
+                  <input class="input" type="number" name="loginFailureCooldownMinutes" min="1" max="43200" required />
+                </label>
+              </div>
+            </div>
+
+            <div class="admin-security-group">
+              <div>
+                <h3>注册与密码</h3>
+                <p>注册按来源 IP 计算；修改密码同时按当前用户和来源 IP 计算。</p>
+              </div>
+              <div class="admin-security-fields">
+                <label>
+                  <span>每 IP 每小时注册次数</span>
+                  <input class="input" type="number" name="registerHourlyLimit" min="1" max="100000" required />
+                </label>
+                <label>
+                  <span>每 IP 每日注册次数</span>
+                  <input class="input" type="number" name="registerDailyLimit" min="1" max="1000000" required />
+                </label>
+                <label>
+                  <span>每用户 / IP 每小时修改密码次数</span>
+                  <input class="input" type="number" name="passwordChangeHourlyLimit" min="1" max="100000" required />
+                </label>
+              </div>
+            </div>
+
+            <div class="admin-security-actions">
+              <p id="securitySettingsMessage" class="admin-muted" aria-live="polite">正在读取当前设置...</p>
+              <button id="saveSecuritySettings" class="button" type="submit">保存并立即生效</button>
+            </div>
+          </form>
+        </section>
+
       </div>
     </section>
   </main>
@@ -353,6 +417,17 @@
     </section>
   </div>
 
+  <div id="messageReportModal" class="admin-modal" aria-hidden="true" role="dialog" aria-label="举报私信上下文">
+    <div class="admin-modal-backdrop" data-message-report-modal-close></div>
+    <section class="admin-modal-panel admin-report-context-panel">
+      <div class="admin-modal-head">
+        <h2>举报私信上下文</h2>
+        <button class="icon-button" type="button" aria-label="关闭" data-message-report-modal-close>×</button>
+      </div>
+      <div id="messageReportContext" class="admin-report-context" aria-live="polite"></div>
+    </section>
+  </div>
+
   <div id="adminPhotoModal" class="photo-modal" aria-hidden="true" role="dialog" aria-label="照片详情">
     <div class="photo-modal-backdrop" data-admin-photo-modal-close></div>
     <section class="photo-modal-panel">
@@ -377,6 +452,6 @@
   <script src="/js/config.js"></script>
   <script src="/js/api.js?v=project-logo1"></script>
   <script src="/js/resource-ui.js?v=shared-resource-ui1"></script>
-  <script src="/js/admin.js?v=teacher-resource-form2"></script>
+  <script src="/js/admin.js?v=project-update-person-author1"></script>
 </body>
 </html>

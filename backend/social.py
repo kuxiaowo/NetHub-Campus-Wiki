@@ -5,9 +5,10 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
 from backend.auth import format_user, get_current_user
+from backend.avatars import delete_managed_avatar, store_avatar
 from backend.database import get_db_connection
 
 router = APIRouter(prefix="/api", tags=["social"])
@@ -240,6 +241,61 @@ def update_profile(payload: dict[str, Any], user: dict[str, Any] = Depends(get_c
                 (user["id"],),
             )
             row = cursor.fetchone()
+    return format_user(row)
+
+
+@router.post("/users/me/avatar")
+async def upload_avatar(
+    avatar: UploadFile = File(...),
+    user: dict[str, Any] = Depends(get_current_user),
+):
+    new_url = await store_avatar(user["id"], avatar)
+    old_url: str | None = None
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT avatar_url FROM users WHERE id = %s LIMIT 1", (user["id"],))
+                current = cursor.fetchone()
+                if current is None:
+                    raise HTTPException(status_code=404, detail="用户不存在")
+                old_url = current.get("avatar_url")
+                cursor.execute("UPDATE users SET avatar_url = %s WHERE id = %s", (new_url, user["id"]))
+                cursor.execute(
+                    """
+                    SELECT u.*, p.id AS person_id
+                    FROM users u LEFT JOIN people p ON p.user_id = u.id
+                    WHERE u.id = %s
+                    """,
+                    (user["id"],),
+                )
+                row = cursor.fetchone()
+    except Exception:
+        delete_managed_avatar(new_url)
+        raise
+    delete_managed_avatar(old_url)
+    return format_user(row)
+
+
+@router.delete("/users/me/avatar")
+def remove_avatar(user: dict[str, Any] = Depends(get_current_user)):
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT avatar_url FROM users WHERE id = %s LIMIT 1", (user["id"],))
+            current = cursor.fetchone()
+            if current is None:
+                raise HTTPException(status_code=404, detail="用户不存在")
+            old_url = current.get("avatar_url")
+            cursor.execute("UPDATE users SET avatar_url = NULL WHERE id = %s", (user["id"],))
+            cursor.execute(
+                """
+                SELECT u.*, p.id AS person_id
+                FROM users u LEFT JOIN people p ON p.user_id = u.id
+                WHERE u.id = %s
+                """,
+                (user["id"],),
+            )
+            row = cursor.fetchone()
+    delete_managed_avatar(old_url)
     return format_user(row)
 
 

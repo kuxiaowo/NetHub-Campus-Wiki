@@ -19,6 +19,7 @@ from backend.config import settings
 from backend.database import get_db_connection
 
 UserRole = Literal["admin", "user"]
+DELETED_USER_DISPLAY_NAME = "已注销用户"
 
 PASSWORD_ALGORITHM = "pbkdf2_sha256"
 PASSWORD_ITERATIONS = 260_000
@@ -97,6 +98,31 @@ def format_user(row: dict[str, Any]) -> dict[str, Any]:
         "linkedPersonId": row.get("person_id"),
         "createdAt": row.get("created_at"),
     }
+
+
+def public_user_identity(
+    row: dict[str, Any],
+    *,
+    id_key: str,
+    username_key: str,
+    display_name_key: str,
+    avatar_url_key: str,
+    deleted_at_key: str,
+    campus_verified_key: str | None = None,
+) -> dict[str, Any]:
+    """格式化可嵌入留言、私信等响应的公开用户身份。"""
+
+    deleted = bool(row.get(deleted_at_key))
+    result = {
+        "id": row.get(id_key),
+        "username": None if deleted else row.get(username_key),
+        "displayName": DELETED_USER_DISPLAY_NAME if deleted else row.get(display_name_key),
+        "avatarUrl": None if deleted else row.get(avatar_url_key),
+        "deleted": deleted,
+    }
+    if campus_verified_key is not None:
+        result["campusVerified"] = False if deleted else bool(row.get(campus_verified_key))
+    return result
 
 
 def validate_username(username: str) -> str:

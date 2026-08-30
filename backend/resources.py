@@ -8,13 +8,13 @@ import io
 import re
 import shutil
 import subprocess
-import time
 from pathlib import Path
 from typing import Any, Literal
 
 from backend.config import settings
 from backend.database import get_db_connection
 from backend.resource_types import resource_type_options
+from backend.view_tracking import can_track_view, mark_view_tracked
 
 ResourceSort = Literal["hot", "new", "old", "download"]
 PhotoSort = Literal["hot", "new", "old", "photoCount", "download"]
@@ -31,8 +31,6 @@ THUMB_WEBP_QUALITY = settings.thumbnail_webp_quality
 THUMB_WEBP_METHOD = settings.thumbnail_webp_method
 VIDEO_THUMBNAIL_TIMEOUT_SECONDS = settings.video_thumbnail_timeout_seconds
 _PHOTO_DIR_CACHE: dict[str, dict[str, Any]] = {}
-_HOT_TRACK: dict[tuple[str, int, int], float] = {}
-HOT_THROTTLE_SECONDS = settings.resource_hot_throttle_seconds
 
 
 class YearbookResourceError(Exception):
@@ -344,10 +342,10 @@ def get_resource(
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            if track_view and _can_track_hot("resource", resource_id, viewer_user_id):
+            if track_view and can_track_view("resource", resource_id, viewer_user_id):
                 cursor.execute("UPDATE resources SET hot = hot + 1 WHERE id = %s", (resource_id,))
                 if cursor.rowcount:
-                    _mark_hot_tracked("resource", resource_id, viewer_user_id)
+                    mark_view_tracked("resource", resource_id, viewer_user_id)
             cursor.execute("SELECT * FROM resources WHERE id = %s LIMIT 1", (resource_id,))
             row = cursor.fetchone()
     return format_resource(row) if row else None
@@ -391,31 +389,6 @@ def bump_photo_activity_downloads(activity_id: int) -> dict[str, Any] | None:
     return format_photo_activity(row, []) if row else None
 
 
-def _hot_track_key(scope: str, item_id: int, user_id: int | None) -> tuple[str, int, int] | None:
-    if user_id is None:
-        return None
-    return (scope, item_id, user_id)
-
-
-def _can_track_hot(scope: str, item_id: int, user_id: int | None) -> bool:
-    key = _hot_track_key(scope, item_id, user_id)
-    if key is None:
-        return True
-
-    now = time.monotonic()
-    previous = _HOT_TRACK.get(key)
-    if previous is not None and now - previous < HOT_THROTTLE_SECONDS:
-        return False
-    return True
-
-
-def _mark_hot_tracked(scope: str, item_id: int, user_id: int | None) -> None:
-    key = _hot_track_key(scope, item_id, user_id)
-    if key is None:
-        return
-    _HOT_TRACK[key] = time.monotonic()
-
-
 def get_yearbook_detail(
     resource_id: int,
     *,
@@ -426,10 +399,10 @@ def get_yearbook_detail(
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            if track_view and _can_track_hot("resource", resource_id, viewer_user_id):
+            if track_view and can_track_view("resource", resource_id, viewer_user_id):
                 cursor.execute("UPDATE resources SET hot = hot + 1 WHERE id = %s", (resource_id,))
                 if cursor.rowcount:
-                    _mark_hot_tracked("resource", resource_id, viewer_user_id)
+                    mark_view_tracked("resource", resource_id, viewer_user_id)
             cursor.execute("SELECT * FROM resources WHERE id = %s LIMIT 1", (resource_id,))
             row = cursor.fetchone()
 
@@ -633,10 +606,10 @@ def get_activity_photo_detail(
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            if track_view and _can_track_hot("photo_activity", activity_id, viewer_user_id):
+            if track_view and can_track_view("photo_activity", activity_id, viewer_user_id):
                 cursor.execute("UPDATE photo_activities SET hot = hot + 1 WHERE id = %s", (activity_id,))
                 if cursor.rowcount:
-                    _mark_hot_tracked("photo_activity", activity_id, viewer_user_id)
+                    mark_view_tracked("photo_activity", activity_id, viewer_user_id)
 
             cursor.execute(
                 """

@@ -323,6 +323,10 @@ function authDialogTemplate() {
             <span class="sr-only">密码</span>
             <input class="input" name="password" type="password" autocomplete="new-password" placeholder="密码（8-128 位）" required minlength="8" maxlength="128" />
           </label>
+          <label>
+            <span class="sr-only">确认密码</span>
+            <input class="input" name="confirmPassword" type="password" autocomplete="new-password" placeholder="确认密码" required minlength="8" maxlength="128" />
+          </label>
           <button class="button auth-submit" type="submit">注册并登录</button>
         </form>
         <form id="authPasswordForm" class="auth-form is-hidden">
@@ -603,7 +607,12 @@ function initAuthNav() {
       const formData = new FormData(registerForm);
       const username = String(formData.get('username') || '');
       const password = String(formData.get('password') || '');
+      const confirmPassword = String(formData.get('confirmPassword') || '');
       const displayName = String(formData.get('displayName') || '').trim();
+
+      if (password !== confirmPassword) {
+        throw new Error('两次输入的密码不一致');
+      }
 
       await registerUser(username, password, displayName);
       const user = await loginUser(username, password);

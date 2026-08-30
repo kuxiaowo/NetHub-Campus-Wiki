@@ -64,6 +64,7 @@ curl -X POST http://127.0.0.1:3100/api/auth/register \
 ### 常见错误
 
 - `409 Conflict`：昵称已存在。
+- `429 Too Many Requests`：来源 IP 在当前小时或当天的注册请求已达到管理员设置的上限；响应包含 `Retry-After`。
 - `422 Unprocessable Entity`：昵称或密码格式不符合要求。
 
 ## POST /api/auth/login
@@ -99,6 +100,9 @@ curl -X POST http://127.0.0.1:3100/api/auth/login \
 
 - `401 Unauthorized`：昵称或密码错误。
 - `403 Forbidden`：账号已被禁用。
+- `429 Too Many Requests`：来源 IP 的登录请求过多，或同一用户名连续失败达到上限；响应包含 `Retry-After`。
+
+登录成功会清除该用户名的连续失败记录。普通登录按来源 IP 每分钟计数；管理员账号除普通限制外还应用管理员 IP 限制。默认值可在管理后台“访问限制”栏目查看和修改。
 
 ## GET /api/auth/me
 
@@ -319,6 +323,13 @@ curl "http://127.0.0.1:3100/api/projects?category=科技创新&year=2026&sort=po
 | --- | --- | --- |
 | `content` | `string` | 本条动态文字，可为空 |
 | `images` | `string[]` | 只属于本条动态的照片 URL，可为空数组 |
+| `id` | `string \| null` | 稳定的 32 位动态 ID；旧数据可为空 |
+| `authorPersonId` | `number \| null` | 发布成员档案 ID；旧数据可为空 |
+| `authorUserId` | `number \| null` | 旧动态的发布账号 ID，仅兼容使用 |
+| `authorName` | `string \| null` | 发布时的项目成员名称快照 |
+| `authorRole` | `"admin" \| "leader" \| "member" \| null` | 发布时身份 |
+| `createdAt` | `datetime \| null` | 发布时间 |
+| `canDelete` | `boolean` | 当前访问者是否可删除该动态 |
 
 `ProjectMember` 包含 `personId`、`name`、`role`、`sortOrder`、账号绑定状态以及可选的 `contactType`、`contactValue`。`role` 为 `leader` 或 `member`；`contactType` 为 `wechat`、`phone`、`email`、`other` 之一。联系方式按“项目—成员”关系保存，同一人员在不同项目中可使用不同联系方式。
 
@@ -362,13 +373,17 @@ curl "http://127.0.0.1:3100/api/projects?category=科技创新&year=2026&sort=po
 
 ## GET /api/projects/{project_id}
 
-获取单个项目详情。
+获取单个项目详情。默认成功读取时会增加项目热度；同一登录用户对同一项目 5 秒内只计一次，游客每次计数。后台读取可传 `track=false`。
 
 ### 路径参数
 
 | 参数 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `project_id` | `number` | 是 | 项目 ID |
+
+查询参数：`track`，布尔值，默认为 `true`。
+
+详情中的 `viewerPermissions.canCreateUpdate` 表示当前 Bearer Token 对应的用户是否可发布动态。管理员和已由管理员绑定账号的本项目成员为 `true`。
 
 ### 请求示例
 
@@ -428,6 +443,31 @@ curl http://127.0.0.1:3100/api/projects/1
   "detail": "项目不存在"
 }
 ```
+
+## POST /api/projects/{project_id}/updates
+
+已绑定账号的项目成员或管理员发布项目动态。使用 `multipart/form-data`：
+
+- `content`：可选文字，最多 2000 个字符。
+- `photos`：可重复照片字段，支持一次多选，最多 9 张，单张不超过 5MB。
+
+`content` 和 `photos` 不能同时为空。未登录返回 `401`，非本项目已绑定成员返回 `403`。成功后返回最新项目详情。
+
+```bash
+curl -X POST http://127.0.0.1:3100/api/projects/1/updates \
+  -H "Authorization: Bearer <accessToken>" \
+  -F "content=完成了本周的校园展示" \
+  -F "photos=@activity.jpg"
+```
+
+## DELETE /api/projects/{project_id}/updates/{update_id}
+
+动态作者可删除自己发布的动态，项目负责人和管理员可删除本项目任意动态。删除会同时：
+
+- 从 `projects.updates` JSON 数组中移除该动态；
+- 递归删除 `public/CAS/<项目>/updates/<动态ID>/` 中该动态上传的本地照片。
+
+为避免误删共享资源，管理员手动选择的、位于该动态专属目录之外的项目图片不会被删除。
 
 ## GET /api/resources/meta
 
@@ -692,7 +732,9 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 - `GET /api/users?search=`：搜索可私信的启用用户。
 - `GET /api/users/{user_id}`：用户公开资料、关注关系和已关联 CAS 项目。
-- `PATCH /api/users/me/profile`：修改 `displayName`、`avatarUrl`、`bio`、`messagingPermission`。
+- `PATCH /api/users/me/profile`：修改 `displayName`、`avatarUrl`、`bio`、`messagingPermission`；`avatarUrl` 仅保留旧客户端兼容。
+- `POST /api/users/me/avatar`：上传 multipart 字段 `avatar`。支持 JPEG、PNG、WebP，最大 5 MB；服务端居中裁剪并输出 512×512 WebP。
+- `DELETE /api/users/me/avatar`：移除当前头像，并安全清理站内托管头像文件。
 - `POST|DELETE /api/users/{user_id}/follow`：关注或取消关注。
 - `POST|DELETE /api/users/{user_id}/block`：拉黑或解除拉黑；拉黑会移除双方关注关系。
 - `GET /api/people/{person_id}`：读取人员档案和参与项目。
@@ -729,6 +771,13 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 所有管理后台接口都以 `/api/admin` 开头，并且必须携带 `Authorization: Bearer <accessToken>`。只有 `role` 为 `admin` 的用户可以访问。未登录返回 `401 Unauthorized`，普通用户返回 `403 Forbidden`。
 
+### 认证访问限制
+
+- `GET /api/admin/auth-security-settings`：读取当前注册、登录和修改密码限额。
+- `PATCH /api/admin/auth-security-settings`：更新一个或多个限额。允许字段为 `loginIpLimit`、`adminLoginIpLimit`、`loginFailureLimit`、`loginFailureCooldownMinutes`、`registerHourlyLimit`、`registerDailyLimit`、`passwordChangeHourlyLimit`。
+
+配置保存在数据库中，每次认证请求都会读取当前值，因此保存后无需重启即可生效。计数同样持久化到 SQLite；达到限制时返回 `429` 和 `Retry-After`。后端只采用 ASGI 提供的客户端地址，不直接信任浏览器提交的 `X-Forwarded-For`；反向代理部署应在 Uvicorn 层正确配置可信代理。
+
 ### JSON 数据导入/导出
 
 JSON 迁移覆盖 CAS 项目（含成员联系方式与动态）、普通资源、活动照片及其旧版单张照片记录，但不传输图片、PDF、视频或压缩包本身。CAS 项目必须使用 `/CAS/` 下的目录和目录内相对图片路径；Yearbook 的 `resourceUrl` 和活动的 `photoDir` 也必须使用 `public/` 站内目录；普通资源地址仍可使用外部 `http(s)` URL。数据库 ID、用户账号绑定及创建/更新时间不会导出。
@@ -763,19 +812,23 @@ JSON 迁移覆盖 CAS 项目（含成员联系方式与动态）、普通资源�
 - `GET /api/admin/users`：查询用户列表，支持 `search`、`role`、`isActive`。
 - `POST /api/admin/users`：创建用户。字段：`username`、`password`、`displayName`、`role`、`isActive`。
 - `PATCH /api/admin/users/{user_id}`：更新用户姓名、权限和状态。只允许字段：`displayName`、`role`、`isActive`。
+- `DELETE /api/admin/users/{user_id}`：匿名化注销用户。禁止删除当前账号和最后一个启用管理员；历史留言和私信保留并显示为“已注销用户”。
 
 `username` 是昵称/登录用户名，`displayName` 是姓名。`POST /api/admin/users` 允许管理员创建普通用户或管理员；`role` 只能是 `admin` 或 `user`。`PATCH /api/admin/users/{user_id}` 中 `displayName` 传空字符串时保存为 `NULL`。
 
 ### 公告与留言
 
-- `GET /api/admin/announcements`：读取全部公告，包括草稿和归档。
+- `GET /api/admin/announcements`：读取全部已发布和已归档公告。
 - `POST /api/admin/announcements`：创建公告。字段为 `title`、`summary`、`content`、`status`、`isPinned`。
-- `PATCH /api/admin/announcements/{announcement_id}`：编辑公告或切换发布状态。
-- `DELETE /api/admin/announcements/{announcement_id}`：归档公告，不物理删除公告和留言。
+- `PATCH /api/admin/announcements/{announcement_id}`：编辑公告，或在 `published`、`archived` 之间切换状态。
+- `DELETE /api/admin/announcements/{announcement_id}`：永久删除公告及其留言、回复、点赞、举报和通知。
 - `GET /api/admin/comment-reports?status=pending`：读取留言举报。
 - `PATCH /api/admin/comment-reports/{report_id}`：以 `resolved` 或 `dismissed` 处理；`hideComment=true` 时同时隐藏被举报留言。
+- `DELETE /api/admin/comment-reports/{report_id}/content`：清空被举报留言正文、标记为已删除，并处理该留言的全部待审举报；回复关系继续保留。
 - `GET /api/admin/message-reports?status=pending`：读取私信举报。
+- `GET /api/admin/message-reports/{report_id}/context`：读取被举报私信及前后各五条上下文消息，仅管理员可用。
 - `PATCH /api/admin/message-reports/{report_id}`：以 `resolved` 或 `dismissed` 处理举报。
+- `DELETE /api/admin/message-reports/{report_id}/content`：清空被举报私信并在双方会话中标记为已撤回，同时处理该消息的全部待审举报。
 
 ### CAS 项目管理
 
@@ -786,17 +839,17 @@ JSON 迁移覆盖 CAS 项目（含成员联系方式与动态）、普通资源�
 - `GET /api/admin/projects`：查询后台 CAS 项目列表，支持 `search`、`category`、`year`、`sort`。
 - `GET /api/admin/projects/{project_id}`：读取单个项目及完整 `memberList`，用于后台详情管理。
 - `POST /api/admin/projects`：创建 CAS 项目。只接受 `name`、`category`、`year`、`assetDir`、`description`、`casCreativity`、`casActivity`、`casService`；`assetDir` 必须是已经存在的 `/CAS/` 子目录，新项目的成员、负责人、媒体和动态均为空。
-- `PATCH /api/admin/projects/{project_id}`：更新项目基本信息，或在创建后更新 `updates`、`popularity`；不接受 `leader`、旧的 `members` 文本字段或项目级 `media`。负责人只能通过结构化成员接口确定。
+- `PATCH /api/admin/projects/{project_id}`：更新项目基本信息，或在创建后更新 `updates`；不接受只读的 `popularity`、`leader`、旧的 `members` 文本字段或项目级 `media`。负责人只能通过结构化成员接口确定。
 - `PATCH /api/admin/projects/{project_id}/members`：整体替换结构化成员列表。请求体为 `{"members":[{"personId":1,"name":"李明","role":"leader","contactType":"wechat","contactValue":"liming-cas"}]}`；新成员可省略 `personId`。
 - `PATCH /api/admin/projects/{project_id}/members/{person_id}/binding`：把该项目成员绑定到启用的站内用户，传 `{"userId":12}`；传 `{"userId":null}` 解除绑定。只有管理员可调用，且 `person_id` 必须属于指定项目。
-- `POST /api/admin/projects/{project_id}/updates`：创建动态。使用 `multipart/form-data`，字段为 `content`、JSON 数组文本 `images` 和可重复的 `photos` 文件。
+- `POST /api/admin/projects/{project_id}/updates`：创建动态。使用 `multipart/form-data`，字段为 `content`、JSON 数组文本 `images`、可重复的 `photos` 文件，以及必填的 `authorPersonId`。发布者可以是本项目任意成员，无需绑定站内账号；接口保存成员档案 ID、姓名与角色。
 - `PATCH /api/admin/projects/{project_id}/updates/{update_id}`：替换动态文字及保留的相对图片路径，并把新上传照片追加到该动态目录。
-- `DELETE /api/admin/projects/{project_id}/updates/{update_id}`：删除动态记录，不删除项目目录中的实体文件。
+- `DELETE /api/admin/projects/{project_id}/updates/{update_id}`：删除动态记录，并递归删除该动态专属上传目录中的实体文件。
 - `PATCH /api/admin/projects/{project_id}/updates/reorder`：按 `{"updateIds":["32位动态ID"]}` 重排，必须完整包含当前项目的全部动态 ID。
 
 项目刚创建时允许成员列表为空。保存成员时列表不能为空，负责人未知时可以全部先标为 `member`；确认后最多只能有一名 `leader`，后端会据此同步项目的负责人姓名摘要。联系方式可以整组留空；一旦填写，就必须同时提供 `contactType` 和 `contactValue`。成员账号只能在后台项目详情中绑定，一个账号最多绑定一个人员档案。
 
-每个项目的文件集中在 `public/CAS/<项目>/`。图标按 `icon.webp`、`icon.png`、`icon.jpg`、`icon.jpeg`、`icon.avif`、`icon.gif` 的优先级解析。动态数据库结构为 `{"id":"32位稳定键","content":"完成第一次骑行","images":["activities/001.jpg"]}`；图片路径不得离开项目目录，也不允许外部 URL。上传照片会自动创建 `updates/<动态ID>/`，保留安全处理后的原文件名，重名时追加数字。单张最大 50MB，支持 JPG、PNG、WebP、GIF 和 AVIF。每条动态可以只有文字、只有照片或同时包含二者。正式前台详情页只负责展示，不提供认领或绑定能力。
+每个项目的文件集中在 `public/CAS/<项目>/`。图标按 `icon.webp`、`icon.png`、`icon.jpg`、`icon.jpeg`、`icon.avif`、`icon.gif` 的优先级解析。动态数据库结构为 `{"id":"32位稳定键","content":"完成第一次骑行","images":["activities/001.jpg"]}`；图片路径不得离开项目目录，也不允许外部 URL。新动态插入数组首位，后台管理和前台展示均以最新动态优先。上传照片会自动创建 `updates/<动态ID>/`，保留安全处理后的原文件名，重名时追加数字。照片支持多选，单张最大 5MB，支持 JPG、PNG、WebP、GIF 和 AVIF。每条动态可以只有文字、只有照片或同时包含二者。正式前台详情页不提供认领或绑定能力。
 
 `sortOrder` 是分类人工排序权重，数字越小越靠前。当前只用于 CAS 项目分类，不控制项目本身排序；项目仍按 `latest` 或 `popular` 排序。
 

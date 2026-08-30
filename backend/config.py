@@ -75,8 +75,11 @@ class Settings:
     photo_dir_cache_minutes: int = _env_int("PHOTO_DIR_CACHE_MINUTES", 5)
     upload_max_bytes: int = _env_int("UPLOAD_MAX_MB", 50, minimum=1) * MEBIBYTE
     project_photo_max_bytes: int = (
-        _env_int("PROJECT_PHOTO_MAX_MB", 50, minimum=1) * MEBIBYTE
+        min(_env_int("PROJECT_PHOTO_MAX_MB", 5, minimum=1), 5) * MEBIBYTE
     )
+    avatar_upload_max_bytes: int = _env_int("AVATAR_UPLOAD_MAX_MB", 5, minimum=1) * MEBIBYTE
+    avatar_size_px: int = _env_int("AVATAR_SIZE_PX", 512, minimum=64)
+    avatar_webp_quality: int = _env_int("AVATAR_WEBP_QUALITY", 85, minimum=1)
     data_import_max_bytes: int = _env_int("DATA_IMPORT_MAX_MB", 5, minimum=1) * MEBIBYTE
     thumbnail_max_width: int = _env_int("THUMBNAIL_MAX_WIDTH", 640, minimum=1)
     thumbnail_max_height: int = _env_int("THUMBNAIL_MAX_HEIGHT", 640, minimum=1)

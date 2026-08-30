@@ -6,11 +6,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from backend.auth import get_current_user
+from backend.auth import get_current_user, public_user_identity
 from backend.database import get_db_connection
 
 router = APIRouter(prefix="/api", tags=["announcements"])
-ANNOUNCEMENT_STATUSES = {"draft", "published", "archived"}
+ANNOUNCEMENT_STATUSES = {"published", "archived"}
 
 
 def _require_admin(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
@@ -35,12 +35,14 @@ def _announcement_dict(row: dict[str, Any], *, include_content: bool = False) ->
     if include_content:
         result["content"] = row["content"]
         result["author"] = (
-            {
-                "id": row.get("author_id"),
-                "username": row.get("author_username"),
-                "displayName": row.get("author_display_name"),
-                "avatarUrl": row.get("author_avatar_url"),
-            }
+            public_user_identity(
+                row,
+                id_key="author_id",
+                username_key="author_username",
+                display_name_key="author_display_name",
+                avatar_url_key="author_avatar_url",
+                deleted_at_key="author_deleted_at",
+            )
             if row.get("author_id")
             else None
         )
@@ -144,6 +146,7 @@ def announcement_detail(
                   u.username AS author_username,
                   u.display_name AS author_display_name,
                   u.avatar_url AS author_avatar_url,
+                  u.deleted_at AS author_deleted_at,
                   (
                     SELECT COUNT(*) FROM comments c
                     WHERE c.target_type = 'announcement'
@@ -249,16 +252,21 @@ def admin_update_announcement(
 
 
 @router.delete("/admin/announcements/{announcement_id}")
-def admin_archive_announcement(
+def admin_delete_announcement(
     announcement_id: int,
     _: dict[str, Any] = Depends(_require_admin),
 ):
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
-                "UPDATE announcements SET status = 'archived' WHERE id = %s",
+                "DELETE FROM comment_notifications WHERE target_type = 'announcement' AND target_id = %s",
                 (announcement_id,),
             )
+            cursor.execute(
+                "DELETE FROM comments WHERE target_type = 'announcement' AND target_id = %s",
+                (announcement_id,),
+            )
+            cursor.execute("DELETE FROM announcements WHERE id = %s", (announcement_id,))
             if cursor.rowcount == 0:
                 raise HTTPException(status_code=404, detail="公告不存在")
     return {"ok": True}

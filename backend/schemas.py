@@ -111,8 +111,21 @@ class ProjectMember(BaseModel):
 class ProjectUpdate(BaseModel):
     """一条可携带独立照片的 CAS 项目动态。"""
 
+    id: str | None = None
     content: str = ""
     images: list[str] = Field(default_factory=list)
+    authorPersonId: int | None = None
+    authorUserId: int | None = None
+    authorName: str | None = None
+    authorRole: str | None = Field(default=None, pattern="^(admin|leader|member)$")
+    createdAt: str | None = None
+    canDelete: bool = False
+
+
+class ProjectViewerPermissions(BaseModel):
+    """当前访问者对单个项目的操作权限。"""
+
+    canCreateUpdate: bool = False
 
 
 class Project(BaseModel):
@@ -160,6 +173,7 @@ class Project(BaseModel):
     cas: CasFlags
     popularity: int
     updates: list[str | ProjectUpdate]
+    viewerPermissions: ProjectViewerPermissions = Field(default_factory=ProjectViewerPermissions)
     createdAt: datetime | None = None
     updatedAt: datetime | None = None
 

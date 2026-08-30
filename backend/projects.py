@@ -16,6 +16,7 @@ from backend.project_assets import (
     project_icon_url,
     public_updates,
 )
+from backend.view_tracking import can_track_view, mark_view_tracked
 
 ProjectSort = Literal["latest", "popular"]
 
@@ -143,6 +144,75 @@ def list_project_members(project_id: int) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+def project_update_publisher(
+    project_id: int,
+    user: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Return the trusted publisher identity for a project member or admin.
+
+    Membership is derived only from the administrator-maintained people binding;
+    a matching display name or a client-provided member list never grants access.
+    """
+
+    if user is None:
+        return None
+    if user.get("role") == "admin":
+        return {
+            "userId": user["id"],
+            "name": user.get("displayName") or user.get("username") or "管理员",
+            "role": "admin",
+        }
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT pm.person_id, pm.display_name_snapshot, pm.role
+                FROM project_members pm
+                JOIN people p ON p.id = pm.person_id
+                WHERE pm.project_id = %s
+                  AND p.user_id = %s
+                  AND p.status <> 'archived'
+                LIMIT 1
+                """,
+                (project_id, user["id"]),
+            )
+            membership = cursor.fetchone()
+    if membership is None:
+        return None
+    return {
+        "personId": membership["person_id"],
+        "userId": user["id"],
+        "name": membership["display_name_snapshot"],
+        "role": membership["role"],
+    }
+
+
+def decorate_project_for_viewer(
+    project: dict[str, Any],
+    user: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Attach server-derived create/delete permissions to a project detail."""
+
+    publisher = project_update_publisher(project["id"], user)
+    project["viewerPermissions"] = {"canCreateUpdate": publisher is not None}
+    can_delete_all = bool(publisher and publisher["role"] in {"admin", "leader"})
+    publisher_person_id = publisher.get("personId") if publisher else None
+    publisher_user_id = publisher["userId"] if publisher else None
+    for update in project.get("updates", []):
+        if not isinstance(update, dict):
+            continue
+        update["canDelete"] = can_delete_all or bool(
+            (publisher_person_id and update.get("authorPersonId") == publisher_person_id)
+            or (
+                not update.get("authorPersonId")
+                and publisher_user_id
+                and update.get("authorUserId") == publisher_user_id
+            )
+        )
+    return project
 
 
 def _delete_unused_provisional_people(cursor: Any) -> None:
@@ -395,11 +465,23 @@ def list_projects(
     return [format_project(row) for row in rows]
 
 
-def get_project(project_id: int) -> dict[str, Any] | None:
-    """按 ID 查询单个项目；不存在时返回 None。"""
+def get_project(
+    project_id: int,
+    *,
+    track_view: bool = False,
+    viewer_user_id: int | None = None,
+) -> dict[str, Any] | None:
+    """按 ID 查询单个项目，并可累计公开详情浏览热度。"""
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
+            if track_view and can_track_view("project", project_id, viewer_user_id):
+                cursor.execute(
+                    "UPDATE projects SET popularity = popularity + 1 WHERE id = %s",
+                    (project_id,),
+                )
+                if cursor.rowcount:
+                    mark_view_tracked("project", project_id, viewer_user_id)
             cursor.execute("SELECT * FROM projects WHERE id = %s LIMIT 1", (project_id,))
             row = cursor.fetchone()
 

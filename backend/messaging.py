@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
-from backend.auth import get_current_user
+from backend.auth import get_current_user, public_user_identity
 from backend.config import settings
 from backend.database import get_db_connection
 from backend.project_assets import project_icon_url
@@ -132,12 +132,14 @@ def _message_dict(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": row["id"],
         "conversationId": row["conversation_id"],
-        "sender": {
-            "id": row["sender_id"],
-            "username": row.get("sender_username"),
-            "displayName": row.get("sender_display_name"),
-            "avatarUrl": row.get("sender_avatar_url"),
-        },
+        "sender": public_user_identity(
+            row,
+            id_key="sender_id",
+            username_key="sender_username",
+            display_name_key="sender_display_name",
+            avatar_url_key="sender_avatar_url",
+            deleted_at_key="sender_deleted_at",
+        ),
         "type": row["message_type"],
         "body": "" if recalled else row.get("body", ""),
         "project": None if recalled else project,
@@ -155,6 +157,7 @@ def _fetch_message(cursor: Any, message_id: int) -> dict[str, Any]:
           u.username AS sender_username,
           u.display_name AS sender_display_name,
           u.avatar_url AS sender_avatar_url,
+          u.deleted_at AS sender_deleted_at,
           p.name AS project_name,
           p.icon AS project_icon,
           p.asset_dir AS project_asset_dir,
@@ -262,6 +265,7 @@ def list_conversations(
                   other.display_name AS other_display_name,
                   other.avatar_url AS other_avatar_url,
                   other.campus_verified AS other_campus_verified,
+                  other.deleted_at AS other_deleted_at,
                   lm.id AS last_message_id,
                   lm.sender_id AS last_sender_id,
                   lm.message_type AS last_message_type,
@@ -285,7 +289,9 @@ def list_conversations(
                 JOIN conversations c ON c.id = cm.conversation_id
                 JOIN conversation_members other_cm
                   ON other_cm.conversation_id = c.id AND other_cm.user_id <> cm.user_id
-                JOIN users other ON other.id = other_cm.user_id AND other.is_active = 1
+                JOIN users other
+                  ON other.id = other_cm.user_id
+                 AND (other.is_active = 1 OR other.deleted_at IS NOT NULL)
                 LEFT JOIN messages lm ON lm.id = c.last_message_id
                 WHERE cm.user_id = %s
                   AND cm.hidden_at IS NULL
@@ -299,13 +305,15 @@ def list_conversations(
         "data": [
             {
                 "id": row["id"],
-                "otherUser": {
-                    "id": row["other_user_id"],
-                    "username": row["other_username"],
-                    "displayName": row.get("other_display_name"),
-                    "avatarUrl": row.get("other_avatar_url"),
-                    "campusVerified": bool(row.get("other_campus_verified")),
-                },
+                "otherUser": public_user_identity(
+                    row,
+                    id_key="other_user_id",
+                    username_key="other_username",
+                    display_name_key="other_display_name",
+                    avatar_url_key="other_avatar_url",
+                    deleted_at_key="other_deleted_at",
+                    campus_verified_key="other_campus_verified",
+                ),
                 "lastMessage": (
                     {
                         "id": row["last_message_id"],
@@ -369,6 +377,7 @@ def list_messages(
                   u.username AS sender_username,
                   u.display_name AS sender_display_name,
                   u.avatar_url AS sender_avatar_url,
+                  u.deleted_at AS sender_deleted_at,
                   p.name AS project_name,
                   p.icon AS project_icon,
                   p.asset_dir AS project_asset_dir,
@@ -444,6 +453,14 @@ async def send_message(
             if membership is None:
                 raise HTTPException(status_code=404, detail="会话不存在")
             other_user_id = membership["other_user_id"]
+            cursor.execute(
+                "SELECT is_active, deleted_at FROM users WHERE id = %s LIMIT 1",
+                (other_user_id,),
+            )
+            recipient = cursor.fetchone()
+            if recipient is None or not recipient["is_active"]:
+                detail = "对方账号已注销，不能继续发送消息" if recipient and recipient.get("deleted_at") else "对方账号已停用"
+                raise HTTPException(status_code=409, detail=detail)
             if _block_exists(cursor, user["id"], other_user_id):
                 raise HTTPException(status_code=403, detail="黑名单关系下无法私信")
 
@@ -730,8 +747,8 @@ def admin_list_message_reports(
                   m.body,
                   m.recalled_at,
                   sender.id AS sender_id,
-                  sender.username AS sender_username,
-                  reporter.username AS reporter_username
+                  CASE WHEN sender.deleted_at IS NOT NULL THEN '已注销用户' ELSE sender.username END AS sender_username,
+                  CASE WHEN reporter.deleted_at IS NOT NULL THEN '已注销用户' ELSE reporter.username END AS reporter_username
                 FROM message_reports mr
                 JOIN messages m ON m.id = mr.message_id
                 JOIN users sender ON sender.id = m.sender_id
@@ -762,6 +779,99 @@ def admin_list_message_reports(
     }
 
 
+def _admin_context_message(row: dict[str, Any], reported_message_id: int) -> dict[str, Any]:
+    recalled = bool(row.get("recalled_at"))
+    return {
+        "id": row["id"],
+        "body": "" if recalled else row.get("body") or "",
+        "type": row["message_type"],
+        "recalled": recalled,
+        "reported": row["id"] == reported_message_id,
+        "createdAt": row["created_at"],
+        "sender": public_user_identity(
+            row,
+            id_key="sender_id",
+            username_key="sender_username",
+            display_name_key="sender_display_name",
+            avatar_url_key="sender_avatar_url",
+            deleted_at_key="sender_deleted_at",
+        ),
+        "project": (
+            {"id": row["project_id"], "name": row.get("project_name")}
+            if not recalled and row.get("project_id")
+            else None
+        ),
+    }
+
+
+@router.get("/admin/message-reports/{report_id}/context")
+def admin_message_report_context(
+    report_id: int,
+    _: dict[str, Any] = Depends(_require_admin),
+):
+    """返回被举报私信及前后各五条消息，仅供后台审核定位。"""
+
+    select_sql = """
+        SELECT m.*,
+               u.username AS sender_username,
+               u.display_name AS sender_display_name,
+               u.avatar_url AS sender_avatar_url,
+               u.deleted_at AS sender_deleted_at,
+               p.name AS project_name
+        FROM messages m
+        JOIN users u ON u.id = m.sender_id
+        LEFT JOIN projects p ON p.id = m.project_id
+    """
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT mr.*, m.conversation_id
+                FROM message_reports mr
+                JOIN messages m ON m.id = mr.message_id
+                WHERE mr.id = %s
+                LIMIT 1
+                """,
+                (report_id,),
+            )
+            report = cursor.fetchone()
+            if report is None:
+                raise HTTPException(status_code=404, detail="举报不存在")
+            cursor.execute(
+                f"""
+                {select_sql}
+                WHERE m.conversation_id = %s AND m.id <= %s
+                ORDER BY m.id DESC
+                LIMIT 6
+                """,
+                (report["conversation_id"], report["message_id"]),
+            )
+            before = list(reversed(cursor.fetchall()))
+            cursor.execute(
+                f"""
+                {select_sql}
+                WHERE m.conversation_id = %s AND m.id > %s
+                ORDER BY m.id ASC
+                LIMIT 5
+                """,
+                (report["conversation_id"], report["message_id"]),
+            )
+            rows = [*before, *cursor.fetchall()]
+    return {
+        "data": {
+            "reportId": report_id,
+            "messageId": report["message_id"],
+            "conversationId": report["conversation_id"],
+            "reason": report["reason"],
+            "status": report["status"],
+            "messages": [
+                _admin_context_message(row, report["message_id"])
+                for row in rows
+            ],
+        }
+    }
+
+
 @router.patch("/admin/message-reports/{report_id}")
 def admin_review_message_report(
     report_id: int,
@@ -784,6 +894,56 @@ def admin_review_message_report(
             if cursor.rowcount == 0:
                 raise HTTPException(status_code=404, detail="待处理举报不存在")
     return {"ok": True, "status": status}
+
+
+@router.delete("/admin/message-reports/{report_id}/content")
+async def admin_delete_reported_message(
+    report_id: int,
+    admin: dict[str, Any] = Depends(_require_admin),
+):
+    """清空被举报私信内容并处理该消息的全部待审举报。"""
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT mr.message_id, m.conversation_id
+                FROM message_reports mr
+                JOIN messages m ON m.id = mr.message_id
+                WHERE mr.id = %s AND mr.status = 'pending'
+                LIMIT 1
+                """,
+                (report_id,),
+            )
+            report = cursor.fetchone()
+            if report is None:
+                raise HTTPException(status_code=404, detail="待处理举报不存在")
+            cursor.execute(
+                """
+                UPDATE messages
+                SET body = '', message_type = 'text', project_id = NULL,
+                    recalled_at = COALESCE(recalled_at, CURRENT_TIMESTAMP)
+                WHERE id = %s
+                """,
+                (report["message_id"],),
+            )
+            cursor.execute(
+                """
+                UPDATE message_reports
+                SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP, resolved_by = %s
+                WHERE message_id = %s AND status = 'pending'
+                """,
+                (admin["id"], report["message_id"]),
+            )
+            user_ids = _conversation_user_ids(cursor, report["conversation_id"])
+    event = {
+        "event": "recall",
+        "conversationId": report["conversation_id"],
+        "messageId": report["message_id"],
+    }
+    for user_id in user_ids:
+        await manager.send(user_id, event)
+    return {"ok": True, "messageId": report["message_id"]}
 
 
 @router.get("/messages/unread-count")

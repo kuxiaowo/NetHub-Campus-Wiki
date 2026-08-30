@@ -25,6 +25,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from backend.main import app  # noqa: E402
 from backend.bootstrap_admin import create_initial_admin  # noqa: E402
 from backend.database import _backfill_project_members, get_db_connection  # noqa: E402
+from backend.view_tracking import clear_tracked_views  # noqa: E402
 
 
 class SocialMessagingFlowTest(unittest.TestCase):
@@ -49,6 +50,19 @@ class SocialMessagingFlowTest(unittest.TestCase):
         cls._create_migrated_test_fixtures()
         cls.client = TestClient(app)
         cls.admin_token = cls._login("test_admin", "test-admin-password-123")
+        settings_response = cls.client.patch(
+            "/api/admin/auth-security-settings",
+            headers=cls._headers(cls.admin_token),
+            json={
+                "loginIpLimit": 10000,
+                "adminLoginIpLimit": 10000,
+                "loginFailureLimit": 10000,
+                "registerHourlyLimit": 10000,
+                "registerDailyLimit": 10000,
+                "passwordChangeHourlyLimit": 10000,
+            },
+        )
+        assert settings_response.status_code == 200, settings_response.text
         cls.alice = cls._register("alice_user", "Alice")
         cls.bob = cls._register("bob_user", "Bob")
         cls.charlie = cls._register("charlie_user", "Charlie")
@@ -396,7 +410,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         with get_db_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("PRAGMA user_version")
-                self.assertEqual(cursor.fetchone()["user_version"], 9)
+                self.assertEqual(cursor.fetchone()["user_version"], 12)
                 cursor.execute("PRAGMA table_info(conversation_members)")
                 member_columns = {column["name"] for column in cursor.fetchall()}
                 self.assertNotIn("request_status", member_columns)
@@ -925,9 +939,9 @@ class SocialMessagingFlowTest(unittest.TestCase):
             headers=self._headers(self.admin_token),
             json={
                 "title": "自动化测试公告",
-                "summary": "先作为草稿保存",
+                "summary": "先归档保存",
                 "content": "第一段。\n\n第二段。",
-                "status": "draft",
+                "status": "archived",
                 "isPinned": False,
             },
         )
@@ -947,6 +961,49 @@ class SocialMessagingFlowTest(unittest.TestCase):
         self.assertEqual(detail.json()["data"]["summary"], "现已发布")
         self.assertTrue(detail.json()["data"]["isPinned"])
         self.assertGreaterEqual(detail.json()["data"]["viewCount"], 1)
+
+        rejected_draft = self.client.post(
+            "/api/admin/announcements",
+            headers=self._headers(self.admin_token),
+            json={"title": "非法草稿", "content": "正文", "status": "draft"},
+        )
+        self.assertEqual(rejected_draft.status_code, 422)
+
+        comment = self.client.post(
+            "/api/comments",
+            headers=self._headers(self.bob_token),
+            json={"targetType": "announcement", "targetId": announcement_id, "content": "待删除留言"},
+        )
+        self.assertEqual(comment.status_code, 200, comment.text)
+        reply = self.client.post(
+            "/api/comments",
+            headers=self._headers(self.charlie_token),
+            json={
+                "targetType": "announcement",
+                "targetId": announcement_id,
+                "content": "待删除回复",
+                "parentId": comment.json()["data"]["id"],
+            },
+        )
+        self.assertEqual(reply.status_code, 200, reply.text)
+        deleted = self.client.delete(
+            f"/api/admin/announcements/{announcement_id}",
+            headers=self._headers(self.admin_token),
+        )
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertEqual(self.client.get(f"/api/announcements/{announcement_id}").status_code, 404)
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT COUNT(*) AS total FROM comments WHERE target_type = 'announcement' AND target_id = %s",
+                    (announcement_id,),
+                )
+                self.assertEqual(cursor.fetchone()["total"], 0)
+                cursor.execute(
+                    "SELECT COUNT(*) AS total FROM comment_notifications WHERE target_type = 'announcement' AND target_id = %s",
+                    (announcement_id,),
+                )
+                self.assertEqual(cursor.fetchone()["total"], 0)
 
     def test_08_project_resource_announcement_comment_threads(self) -> None:
         root = self.client.post(
@@ -1360,10 +1417,20 @@ class SocialMessagingFlowTest(unittest.TestCase):
             ],
         )
 
+        missing_author = self.client.post(
+            f"/api/admin/projects/{project_id}/updates",
+            headers=self._headers(self.admin_token),
+            data={"content": "后台不能直接以站内管理员身份发布", "images": "[]"},
+        )
+        self.assertEqual(missing_author.status_code, 422, missing_author.text)
         uploaded = self.client.post(
             f"/api/admin/projects/{project_id}/updates",
             headers=self._headers(self.admin_token),
-            data={"content": "上传照片动态", "images": "[]"},
+            data={
+                "content": "上传照片动态",
+                "images": "[]",
+                "authorPersonId": str(leader_person_id),
+            },
             files=[("photos", ("现场照片.png", self.upload_photo, "image/png"))],
         )
         self.assertEqual(uploaded.status_code, 200, uploaded.text)
@@ -1371,6 +1438,11 @@ class SocialMessagingFlowTest(unittest.TestCase):
             item for item in uploaded.json()["updates"] if item["content"] == "上传照片动态"
         )
         update_id = uploaded_update["id"]
+        self.assertEqual(uploaded.json()["updates"][0]["id"], update_id)
+        self.assertEqual(uploaded_update["authorPersonId"], leader_person_id)
+        self.assertNotIn("authorUserId", uploaded_update)
+        self.assertEqual(uploaded_update["authorName"], "负责人甲")
+        self.assertEqual(uploaded_update["authorRole"], "leader")
         self.assertEqual(uploaded_update["images"], [f"updates/{update_id}/现场照片.png"])
         uploaded_file = self.project_asset_dir / "updates" / update_id / "现场照片.png"
         self.assertTrue(uploaded_file.is_file())
@@ -1393,14 +1465,19 @@ class SocialMessagingFlowTest(unittest.TestCase):
             headers=self._headers(self.admin_token),
         )
         self.assertEqual(deleted.status_code, 200, deleted.text)
-        self.assertTrue(uploaded_file.is_file(), "删除动态不应删除实体照片")
+        self.assertFalse(uploaded_file.exists(), "删除动态应同时删除专属上传照片")
+        self.assertFalse(uploaded_file.parent.exists())
 
         files_before_failed_upload = set((self.project_asset_dir / "updates").rglob("*"))
         with patch("backend.admin.MAX_PROJECT_PHOTO_BYTES", 4):
             too_large = self.client.post(
                 f"/api/admin/projects/{project_id}/updates",
                 headers=self._headers(self.admin_token),
-                data={"content": "应回滚", "images": "[]"},
+                data={
+                    "content": "应回滚",
+                    "images": "[]",
+                    "authorPersonId": str(leader_person_id),
+                },
                 files=[("photos", ("too-large.png", self.upload_photo, "image/png"))],
             )
         self.assertEqual(too_large.status_code, 413, too_large.text)
@@ -1670,6 +1747,545 @@ class SocialMessagingFlowTest(unittest.TestCase):
         self.assertEqual(template.json()["version"], 2)
         self.assertIn("assetDir", template.json()["projects"][0])
         self.assertNotIn("icon", template.json()["projects"][0])
+
+    def test_11_cas_popularity_tracks_public_detail_views(self) -> None:
+        clear_tracked_views()
+        baseline = self.client.get("/api/projects/1?track=false").json()["data"]["popularity"]
+
+        first = self.client.get(
+            "/api/projects/1",
+            headers=self._headers(self.alice_token),
+        )
+        second = self.client.get(
+            "/api/projects/1",
+            headers=self._headers(self.alice_token),
+        )
+        other_user = self.client.get(
+            "/api/projects/1",
+            headers=self._headers(self.bob_token),
+        )
+        guest_one = self.client.get("/api/projects/1")
+        guest_two = self.client.get("/api/projects/1")
+        untracked = self.client.get("/api/projects/1?track=false")
+
+        self.assertEqual(first.json()["data"]["popularity"], baseline + 1)
+        self.assertEqual(second.json()["data"]["popularity"], baseline + 1)
+        self.assertEqual(other_user.json()["data"]["popularity"], baseline + 2)
+        self.assertEqual(guest_one.json()["data"]["popularity"], baseline + 3)
+        self.assertEqual(guest_two.json()["data"]["popularity"], baseline + 4)
+        self.assertEqual(untracked.json()["data"]["popularity"], baseline + 4)
+        self.assertEqual(self.client.get("/api/projects/999999").status_code, 404)
+        rejected = self.client.patch(
+            "/api/admin/projects/1",
+            headers=self._headers(self.admin_token),
+            json={"popularity": 999},
+        )
+        self.assertEqual(rejected.status_code, 422)
+
+    def test_12_avatar_upload_replacement_and_removal(self) -> None:
+        user = self._register("avatar_user", "Avatar User")
+        token = self._login("avatar_user", "password123")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            avatar_root = Path(temp_dir) / "avatars"
+            with patch("backend.avatars.AVATAR_ROOT", avatar_root):
+                image_buffer = io.BytesIO()
+                Image.new("RGB", (800, 400), "orange").save(image_buffer, format="PNG")
+                uploaded = self.client.post(
+                    "/api/users/me/avatar",
+                    headers=self._headers(token),
+                    files={"avatar": ("wide.png", image_buffer.getvalue(), "image/png")},
+                )
+                self.assertEqual(uploaded.status_code, 200, uploaded.text)
+                first_url = uploaded.json()["avatarUrl"]
+                first_path = avatar_root / first_url.removeprefix("/uploads/avatars/")
+                self.assertTrue(first_path.is_file())
+                with Image.open(first_path) as stored:
+                    self.assertEqual(stored.format, "WEBP")
+                    self.assertEqual(stored.size, (512, 512))
+
+                replacement_buffer = io.BytesIO()
+                Image.new("RGB", (300, 900), "purple").save(replacement_buffer, format="JPEG")
+                replaced = self.client.post(
+                    "/api/users/me/avatar",
+                    headers=self._headers(token),
+                    files={"avatar": ("tall.jpg", replacement_buffer.getvalue(), "image/jpeg")},
+                )
+                self.assertEqual(replaced.status_code, 200, replaced.text)
+                self.assertNotEqual(replaced.json()["avatarUrl"], first_url)
+                self.assertFalse(first_path.exists())
+
+                invalid = self.client.post(
+                    "/api/users/me/avatar",
+                    headers=self._headers(token),
+                    files={"avatar": ("fake.png", b"not-an-image", "image/png")},
+                )
+                self.assertEqual(invalid.status_code, 422)
+
+                oversized = self.client.post(
+                    "/api/users/me/avatar",
+                    headers=self._headers(token),
+                    files={"avatar": ("large.png", b"x" * (5 * 1024 * 1024 + 1), "image/png")},
+                )
+                self.assertEqual(oversized.status_code, 413)
+
+                removed = self.client.delete(
+                    "/api/users/me/avatar",
+                    headers=self._headers(token),
+                )
+                self.assertEqual(removed.status_code, 200, removed.text)
+                self.assertIsNone(removed.json()["avatarUrl"])
+                self.assertEqual(list(avatar_root.rglob("*.webp")), [])
+
+        self.assertEqual(user["id"], uploaded.json()["id"])
+
+    def test_13_admin_user_deletion_anonymizes_history(self) -> None:
+        doomed = self._register("delete_me_user", "Delete Me")
+        survivor = self._register("delete_survivor", "Survivor")
+        doomed_token = self._login("delete_me_user", "password123")
+        survivor_token = self._login("delete_survivor", "password123")
+
+        followed = self.client.post(
+            f"/api/users/{survivor['id']}/follow",
+            headers=self._headers(doomed_token),
+        )
+        self.assertEqual(followed.status_code, 200, followed.text)
+        conversation = self.client.post(
+            "/api/conversations",
+            headers=self._headers(survivor_token),
+            json={"targetUserId": doomed["id"]},
+        )
+        self.assertEqual(conversation.status_code, 200, conversation.text)
+        conversation_id = conversation.json()["data"]["id"]
+        sent = self.client.post(
+            f"/api/conversations/{conversation_id}/messages",
+            headers=self._headers(doomed_token),
+            json={"type": "text", "body": "需要匿名保留的私信"},
+        )
+        self.assertEqual(sent.status_code, 200, sent.text)
+        comment = self.client.post(
+            "/api/comments",
+            headers=self._headers(doomed_token),
+            json={"targetType": "project", "targetId": 1, "content": "需要匿名保留的留言"},
+        )
+        self.assertEqual(comment.status_code, 200, comment.text)
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO people (display_name, user_id, source_key, status)
+                    VALUES (%s, %s, %s, 'claimed')
+                    """,
+                    ("Delete Me", doomed["id"], f"delete-test:{doomed['id']}"),
+                )
+                person_id = cursor.lastrowid
+                cursor.execute(
+                    """
+                    INSERT INTO project_members
+                      (project_id, person_id, role, display_name_snapshot, sort_order)
+                    VALUES (1, %s, 'member', 'Delete Me', 999)
+                    """,
+                    (person_id,),
+                )
+                cursor.execute(
+                    "UPDATE users SET campus_verified = 1 WHERE id = %s",
+                    (doomed["id"],),
+                )
+
+        deleted = self.client.delete(
+            f"/api/admin/users/{doomed['id']}",
+            headers=self._headers(self.admin_token),
+        )
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertEqual(
+            self.client.get("/api/auth/me", headers=self._headers(doomed_token)).status_code,
+            403,
+        )
+        users = self.client.get(
+            "/api/admin/users",
+            headers=self._headers(self.admin_token),
+        ).json()["data"]
+        self.assertNotIn(doomed["id"], [item["id"] for item in users])
+
+        thread = self.client.get("/api/comments?targetType=project&targetId=1").json()["data"]
+        retained_comment = next(item for item in thread if item["id"] == comment.json()["data"]["id"])
+        self.assertEqual(retained_comment["content"], "需要匿名保留的留言")
+        self.assertTrue(retained_comment["author"]["deleted"])
+        self.assertEqual(retained_comment["author"]["displayName"], "已注销用户")
+        self.assertIsNone(retained_comment["author"]["username"])
+
+        conversations = self.client.get(
+            "/api/conversations",
+            headers=self._headers(survivor_token),
+        ).json()["data"]
+        retained_conversation = next(item for item in conversations if item["id"] == conversation_id)
+        self.assertTrue(retained_conversation["otherUser"]["deleted"])
+        messages = self.client.get(
+            f"/api/conversations/{conversation_id}/messages",
+            headers=self._headers(survivor_token),
+        ).json()["data"]
+        self.assertEqual(messages[-1]["body"], "需要匿名保留的私信")
+        self.assertTrue(messages[-1]["sender"]["deleted"])
+        refused = self.client.post(
+            f"/api/conversations/{conversation_id}/messages",
+            headers=self._headers(survivor_token),
+            json={"type": "text", "body": "不应发送成功"},
+        )
+        self.assertEqual(refused.status_code, 409)
+
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT * FROM users WHERE id = %s", (doomed["id"],))
+                deleted_row = cursor.fetchone()
+                self.assertIsNotNone(deleted_row["deleted_at"])
+                self.assertEqual(deleted_row["is_active"], 0)
+                self.assertIsNone(deleted_row["avatar_url"])
+                cursor.execute("SELECT user_id, status FROM people WHERE id = %s", (person_id,))
+                person = cursor.fetchone()
+                self.assertIsNone(person["user_id"])
+                self.assertEqual(person["status"], "provisional")
+                cursor.execute(
+                    "SELECT COUNT(*) AS total FROM user_follows WHERE follower_id = %s OR following_id = %s",
+                    (doomed["id"], doomed["id"]),
+                )
+                self.assertEqual(cursor.fetchone()["total"], 0)
+
+        cannot_delete_self = self.client.delete(
+            f"/api/admin/users/{self.client.get('/api/auth/me', headers=self._headers(self.admin_token)).json()['id']}",
+            headers=self._headers(self.admin_token),
+        )
+        self.assertEqual(cannot_delete_self.status_code, 409)
+
+    def test_14_report_center_locates_and_deletes_reported_content(self) -> None:
+        sender = self._register("report_center_sender", "举报测试发送者")
+        reporter = self._register("report_center_reporter", "举报测试接收者")
+        sender_token = self._login("report_center_sender", "password123")
+        reporter_token = self._login("report_center_reporter", "password123")
+
+        conversation = self.client.post(
+            "/api/conversations",
+            headers=self._headers(sender_token),
+            json={"targetUserId": reporter["id"]},
+        )
+        self.assertEqual(conversation.status_code, 200, conversation.text)
+        conversation_id = conversation.json()["data"]["id"]
+        sent = self.client.post(
+            f"/api/conversations/{conversation_id}/messages",
+            headers=self._headers(sender_token),
+            json={"type": "text", "body": "需要由举报中心删除的私信"},
+        )
+        self.assertEqual(sent.status_code, 200, sent.text)
+        message_id = sent.json()["data"]["id"]
+        reported_message = self.client.post(
+            f"/api/messages/{message_id}/reports",
+            headers=self._headers(reporter_token),
+            json={"reason": "举报中心定位测试"},
+        )
+        self.assertEqual(reported_message.status_code, 200, reported_message.text)
+        pending_messages = self.client.get(
+            "/api/admin/message-reports?status=pending",
+            headers=self._headers(self.admin_token),
+        ).json()["data"]
+        message_report = next(row for row in pending_messages if row["messageId"] == message_id)
+
+        context = self.client.get(
+            f"/api/admin/message-reports/{message_report['id']}/context",
+            headers=self._headers(self.admin_token),
+        )
+        self.assertEqual(context.status_code, 200, context.text)
+        focused = next(row for row in context.json()["data"]["messages"] if row["reported"])
+        self.assertEqual(focused["id"], message_id)
+        self.assertEqual(focused["body"], "需要由举报中心删除的私信")
+
+        deleted_message = self.client.delete(
+            f"/api/admin/message-reports/{message_report['id']}/content",
+            headers=self._headers(self.admin_token),
+        )
+        self.assertEqual(deleted_message.status_code, 200, deleted_message.text)
+        history = self.client.get(
+            f"/api/conversations/{conversation_id}/messages",
+            headers=self._headers(reporter_token),
+        ).json()["data"]
+        removed_message = next(row for row in history if row["id"] == message_id)
+        self.assertTrue(removed_message["recalled"])
+        self.assertEqual(removed_message["body"], "")
+        self.assertEqual(
+            self.client.delete(
+                f"/api/admin/message-reports/{message_report['id']}/content",
+                headers=self._headers(self.admin_token),
+            ).status_code,
+            404,
+        )
+
+        comment = self.client.post(
+            "/api/comments",
+            headers=self._headers(sender_token),
+            json={"targetType": "project", "targetId": 1, "content": "需要由举报中心删除的留言"},
+        )
+        self.assertEqual(comment.status_code, 200, comment.text)
+        comment_id = comment.json()["data"]["id"]
+        reported_comment = self.client.post(
+            f"/api/comments/{comment_id}/reports",
+            headers=self._headers(reporter_token),
+            json={"reason": "举报中心删除测试"},
+        )
+        self.assertEqual(reported_comment.status_code, 200, reported_comment.text)
+        pending_comments = self.client.get(
+            "/api/admin/comment-reports?status=pending",
+            headers=self._headers(self.admin_token),
+        ).json()["data"]
+        comment_report = next(row for row in pending_comments if row["commentId"] == comment_id)
+        deleted_comment = self.client.delete(
+            f"/api/admin/comment-reports/{comment_report['id']}/content",
+            headers=self._headers(self.admin_token),
+        )
+        self.assertEqual(deleted_comment.status_code, 200, deleted_comment.text)
+        comments = self.client.get("/api/comments?targetType=project&targetId=1").json()["data"]
+        removed_comment = next(row for row in comments if row["id"] == comment_id)
+        self.assertEqual(removed_comment["status"], "deleted")
+        self.assertEqual(removed_comment["content"], "")
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT content FROM comments WHERE id = %s", (comment_id,))
+                self.assertEqual(cursor.fetchone()["content"], "")
+
+    def test_15_bound_project_members_can_publish_updates(self) -> None:
+        publisher = self._register("project_update_publisher", "Project Publisher")
+        publisher_token = self._login("project_update_publisher", "password123")
+        regular_member = self._register("project_update_member", "Project Update Member")
+        regular_member_token = self._login("project_update_member", "password123")
+        project = self.client.post(
+            "/api/admin/projects",
+            headers=self._headers(self.admin_token),
+            json={
+                "name": "成员发布动态测试",
+                "category": "测试分类",
+                "year": 2026,
+                "assetDir": "/CAS/__test_project_assets__/",
+                "description": "验证只有已绑定的项目成员可以发布。",
+                "casCreativity": True,
+                "casActivity": False,
+                "casService": True,
+            },
+        )
+        self.assertEqual(project.status_code, 200, project.text)
+        project_id = project.json()["id"]
+        members = self.client.patch(
+            f"/api/admin/projects/{project_id}/members",
+            headers=self._headers(self.admin_token),
+            json={
+                "members": [
+                    {"name": "已绑定发布者", "role": "leader"},
+                    {"name": "普通项目成员", "role": "member"},
+                ]
+            },
+        )
+        self.assertEqual(members.status_code, 200, members.text)
+        person_ids = {
+            member["name"]: member["personId"]
+            for member in members.json()["memberList"]
+        }
+        binding = self.client.patch(
+            f"/api/admin/projects/{project_id}/members/{person_ids['已绑定发布者']}/binding",
+            headers=self._headers(self.admin_token),
+            json={"userId": publisher["id"]},
+        )
+        self.assertEqual(binding.status_code, 200, binding.text)
+        regular_binding = self.client.patch(
+            f"/api/admin/projects/{project_id}/members/{person_ids['普通项目成员']}/binding",
+            headers=self._headers(self.admin_token),
+            json={"userId": regular_member["id"]},
+        )
+        self.assertEqual(regular_binding.status_code, 200, regular_binding.text)
+
+        guest_detail = self.client.get(f"/api/projects/{project_id}?track=false")
+        member_detail = self.client.get(
+            f"/api/projects/{project_id}?track=false",
+            headers=self._headers(publisher_token),
+        )
+        outsider_detail = self.client.get(
+            f"/api/projects/{project_id}?track=false",
+            headers=self._headers(self.bob_token),
+        )
+        self.assertFalse(guest_detail.json()["data"]["viewerPermissions"]["canCreateUpdate"])
+        self.assertTrue(member_detail.json()["data"]["viewerPermissions"]["canCreateUpdate"])
+        self.assertFalse(outsider_detail.json()["data"]["viewerPermissions"]["canCreateUpdate"])
+
+        unauthenticated = self.client.post(
+            f"/api/projects/{project_id}/updates",
+            data={"content": "未登录不应发布"},
+        )
+        self.assertEqual(unauthenticated.status_code, 401)
+        outsider = self.client.post(
+            f"/api/projects/{project_id}/updates",
+            headers=self._headers(self.bob_token),
+            data={"content": "其他用户不应发布"},
+        )
+        self.assertEqual(outsider.status_code, 403)
+
+        published = self.client.post(
+            f"/api/projects/{project_id}/updates",
+            headers=self._headers(publisher_token),
+            data={"content": "成员发布的图文动态"},
+            files=[("photos", ("成员照片.png", self.upload_photo, "image/png"))],
+        )
+        self.assertEqual(published.status_code, 200, published.text)
+        update = next(
+            item
+            for item in published.json()["data"]["updates"]
+            if item["content"] == "成员发布的图文动态"
+        )
+        self.assertRegex(update["id"], r"^[a-f0-9]{32}$")
+        self.assertEqual(update["authorPersonId"], person_ids["已绑定发布者"])
+        self.assertIsNone(update["authorUserId"])
+        self.assertEqual(update["authorName"], "已绑定发布者")
+        self.assertEqual(update["authorRole"], "leader")
+        self.assertIsNotNone(update["createdAt"])
+        self.assertEqual(
+            update["images"],
+            [f"/CAS/__test_project_assets__/updates/{update['id']}/成员照片.png"],
+        )
+        leader_update_file = (
+            self.project_asset_dir / "updates" / update["id"] / "成员照片.png"
+        )
+        self.assertTrue(leader_update_file.is_file())
+
+        regular_view = self.client.get(
+            f"/api/projects/{project_id}?track=false",
+            headers=self._headers(regular_member_token),
+        ).json()["data"]
+        leader_update_for_regular = next(
+            item for item in regular_view["updates"] if item["id"] == update["id"]
+        )
+        self.assertFalse(leader_update_for_regular["canDelete"])
+        self.assertTrue(update["canDelete"])
+        self.assertEqual(
+            self.client.delete(f"/api/projects/{project_id}/updates/{update['id']}").status_code,
+            401,
+        )
+        self.assertEqual(
+            self.client.delete(
+                f"/api/projects/{project_id}/updates/{update['id']}",
+                headers=self._headers(self.bob_token),
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.delete(
+                f"/api/projects/{project_id}/updates/{update['id']}",
+                headers=self._headers(regular_member_token),
+            ).status_code,
+            403,
+        )
+
+        regular_published = self.client.post(
+            f"/api/projects/{project_id}/updates",
+            headers=self._headers(regular_member_token),
+            data={"content": "普通成员的多图动态"},
+            files=[
+                ("photos", ("多图-1.png", self.upload_photo, "image/png")),
+                ("photos", ("多图-2.png", self.upload_photo, "image/png")),
+            ],
+        )
+        self.assertEqual(regular_published.status_code, 200, regular_published.text)
+        regular_update = next(
+            item
+            for item in regular_published.json()["data"]["updates"]
+            if item["content"] == "普通成员的多图动态"
+        )
+        self.assertEqual(regular_published.json()["data"]["updates"][0]["id"], regular_update["id"])
+        self.assertTrue(regular_update["canDelete"])
+        regular_update_dir = self.project_asset_dir / "updates" / regular_update["id"]
+        self.assertEqual(
+            {path.name for path in regular_update_dir.iterdir()},
+            {"多图-1.png", "多图-2.png"},
+        )
+        regular_deleted = self.client.delete(
+            f"/api/projects/{project_id}/updates/{regular_update['id']}",
+            headers=self._headers(regular_member_token),
+        )
+        self.assertEqual(regular_deleted.status_code, 200, regular_deleted.text)
+        self.assertFalse(regular_update_dir.exists())
+        self.assertNotIn(
+            regular_update["id"],
+            {item["id"] for item in regular_deleted.json()["data"]["updates"]},
+        )
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT updates FROM projects WHERE id = %s", (project_id,))
+                stored_update_ids = {
+                    item["id"] for item in json.loads(cursor.fetchone()["updates"])
+                }
+        self.assertNotIn(regular_update["id"], stored_update_ids)
+        exported = self.client.get(
+            f"/api/admin/projects/{project_id}/export",
+            headers=self._headers(self.admin_token),
+        )
+        self.assertEqual(exported.status_code, 200, exported.text)
+        exported_update = next(
+            item
+            for item in exported.json()["projects"][0]["updates"]
+            if item["content"] == "成员发布的图文动态"
+        )
+        self.assertEqual(exported_update["authorName"], "已绑定发布者")
+        self.assertNotIn("authorPersonId", exported_update)
+        self.assertNotIn("authorUserId", exported_update)
+
+        leader_deleted = self.client.delete(
+            f"/api/projects/{project_id}/updates/{update['id']}",
+            headers=self._headers(publisher_token),
+        )
+        self.assertEqual(leader_deleted.status_code, 200, leader_deleted.text)
+        self.assertFalse(leader_update_file.parent.exists())
+        self.assertNotIn(
+            update["id"],
+            {item["id"] for item in leader_deleted.json()["data"]["updates"]},
+        )
+
+        empty = self.client.post(
+            f"/api/projects/{project_id}/updates",
+            headers=self._headers(publisher_token),
+            data={"content": ""},
+        )
+        self.assertEqual(empty.status_code, 422)
+        too_long = self.client.post(
+            f"/api/projects/{project_id}/updates",
+            headers=self._headers(publisher_token),
+            data={"content": "x" * 2001},
+        )
+        self.assertEqual(too_long.status_code, 422)
+        too_many = self.client.post(
+            f"/api/projects/{project_id}/updates",
+            headers=self._headers(publisher_token),
+            data={"content": "照片过多"},
+            files=[
+                ("photos", (f"photo-{index}.png", self.upload_photo, "image/png"))
+                for index in range(10)
+            ],
+        )
+        self.assertEqual(too_many.status_code, 422)
+        oversized = self.client.post(
+            f"/api/projects/{project_id}/updates",
+            headers=self._headers(publisher_token),
+            data={"content": "超大照片不应保存"},
+            files=[("photos", ("oversized.png", b"x" * (5 * 1024 * 1024 + 1), "image/png"))],
+        )
+        self.assertEqual(oversized.status_code, 413)
+
+        def publish_concurrently(sequence: int) -> int:
+            response = self.client.post(
+                f"/api/projects/{project_id}/updates",
+                headers=self._headers(publisher_token),
+                data={"content": f"并发动态 {sequence}"},
+            )
+            return response.status_code
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            statuses = list(executor.map(publish_concurrently, (1, 2)))
+        self.assertEqual(statuses, [200, 200])
+        final_updates = self.client.get(f"/api/projects/{project_id}?track=false").json()["data"]["updates"]
+        final_contents = {item["content"] for item in final_updates}
+        self.assertIn("并发动态 1", final_contents)
+        self.assertIn("并发动态 2", final_contents)
 
 
 if __name__ == "__main__":

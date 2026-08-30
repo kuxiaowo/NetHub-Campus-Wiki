@@ -2,6 +2,16 @@ const projectDetail = document.querySelector('#projectDetail');
 const detailBreadcrumb = document.querySelector('#detailBreadcrumb');
 const params = new URLSearchParams(window.location.search);
 const id = params.get('id');
+const projectUpdateModal = document.querySelector('#projectUpdateModal');
+const projectUpdateForm = document.querySelector('#projectUpdateForm');
+const projectUpdateContent = document.querySelector('#projectUpdateContent');
+const projectUpdatePhotos = document.querySelector('#projectUpdatePhotos');
+const projectUpdatePhotoSummary = document.querySelector('#projectUpdatePhotoSummary');
+const projectUpdateMessage = document.querySelector('#projectUpdateMessage');
+const projectUpdateSubmit = document.querySelector('#projectUpdateSubmit');
+let currentProject = null;
+let projectUpdateSubmitting = false;
+const MAX_PROJECT_UPDATE_PHOTO_BYTES = 5 * 1024 * 1024;
 
 const CAS_LABELS = [
   ['creativity', 'Creativity'],
@@ -174,6 +184,11 @@ function normalizeUpdates(project) {
   const updates = rawUpdates.map((item, index) => {
     if (item && typeof item === 'object') {
       const publisher = item.publisher || item.author || item.user || {};
+      const boundMember = asArray(project.memberList).find(
+        (member) => String(member?.personId || '') === String(item.authorPersonId || ''),
+      ) || asArray(project.memberList).find(
+        (member) => String(member?.userId || '') === String(item.authorUserId || ''),
+      ) || {};
       const content = firstFilled(item.content, item.text, item.body, item.title, item.message);
       const images = [
         ...normalizeImages(item.images),
@@ -190,9 +205,10 @@ function normalizeUpdates(project) {
 
       return {
         index,
-        author: firstFilled(publisher.name, publisher.displayName, item.authorName, project.leader, '项目成员'),
-        avatar: safeDetailUrl(firstFilled(publisher.avatar, item.avatar)),
-        role: firstFilled(publisher.role, item.authorRole, item.role, item.isLeader ? '负责人' : ''),
+        id: cleanText(item.id),
+        author: firstFilled(boundMember.name, item.authorName, publisher.name, publisher.displayName, project.leader, '项目成员'),
+        avatar: safeDetailUrl(firstFilled(boundMember.avatarUrl, publisher.avatar, item.avatar)),
+        role: firstFilled(boundMember.role, item.authorRole, publisher.role, item.role, item.isLeader ? '负责人' : ''),
         date: firstFilled(item.createdAt, item.updatedAt, item.date, item.time, fallbackDate),
         content,
         images,
@@ -200,11 +216,13 @@ function normalizeUpdates(project) {
         likes: metricValue(item.likes, item.likeCount, item.likesCount, metrics.likes, metrics.likeCount, actions.likes, actions.likeCount),
         comments: metricValue(item.comments, item.commentCount, item.commentsCount, metrics.comments, metrics.commentCount, actions.comments, actions.commentCount),
         shares: metricValue(item.shares, item.shareCount, item.sharesCount, metrics.shares, metrics.shareCount, actions.shares, actions.shareCount),
+        canDelete: Boolean(item.canDelete),
       };
     }
 
     return {
       index,
+      id: '',
       author: firstFilled(project.leader, '项目成员'),
       avatar: null,
       role: index === 0 && project.leader ? '负责人' : '成员',
@@ -215,6 +233,7 @@ function normalizeUpdates(project) {
       likes: null,
       comments: null,
       shares: null,
+      canDelete: false,
     };
   }).filter((item) => item.content || item.images.length || item.videos.length);
 
@@ -276,13 +295,21 @@ function renderUpdateActions(item) {
   return `<div class="feed-actions">${actions.map(([label, value]) => `<span>${label} ${escapeHtml(value)}</span>`).join('')}</div>`;
 }
 
+function projectUpdateRoleLabel(role) {
+  return ({ admin: '管理员', leader: '负责人', member: '成员' })[cleanText(role).toLowerCase()] || cleanText(role);
+}
+
 function renderFeed(project) {
   const updates = normalizeUpdates(project);
+  const canCreateUpdate = Boolean(project.viewerPermissions?.canCreateUpdate);
   return `
     <section class="detail-panel feed-panel">
       <div class="detail-panel-head">
         <h2><span></span>CAS 动态</h2>
-        ${updates.length ? '<small>最新动态</small>' : ''}
+        <div class="detail-panel-actions">
+          ${updates.length ? '<small>最新动态</small>' : ''}
+          ${canCreateUpdate ? '<button class="button compact" type="button" data-open-project-update>发布动态</button>' : ''}
+        </div>
       </div>
       ${updates.length ? `
         <div class="feed-list">
@@ -295,10 +322,13 @@ function renderFeed(project) {
                 <div>
                   <strong>${escapeHtml(item.author)}</strong>
                   <div class="feed-meta">
-                    ${item.role ? `<span>${escapeHtml(item.role)}</span>` : ''}
+                    ${item.role ? `<span>${escapeHtml(projectUpdateRoleLabel(item.role))}</span>` : ''}
                     ${item.date ? `<time>${formatDate(item.date)}</time>` : ''}
                   </div>
                 </div>
+                ${item.canDelete && item.id ? `
+                  <button class="feed-delete-button" type="button" data-delete-project-update="${escapeHtml(item.id)}">删除</button>
+                ` : ''}
               </header>
               ${item.content ? `<p>${escapeHtml(item.content)}</p>` : ''}
               ${renderMediaImages(item.images, project.name || '项目')}
@@ -379,14 +409,12 @@ function renderMemberContact(member) {
   const type = cleanText(member.contactType).toLowerCase();
   const value = cleanText(member.contactValue);
   if (value) {
-    if (type === 'phone') return `<a href="tel:${escapeHtml(value)}">电话 ${escapeHtml(value)}</a>`;
-    if (type === 'email') return `<a href="mailto:${escapeHtml(value)}">邮箱 ${escapeHtml(value)}</a>`;
-    const labels = { wechat: '微信', other: '其他联系方式' };
+    const labels = { wechat: '微信', phone: '电话', email: '邮箱', other: '其他联系方式' };
     return `<span>${escapeHtml(labels[type] || '联系方式')} ${escapeHtml(value)}</span>`;
   }
   return `
-    ${member.phone ? `<a href="tel:${escapeHtml(member.phone)}">电话 ${escapeHtml(member.phone)}</a>` : ''}
-    ${member.email ? `<a href="mailto:${escapeHtml(member.email)}">邮箱 ${escapeHtml(member.email)}</a>` : ''}
+    ${member.phone ? `<span>电话 ${escapeHtml(member.phone)}</span>` : ''}
+    ${member.email ? `<span>邮箱 ${escapeHtml(member.email)}</span>` : ''}
   `;
 }
 
@@ -415,9 +443,6 @@ function renderMembers(project) {
                 ${member.info ? `<p>${escapeHtml(member.info)}</p>` : ''}
                 <div class="member-contact">
                   ${renderMemberContact(member)}
-                  ${member.userId
-                    ? `<a class="member-action-link" href="/messages.html?targetUserId=${encodeURIComponent(member.userId)}&projectId=${encodeURIComponent(project.id)}">发私信</a>`
-                    : ''}
                 </div>
               </div>
             </article>
@@ -445,9 +470,15 @@ function bindDetailInteractions() {
     event.currentTarget.textContent = expanded ? '收起成员列表' : '查看全部成员';
   });
 
+  document.querySelector('[data-open-project-update]')?.addEventListener('click', openProjectUpdateModal);
+  document.querySelectorAll('[data-delete-project-update]').forEach((button) => {
+    button.addEventListener('click', deleteProjectUpdate);
+  });
+
 }
 
 function renderProject(project) {
+  currentProject = project;
   document.querySelector('#projectComments')?.classList.remove('is-hidden');
   document.title = `${project.name || '项目详情'} - NetHub Campus Wiki`;
   renderBreadcrumb(project);
@@ -461,6 +492,122 @@ function renderProject(project) {
   `;
   bindDetailInteractions();
   mountCommentSection(document.querySelector('#projectComments'), 'project', project.id);
+}
+
+function setProjectUpdateMessage(message, isError = false) {
+  projectUpdateMessage.textContent = message;
+  projectUpdateMessage.classList.toggle('error', isError);
+}
+
+function resetProjectUpdateForm() {
+  projectUpdateForm.reset();
+  projectUpdatePhotoSummary.textContent = '可一次多选，最多 9 张，单张不超过 5MB。';
+  setProjectUpdateMessage('');
+}
+
+function openProjectUpdateModal() {
+  if (!currentProject?.viewerPermissions?.canCreateUpdate || projectUpdateSubmitting) return;
+  resetProjectUpdateForm();
+  projectUpdateModal.classList.add('is-open');
+  projectUpdateModal.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('modal-open');
+  window.setTimeout(() => projectUpdateContent.focus(), 0);
+}
+
+function closeProjectUpdateModal() {
+  if (projectUpdateSubmitting) return;
+  projectUpdateModal.classList.remove('is-open');
+  projectUpdateModal.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('modal-open');
+  resetProjectUpdateForm();
+}
+
+function updateProjectPhotoSummary() {
+  const count = projectUpdatePhotos.files.length;
+  projectUpdatePhotoSummary.textContent = count
+    ? `已选择 ${count} 张照片${count > 9 ? '，超过 9 张上限' : ''}`
+    : '可一次多选，最多 9 张，单张不超过 5MB。';
+}
+
+async function deleteProjectUpdate(event) {
+  const button = event.currentTarget;
+  const updateId = cleanText(button.dataset.deleteProjectUpdate);
+  if (!currentProject || !updateId) return;
+  if (!window.confirm('确定删除这条动态吗？动态照片也会从服务器永久删除。')) return;
+
+  const oldText = button.textContent;
+  button.disabled = true;
+  button.textContent = '删除中……';
+  try {
+    const result = await request(
+      `/projects/${encodeURIComponent(currentProject.id)}/updates/${encodeURIComponent(updateId)}`,
+      { method: 'DELETE' },
+    );
+    renderProject(result.data || currentProject);
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = oldText;
+    window.alert(error.message);
+  }
+}
+
+async function submitProjectUpdate(event) {
+  event.preventDefault();
+  if (projectUpdateSubmitting || !currentProject) return;
+
+  const content = projectUpdateContent.value.trim();
+  const photos = [...projectUpdatePhotos.files];
+  if (!content && !photos.length) {
+    setProjectUpdateMessage('动态内容和照片不能同时为空。', true);
+    return;
+  }
+  if (photos.length > 9) {
+    setProjectUpdateMessage('每条动态最多上传 9 张照片。', true);
+    return;
+  }
+  const oversizedPhoto = photos.find((photo) => photo.size > MAX_PROJECT_UPDATE_PHOTO_BYTES);
+  if (oversizedPhoto) {
+    setProjectUpdateMessage(`照片“${oversizedPhoto.name}”超过 5MB。`, true);
+    return;
+  }
+
+  const body = new FormData();
+  body.append('content', content);
+  photos.forEach((photo) => body.append('photos', photo));
+  projectUpdateSubmitting = true;
+  projectUpdateModal.classList.add('is-submitting');
+  projectUpdateSubmit.disabled = true;
+  setProjectUpdateMessage('正在发布……');
+  try {
+    const result = await request(`/projects/${encodeURIComponent(currentProject.id)}/updates`, {
+      method: 'POST',
+      body,
+    });
+    projectUpdateSubmitting = false;
+    projectUpdateModal.classList.remove('is-submitting');
+    projectUpdateSubmit.disabled = false;
+    closeProjectUpdateModal();
+    renderProject(result.data || currentProject);
+    document.querySelector('.feed-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (error) {
+    projectUpdateSubmitting = false;
+    projectUpdateModal.classList.remove('is-submitting');
+    projectUpdateSubmit.disabled = false;
+    setProjectUpdateMessage(error.message, true);
+  }
+}
+
+function bindProjectUpdateComposer() {
+  projectUpdateForm?.addEventListener('submit', submitProjectUpdate);
+  projectUpdatePhotos?.addEventListener('change', updateProjectPhotoSummary);
+  document.querySelectorAll('[data-project-update-close]').forEach((item) => {
+    item.addEventListener('click', closeProjectUpdateModal);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && projectUpdateModal?.classList.contains('is-open')) {
+      closeProjectUpdateModal();
+    }
+  });
 }
 
 function renderError(message) {
@@ -489,4 +636,5 @@ async function loadDetail() {
   }
 }
 
+bindProjectUpdateComposer();
 loadDetail();

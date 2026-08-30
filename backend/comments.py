@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from backend.auth import get_current_user, get_optional_current_user
+from backend.auth import get_current_user, get_optional_current_user, public_user_identity
 from backend.config import settings
 from backend.database import get_db_connection
 
@@ -88,19 +88,24 @@ def _comment_dict(row: dict[str, Any]) -> dict[str, Any]:
         "targetId": row["target_id"],
         "content": "" if deleted else row["content"],
         "status": row["status"],
-        "author": {
-            "id": row["user_id"],
-            "username": row.get("username"),
-            "displayName": row.get("display_name"),
-            "avatarUrl": row.get("avatar_url"),
-            "campusVerified": bool(row.get("campus_verified")),
-        },
+        "author": public_user_identity(
+            row,
+            id_key="user_id",
+            username_key="username",
+            display_name_key="display_name",
+            avatar_url_key="avatar_url",
+            deleted_at_key="deleted_at",
+            campus_verified_key="campus_verified",
+        ),
         "replyToUser": (
-            {
-                "id": row.get("reply_to_user_id"),
-                "username": row.get("reply_to_username"),
-                "displayName": row.get("reply_to_display_name"),
-            }
+            public_user_identity(
+                row,
+                id_key="reply_to_user_id",
+                username_key="reply_to_username",
+                display_name_key="reply_to_display_name",
+                avatar_url_key="reply_to_avatar_url",
+                deleted_at_key="reply_to_deleted_at",
+            )
             if row.get("reply_to_user_id")
             else None
         ),
@@ -123,8 +128,11 @@ def _select_fields(viewer_id: int | None) -> tuple[str, list[Any]]:
         u.display_name,
         u.avatar_url,
         u.campus_verified,
+        u.deleted_at,
         reply_user.username AS reply_to_username,
         reply_user.display_name AS reply_to_display_name,
+        reply_user.avatar_url AS reply_to_avatar_url,
+        reply_user.deleted_at AS reply_to_deleted_at,
         (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id) AS like_count,
         EXISTS(
           SELECT 1 FROM comment_likes cl
@@ -319,6 +327,7 @@ def list_comment_notifications(
                        actor.display_name AS actor_display_name,
                        actor.avatar_url AS actor_avatar_url,
                        actor.campus_verified AS actor_campus_verified,
+                       actor.deleted_at AS actor_deleted_at,
                        c.content AS comment_content,
                        c.status AS comment_status,
                        CASE n.target_type
@@ -359,13 +368,15 @@ def list_comment_notifications(
             {
                 "id": row["id"],
                 "kind": row["kind"],
-                "actor": {
-                    "id": row["actor_id"],
-                    "username": row.get("actor_username"),
-                    "displayName": row.get("actor_display_name"),
-                    "avatarUrl": row.get("actor_avatar_url"),
-                    "campusVerified": bool(row.get("actor_campus_verified")),
-                },
+                "actor": public_user_identity(
+                    row,
+                    id_key="actor_id",
+                    username_key="actor_username",
+                    display_name_key="actor_display_name",
+                    avatar_url_key="actor_avatar_url",
+                    deleted_at_key="actor_deleted_at",
+                    campus_verified_key="actor_campus_verified",
+                ),
                 "comment": {
                     "id": row["comment_id"],
                     "content": row.get("comment_content") if comment_available else "",
@@ -672,8 +683,8 @@ def admin_list_comment_reports(
             cursor.execute(
                 """
                 SELECT cr.*, c.content, c.target_type, c.target_id,
-                       author.username AS author_username,
-                       reporter.username AS reporter_username
+                       CASE WHEN author.deleted_at IS NOT NULL THEN '已注销用户' ELSE author.username END AS author_username,
+                       CASE WHEN reporter.deleted_at IS NOT NULL THEN '已注销用户' ELSE reporter.username END AS reporter_username
                 FROM comment_reports cr
                 JOIN comments c ON c.id = cr.comment_id
                 JOIN users author ON author.id = c.user_id
@@ -732,3 +743,39 @@ def admin_review_comment_report(
                 (status, admin["id"], report_id),
             )
     return {"ok": True, "status": status}
+
+
+@router.delete("/admin/comment-reports/{report_id}/content")
+def admin_delete_reported_comment(
+    report_id: int,
+    admin: dict[str, Any] = Depends(_require_admin),
+):
+    """软删除被举报留言并处理该留言的全部待审举报。"""
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT comment_id
+                FROM comment_reports
+                WHERE id = %s AND status = 'pending'
+                LIMIT 1
+                """,
+                (report_id,),
+            )
+            report = cursor.fetchone()
+            if report is None:
+                raise HTTPException(status_code=404, detail="待处理举报不存在")
+            cursor.execute(
+                "UPDATE comments SET content = '', status = 'deleted' WHERE id = %s",
+                (report["comment_id"],),
+            )
+            cursor.execute(
+                """
+                UPDATE comment_reports
+                SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP, resolved_by = %s
+                WHERE comment_id = %s AND status = 'pending'
+                """,
+                (admin["id"], report["comment_id"]),
+            )
+    return {"ok": True, "commentId": report["comment_id"]}

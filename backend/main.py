@@ -27,6 +27,7 @@ from backend.admin import router as admin_router
 from backend.announcements import router as announcements_router
 from backend.comments import router as comments_router
 from backend.messaging import router as messaging_router
+from backend.project_updates import router as project_updates_router
 from backend.social import router as social_router
 from backend.config import settings, validate_runtime_settings
 from backend.auth import (
@@ -39,8 +40,15 @@ from backend.auth import (
     get_optional_current_user,
     update_username,
 )
+from backend.auth_rate_limit import (
+    clear_login_failures,
+    enforce_login_request,
+    enforce_password_change_request,
+    enforce_register_request,
+    record_login_failure,
+)
 from backend.database import get_db_connection
-from backend.projects import get_project, list_meta, list_projects
+from backend.projects import decorate_project_for_viewer, get_project, list_meta, list_projects
 from backend.resources import (
     YearbookResourceError,
     bump_photo_activity_downloads,
@@ -114,6 +122,7 @@ app.add_middleware(
 )
 
 app.include_router(admin_router)
+app.include_router(project_updates_router)
 app.include_router(social_router)
 app.include_router(messaging_router)
 app.include_router(announcements_router)
@@ -183,9 +192,10 @@ def health():
 
 
 @app.post("/api/auth/register", response_model=User, tags=["auth"])
-def register(payload: RegisterRequest):
+def register(payload: RegisterRequest, request: Request):
     """开放注册普通用户，注册后的默认角色为 user。"""
 
+    enforce_register_request(request)
     return create_user(
         username=payload.username,
         password=payload.password,
@@ -194,10 +204,17 @@ def register(payload: RegisterRequest):
 
 
 @app.post("/api/auth/login", response_model=LoginResponse, tags=["auth"])
-def login(payload: LoginRequest):
+def login(payload: LoginRequest, request: Request):
     """使用昵称和密码登录，返回 Bearer Token。"""
 
-    user = authenticate_user(payload.username, payload.password)
+    rate_config = enforce_login_request(request, payload.username)
+    try:
+        user = authenticate_user(payload.username, payload.password)
+    except HTTPException as error:
+        if error.status_code == 401:
+            record_login_failure(payload.username, rate_config)
+        raise
+    clear_login_failures(payload.username)
     return {"accessToken": create_access_token(user), "tokenType": "bearer", "user": user}
 
 
@@ -216,9 +233,14 @@ def update_current_user(payload: UpdateCurrentUserRequest, user: dict = Depends(
 
 
 @app.patch("/api/auth/password", response_model=User, tags=["auth"])
-def change_password(payload: ChangePasswordRequest, user: dict = Depends(get_current_user)):
+def change_password(
+    payload: ChangePasswordRequest,
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
     """修改当前登录用户密码，必须提供原密码。"""
 
+    enforce_password_change_request(request, user["id"])
     return change_user_password(
         user_id=user["id"],
         current_password=payload.currentPassword,
@@ -249,13 +271,21 @@ def projects(
 
 
 @app.get("/api/projects/{project_id}", response_model=ProjectDetailResponse, tags=["projects"])
-def project_detail(project_id: int):
+def project_detail(
+    project_id: int,
+    track: bool = Query(default=True, description="是否计入前台浏览热度。"),
+    user: dict | None = Depends(get_optional_current_user),
+):
     """返回单个项目详情。"""
 
-    project = get_project(project_id)
+    project = get_project(
+        project_id,
+        track_view=track,
+        viewer_user_id=user["id"] if user else None,
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    return {"data": project}
+    return {"data": decorate_project_for_viewer(project, user)}
 
 
 @app.get("/api/resources/meta", response_model=ResourceMetaResponse, tags=["resources"])

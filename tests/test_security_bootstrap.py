@@ -68,7 +68,41 @@ class SchemaSecurityTest(unittest.TestCase):
                 connection.close()
 
         self.assertEqual(counts, {table: 0 for table in counts})
-        self.assertEqual(version, 9)
+        self.assertEqual(version, 12)
+
+    def test_v10_migration_archives_drafts_and_marks_deleted_users(self) -> None:
+        sql_root = Path(__file__).resolve().parents[1] / "sql"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            connection = sqlite3.connect(Path(temp_dir) / "upgrade.db")
+            try:
+                connection.executescript((sql_root / "schema.sql").read_text(encoding="utf-8"))
+                for migration_path in sorted((sql_root / "migrations").glob("*.sql")):
+                    if migration_path.name.startswith("010_"):
+                        break
+                    connection.executescript(migration_path.read_text(encoding="utf-8"))
+                connection.execute(
+                    "INSERT INTO users (username, password_hash) VALUES ('migration_user', 'hash')"
+                )
+                connection.execute(
+                    "INSERT INTO announcements (title, content, status) VALUES ('草稿', '正文', 'draft')"
+                )
+                connection.commit()
+                connection.executescript(
+                    (sql_root / "migrations" / "010_user_deletion_and_announcement_statuses.sql").read_text(encoding="utf-8")
+                )
+                status = connection.execute("SELECT status FROM announcements").fetchone()[0]
+                columns = {row[1] for row in connection.execute("PRAGMA table_info(users)")}
+                with self.assertRaises(sqlite3.IntegrityError):
+                    connection.execute(
+                        "INSERT INTO announcements (title, content, status) VALUES ('非法', '正文', 'draft')"
+                    )
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
+            finally:
+                connection.close()
+
+        self.assertEqual(status, "archived")
+        self.assertIn("deleted_at", columns)
+        self.assertEqual(version, 10)
 
     def test_migration_disables_only_unchanged_legacy_admin(self) -> None:
         migration_path = (

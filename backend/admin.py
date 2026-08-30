@@ -10,6 +10,7 @@ import json
 import re
 import secrets
 import shutil
+from datetime import datetime, timezone
 from sqlite3 import IntegrityError
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -35,6 +36,11 @@ from backend.data_transfer import (
     transfer_template,
     validate_transfer_document,
 )
+from backend.auth_rate_limit import (
+    get_auth_security_settings,
+    update_auth_security_settings,
+)
+from backend.avatars import delete_managed_avatar
 from backend.projects import (
     format_project,
     list_project_members,
@@ -48,6 +54,7 @@ from backend.project_assets import (
     normalize_asset_dir,
     normalize_project_updates,
     normalize_relative_image_path,
+    normalize_update_id,
 )
 from backend.resource_types import (
     ResourceTypeDefinition,
@@ -99,6 +106,21 @@ def require_admin_user(user: dict[str, Any] = Depends(get_current_user)) -> dict
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="需要管理员权限")
     return user
+
+
+@router.get("/auth-security-settings")
+def admin_get_auth_security_settings(
+    _: dict[str, Any] = Depends(require_admin_user),
+):
+    return get_auth_security_settings()
+
+
+@router.patch("/auth-security-settings")
+def admin_update_auth_security_settings(
+    payload: dict[str, Any],
+    admin: dict[str, Any] = Depends(require_admin_user),
+):
+    return update_auth_security_settings(payload, admin_user_id=admin["id"])
 
 
 def _ensure_identifier(value: str) -> str:
@@ -405,7 +427,7 @@ async def _store_project_update_photos(
                 while chunk := await upload.read(1024 * 1024):
                     size += len(chunk)
                     if size > MAX_PROJECT_PHOTO_BYTES:
-                        raise HTTPException(status_code=413, detail="单张动态照片不能超过 50MB")
+                        raise HTTPException(status_code=413, detail="单张动态照片不能超过 5MB")
                     output.write(chunk)
             try:
                 with Image.open(target) as image:
@@ -789,29 +811,67 @@ def admin_replace_project_members(
     return _fetch_project(project_id)
 
 
-@router.post("/projects/{project_id}/updates")
-async def admin_create_project_update(
+async def create_project_update_record(
     project_id: int,
-    content: str = Form(default=""),
-    images: str = Form(default="[]"),
-    photos: list[UploadFile] | None = File(default=None),
-    _: dict[str, Any] = Depends(require_admin_user),
-):
-    row, updates = _project_row_and_updates(project_id)
+    content: str,
+    images: str,
+    photos: list[UploadFile],
+    publisher: dict[str, Any],
+) -> dict[str, Any]:
+    """Create one update while preserving concurrent member submissions."""
+
+    row, _ = _project_row_and_updates(project_id)
     clean_content = content.strip()
     retained_images = _project_update_images_form(images, row["asset_dir"])
     update_id = new_update_id()
     uploaded_images, created_files = await _store_project_update_photos(
-        photos or [], row["asset_dir"], update_id
+        photos, row["asset_dir"], update_id
     )
     all_images = [*retained_images, *uploaded_images]
     if not clean_content and not all_images:
         _cleanup_project_photo_files(created_files)
         raise HTTPException(status_code=422, detail="动态内容和图片不能同时为空")
-    updates.append({"id": update_id, "content": clean_content, "images": all_images})
+    update = {
+        "id": update_id,
+        "content": clean_content,
+        "images": all_images,
+        "authorName": str(publisher["name"]).strip(),
+        "authorRole": publisher["role"],
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+    }
+    if publisher.get("personId"):
+        update["authorPersonId"] = int(publisher["personId"])
+    elif publisher.get("userId"):
+        # Compatibility for administrators, who are not project member records.
+        update["authorUserId"] = int(publisher["userId"])
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cursor:
+                # The upload happens before the write lock. Reloading inside a
+                # short IMMEDIATE transaction prevents two publishers from
+                # replacing each other's read-modify-write result.
+                cursor.execute("BEGIN IMMEDIATE")
+                cursor.execute(
+                    "SELECT asset_dir, updates FROM projects WHERE id = %s LIMIT 1",
+                    (project_id,),
+                )
+                latest_row = cursor.fetchone()
+                if latest_row is None:
+                    raise HTTPException(status_code=404, detail="项目不存在")
+                latest_asset_dir = _normalize_project_asset_dir(latest_row.get("asset_dir"))
+                if latest_asset_dir != row["asset_dir"]:
+                    raise HTTPException(status_code=409, detail="项目资源目录已变更，请重新发布")
+                try:
+                    updates = normalize_project_updates(
+                        latest_row.get("updates"),
+                        latest_asset_dir,
+                        allow_legacy=True,
+                    )
+                except ProjectAssetError as error:
+                    raise HTTPException(status_code=422, detail=str(error)) from error
+                # The stored order is newest-first so the public feed and the
+                # admin editor agree without a client-only reversal.
+                updates.insert(0, update)
                 cursor.execute(
                     "UPDATE projects SET updates = %s WHERE id = %s",
                     (json.dumps(updates, ensure_ascii=False), project_id),
@@ -822,6 +882,47 @@ async def admin_create_project_update(
         _cleanup_project_photo_files(created_files)
         raise
     return _fetch_project(project_id)
+
+
+@router.post("/projects/{project_id}/updates")
+async def admin_create_project_update(
+    project_id: int,
+    content: str = Form(default=""),
+    images: str = Form(default="[]"),
+    photos: list[UploadFile] | None = File(default=None),
+    author_person_id: int | None = Form(default=None, alias="authorPersonId"),
+    admin: dict[str, Any] = Depends(require_admin_user),
+):
+    if author_person_id is None:
+        raise HTTPException(status_code=422, detail="请选择项目成员作为发布者")
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT pm.person_id, pm.display_name_snapshot, pm.role
+                FROM project_members pm
+                JOIN people p ON p.id = pm.person_id
+                WHERE pm.project_id = %s
+                  AND pm.person_id = %s
+                  AND p.status <> 'archived'
+                LIMIT 1
+                """,
+                (project_id, author_person_id),
+            )
+            member = cursor.fetchone()
+    if member is None:
+        raise HTTPException(status_code=422, detail="发布者必须是本项目成员")
+    return await create_project_update_record(
+        project_id,
+        content,
+        images,
+        photos or [],
+        {
+            "personId": member["person_id"],
+            "name": member["display_name_snapshot"],
+            "role": member["role"],
+        },
+    )
 
 
 @router.patch("/projects/{project_id}/updates/reorder")
@@ -888,23 +989,96 @@ async def admin_update_project_update(
     return _fetch_project(project_id)
 
 
-@router.delete("/projects/{project_id}/updates/{update_id}")
-def admin_delete_project_update(
+def _delete_managed_project_update_files(asset_dir: str, update_id: str) -> None:
+    """Delete files uploaded into this update's managed directory only."""
+
+    root = asset_dir_path(asset_dir, require_exists=True)
+    updates_root = root / "updates"
+    target = updates_root / update_id
+    if target.is_symlink() or target.is_file():
+        target.unlink(missing_ok=True)
+    elif target.is_dir():
+        shutil.rmtree(target)
+    try:
+        updates_root.rmdir()
+    except OSError:
+        pass
+
+
+def delete_project_update_record(
     project_id: int,
     update_id: str,
-    _: dict[str, Any] = Depends(require_admin_user),
-):
-    _, updates = _project_row_and_updates(project_id)
-    retained = [update for update in updates if update["id"] != update_id]
-    if len(retained) == len(updates):
-        raise HTTPException(status_code=404, detail="项目动态不存在")
+    publisher: dict[str, Any],
+) -> dict[str, Any]:
+    try:
+        clean_update_id = normalize_update_id(update_id, generate=False)
+    except ProjectAssetError as error:
+        raise HTTPException(status_code=404, detail="项目动态不存在") from error
+
+    asset_dir = ""
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
+            cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute(
+                "SELECT asset_dir, updates FROM projects WHERE id = %s LIMIT 1",
+                (project_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="项目不存在")
+            asset_dir = _normalize_project_asset_dir(row.get("asset_dir"))
+            try:
+                updates = normalize_project_updates(
+                    row.get("updates"),
+                    asset_dir,
+                    allow_legacy=True,
+                )
+            except ProjectAssetError as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
+            target = next((item for item in updates if item["id"] == clean_update_id), None)
+            if target is None:
+                raise HTTPException(status_code=404, detail="项目动态不存在")
+            can_delete_all = publisher["role"] in {"admin", "leader"}
+            is_author = bool(
+                publisher.get("personId")
+                and target.get("authorPersonId") == int(publisher["personId"])
+            ) or bool(
+                not target.get("authorPersonId")
+                and publisher.get("userId")
+                and target.get("authorUserId") == int(publisher["userId"])
+            )
+            if not can_delete_all and not is_author:
+                raise HTTPException(status_code=403, detail="只能删除自己发布的动态")
+            retained = [item for item in updates if item["id"] != clean_update_id]
             cursor.execute(
                 "UPDATE projects SET updates = %s WHERE id = %s",
                 (json.dumps(retained, ensure_ascii=False), project_id),
             )
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="项目不存在")
+
+    try:
+        _delete_managed_project_update_files(asset_dir, clean_update_id)
+    except OSError as error:
+        raise HTTPException(status_code=500, detail="动态记录已删除，但本地照片清理失败") from error
     return _fetch_project(project_id)
+
+
+@router.delete("/projects/{project_id}/updates/{update_id}")
+def admin_delete_project_update(
+    project_id: int,
+    update_id: str,
+    admin: dict[str, Any] = Depends(require_admin_user),
+):
+    return delete_project_update_record(
+        project_id,
+        update_id,
+        {
+            "userId": admin["id"],
+            "name": admin.get("displayName") or admin.get("username") or "管理员",
+            "role": "admin",
+        },
+    )
 
 
 @router.patch("/projects/{project_id}")
@@ -922,7 +1096,6 @@ def admin_update_project(
         "casCreativity": "cas_creativity",
         "casActivity": "cas_activity",
         "casService": "cas_service",
-        "popularity": "popularity",
         "updates": "updates",
     }
     unknown = sorted(set(payload) - set(field_map))
@@ -963,7 +1136,7 @@ def admin_update_project(
                 if api_field not in payload:
                     continue
                 value = payload[api_field]
-                if api_field in {"year", "popularity"}:
+                if api_field == "year":
                     value = _normalize_int(value, api_field)
                 if api_field in {"casCreativity", "casActivity", "casService"}:
                     value = _normalize_bool(value)
@@ -987,7 +1160,7 @@ def admin_list_users(
     is_active: bool | None = Query(default=None, alias="isActive"),
     _: dict[str, Any] = Depends(require_admin_user),
 ):
-    where_parts = []
+    where_parts = ["deleted_at IS NULL"]
     params: list[Any] = []
     if search:
         where_parts.append("(username LIKE %s OR display_name LIKE %s)")
@@ -1073,12 +1246,84 @@ def admin_update_user(
     params.append(user_id)
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s", params)
+            cursor.execute(
+                f"UPDATE users SET {', '.join(updates)} WHERE id = %s AND deleted_at IS NULL",
+                params,
+            )
             if cursor.rowcount == 0:
-                _ensure_row_exists(cursor, "users", user_id, "用户不存在")
+                cursor.execute("SELECT id FROM users WHERE id = %s AND deleted_at IS NULL", (user_id,))
+                if cursor.fetchone() is None:
+                    raise HTTPException(status_code=404, detail="用户不存在")
             cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
             row = cursor.fetchone()
     return format_user(row)
+
+
+@router.delete("/users/{user_id}")
+def admin_delete_user(
+    user_id: int,
+    admin: dict[str, Any] = Depends(require_admin_user),
+):
+    if user_id == admin["id"]:
+        raise HTTPException(status_code=409, detail="不能删除当前登录的管理员账号")
+
+    old_avatar_url: str | None = None
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM users WHERE id = %s AND deleted_at IS NULL LIMIT 1", (user_id,))
+            target = cursor.fetchone()
+            if target is None:
+                raise HTTPException(status_code=404, detail="用户不存在")
+            if target["role"] == "admin" and target["is_active"]:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) AS total
+                    FROM users
+                    WHERE role = 'admin' AND is_active = 1 AND deleted_at IS NULL
+                    """
+                )
+                if cursor.fetchone()["total"] <= 1:
+                    raise HTTPException(status_code=409, detail="不能删除最后一个启用的管理员")
+
+            old_avatar_url = target.get("avatar_url")
+            cursor.execute(
+                "UPDATE people SET user_id = NULL, status = 'provisional' WHERE user_id = %s",
+                (user_id,),
+            )
+            cursor.execute(
+                "DELETE FROM person_claims WHERE user_id = %s AND status = 'pending'",
+                (user_id,),
+            )
+            cursor.execute(
+                "DELETE FROM user_follows WHERE follower_id = %s OR following_id = %s",
+                (user_id, user_id),
+            )
+            cursor.execute(
+                "DELETE FROM user_blocks WHERE blocker_id = %s OR blocked_id = %s",
+                (user_id, user_id),
+            )
+            tombstone_username = f"deleted_{user_id}_{secrets.token_hex(4)}"
+            cursor.execute(
+                """
+                UPDATE users
+                SET username = %s,
+                    password_hash = %s,
+                    display_name = NULL,
+                    avatar_url = NULL,
+                    bio = '',
+                    role = 'user',
+                    is_active = 0,
+                    campus_verified = 0,
+                    messaging_permission = 'nobody',
+                    last_seen_at = NULL,
+                    deleted_at = CURRENT_TIMESTAMP
+                WHERE id = %s
+                """,
+                (tombstone_username, f"deleted${secrets.token_hex(32)}", user_id),
+            )
+
+    delete_managed_avatar(old_avatar_url)
+    return {"ok": True}
 
 
 @router.get("/resources")

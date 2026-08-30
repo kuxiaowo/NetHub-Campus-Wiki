@@ -266,13 +266,25 @@ async function loadConversations({ keepActive = true } = {}) {
 function renderChatHeader() {
   const user = messageState.active?.otherUser;
   if (!user) return;
-  messageEls.chatUserLink.href = `/user.html?id=${encodeURIComponent(user.id)}`;
+  if (user.deleted) {
+    messageEls.chatUserLink.removeAttribute('href');
+    messageEls.chatUserLink.setAttribute('aria-disabled', 'true');
+  } else {
+    messageEls.chatUserLink.href = `/user.html?id=${encodeURIComponent(user.id)}`;
+    messageEls.chatUserLink.removeAttribute('aria-disabled');
+  }
   messageEls.chatAvatar.dataset.initial = displayUserName(user).slice(0, 1).toUpperCase();
   messageEls.chatAvatar.innerHTML = user.avatarUrl
     ? `<img src="${escapeHtml(safeExternalUrl(user.avatarUrl))}" alt="" />`
     : '';
   messageEls.chatName.textContent = displayUserName(user);
-  messageEls.chatUsername.textContent = `@${user.username || ''}`;
+  messageEls.chatUsername.textContent = user.deleted ? '账号已注销' : `@${user.username || ''}`;
+  messageEls.input.disabled = Boolean(user.deleted);
+  messageEls.composer.querySelector('[type="submit"]').disabled = Boolean(user.deleted);
+  messageEls.input.placeholder = user.deleted
+    ? '对方账号已注销，不能继续发送消息'
+    : '输入消息，Enter 发送，Shift + Enter 换行';
+  messageEls.status.textContent = user.deleted ? '历史消息仍会保留' : '';
 }
 
 function renderMessage(message) {
@@ -385,7 +397,7 @@ async function searchUsers() {
 
 async function sendCurrentMessage() {
   const body = messageEls.input.value.trim();
-  if ((!body && !messageState.sharedProject) || !messageState.active) return;
+  if ((!body && !messageState.sharedProject) || !messageState.active || messageState.active.otherUser?.deleted) return;
   const submit = messageEls.composer.querySelector('[type="submit"]');
   submit.disabled = true;
   messageEls.status.textContent = '正在发送...';
@@ -413,7 +425,7 @@ async function sendCurrentMessage() {
     messageEls.status.textContent = error.message;
     messageEls.status.classList.add('error-text');
   } finally {
-    submit.disabled = false;
+    submit.disabled = Boolean(messageState.active?.otherUser?.deleted);
   }
 }
 

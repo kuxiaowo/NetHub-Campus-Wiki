@@ -168,6 +168,7 @@ def normalize_project_updates(
     result: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     for index, item in enumerate(parse_updates(value), start=1):
+        metadata: dict[str, Any] = {}
         if isinstance(item, str):
             update_id = new_update_id()
             content = item.strip()
@@ -178,6 +179,31 @@ def normalize_project_updates(
             raw_images = item.get("images", [])
             if not isinstance(raw_images, list):
                 raise ProjectAssetError(f"第 {index} 条动态的 images 必须是数组")
+            author_name = str(item.get("authorName") or "").strip()
+            author_role = str(item.get("authorRole") or "").strip().lower()
+            created_at = str(item.get("createdAt") or "").strip()
+            raw_author_person_id = item.get("authorPersonId")
+            raw_author_user_id = item.get("authorUserId")
+            if author_name:
+                metadata["authorName"] = author_name
+            if author_role in {"admin", "leader", "member"}:
+                metadata["authorRole"] = author_role
+            if created_at:
+                metadata["createdAt"] = created_at
+            if raw_author_person_id is not None:
+                try:
+                    author_person_id = int(raw_author_person_id)
+                except (TypeError, ValueError):
+                    author_person_id = 0
+                if author_person_id > 0:
+                    metadata["authorPersonId"] = author_person_id
+            if raw_author_user_id is not None:
+                try:
+                    author_user_id = int(raw_author_user_id)
+                except (TypeError, ValueError):
+                    author_user_id = 0
+                if author_user_id > 0:
+                    metadata["authorUserId"] = author_user_id
         else:
             raise ProjectAssetError(f"第 {index} 条动态格式不正确")
         if update_id in seen_ids:
@@ -206,7 +232,7 @@ def normalize_project_updates(
                 seen_images.add(image)
         if drop_empty and not content and not images:
             continue
-        result.append({"id": update_id, "content": content, "images": images})
+        result.append({"id": update_id, "content": content, "images": images, **metadata})
     return result
 
 
@@ -214,12 +240,18 @@ def public_updates(value: Any, asset_dir: Any = None) -> list[dict[str, Any]]:
     updates = normalize_project_updates(value, asset_dir, allow_legacy=True)
     return [
         {
+            "id": update["id"],
             "content": update["content"],
             "images": [
                 url
                 for image in update["images"]
                 if (url := project_asset_url(asset_dir, image))
             ],
+            **{
+                key: update[key]
+                for key in ("authorPersonId", "authorUserId", "authorName", "authorRole", "createdAt")
+                if key in update
+            },
         }
         for update in updates
     ]

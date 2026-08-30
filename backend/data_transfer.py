@@ -200,7 +200,12 @@ def _normalize_update(
     asset_dir: str | None,
 ) -> dict[str, Any]:
     item = _object(value, path, errors)
-    _unknown_fields(item, {"id", "content", "images"}, path, errors)
+    _unknown_fields(
+        item,
+        {"id", "content", "images", "authorName", "authorRole", "createdAt"},
+        path,
+        errors,
+    )
     update_id = _text(item.get("id"), f"{path}.id", errors) or new_update_id()
     if not re.fullmatch(r"[a-f0-9]{32}", update_id):
         errors.append(_issue(f"{path}.id", "必须是 32 位小写十六进制字符串"))
@@ -225,7 +230,20 @@ def _normalize_update(
             seen.add(image)
     if not content and not images:
         errors.append(_issue(path, "动态内容和图片不能同时为空"))
-    return {"id": update_id, "content": content, "images": images}
+    result = {"id": update_id, "content": content, "images": images}
+    author_name = _text(item.get("authorName"), f"{path}.authorName", errors)
+    author_role = _text(item.get("authorRole"), f"{path}.authorRole", errors)
+    created_at = _text(item.get("createdAt"), f"{path}.createdAt", errors)
+    if author_role and author_role not in {"admin", "leader", "member"}:
+        errors.append(_issue(f"{path}.authorRole", "只能是 admin、leader 或 member"))
+        author_role = ""
+    if author_name:
+        result["authorName"] = author_name
+    if author_role:
+        result["authorRole"] = author_role
+    if created_at:
+        result["createdAt"] = created_at
+    return result
 
 
 def _normalize_project(
@@ -461,9 +479,14 @@ def validate_transfer_document(payload: Any) -> tuple[dict[str, Any], list[dict[
 
 def _parse_updates(value: Any, asset_dir: str | None) -> list[dict[str, Any]]:
     try:
-        return normalize_project_updates(value, asset_dir, allow_legacy=True)
+        updates = normalize_project_updates(value, asset_dir, allow_legacy=True)
     except ProjectAssetError:
         return []
+    for update in updates:
+        # Person and user IDs are installation-local and must not be transferred.
+        update.pop("authorPersonId", None)
+        update.pop("authorUserId", None)
+    return updates
 
 
 def _new_document() -> dict[str, Any]:

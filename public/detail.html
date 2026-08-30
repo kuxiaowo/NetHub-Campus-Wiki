@@ -10,7 +10,7 @@
   <meta name="twitter:card" content="summary_large_image" />
   <title>项目详情</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=3" />
-  <link rel="stylesheet" href="/css/styles.css?v=project-logo1" />
+  <link rel="stylesheet" href="/css/styles.css?v=project-member-updates2" />
 </head>
 <body>
   <header class="site-header">
@@ -52,6 +52,33 @@
     <section id="projectComments" class="card comments-section" aria-label="项目留言"></section>
   </main>
 
+  <div id="projectUpdateModal" class="admin-modal project-update-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="projectUpdateModalTitle">
+    <div class="admin-modal-backdrop" data-project-update-close></div>
+    <section class="admin-modal-panel project-update-modal-panel">
+      <div class="admin-modal-head">
+        <h2 id="projectUpdateModalTitle">发布项目动态</h2>
+        <button class="icon-button" type="button" aria-label="关闭" data-project-update-close>×</button>
+      </div>
+      <form id="projectUpdateForm" class="admin-form">
+        <label>
+          <span>动态内容</span>
+          <textarea id="projectUpdateContent" class="input" rows="6" maxlength="2000" placeholder="记录项目的最新进展……"></textarea>
+          <small class="admin-muted">最多 2000 个字符，可与照片二选一。</small>
+        </label>
+        <label>
+          <span>动态照片</span>
+          <input id="projectUpdatePhotos" class="input" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" multiple />
+          <small id="projectUpdatePhotoSummary" class="admin-muted">可一次多选，最多 9 张，单张不超过 5MB。</small>
+        </label>
+        <div id="projectUpdateMessage" class="auth-message" aria-live="polite"></div>
+        <div class="admin-modal-actions">
+          <button class="button secondary" type="button" data-project-update-close>取消</button>
+          <button id="projectUpdateSubmit" class="button" type="submit">发布</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
   <footer class="site-footer">
     <div class="container site-footer-inner">
       <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
@@ -75,6 +102,6 @@
   <script src="/js/config.js"></script>
   <script src="/js/api.js?v=project-logo1"></script>
   <script src="/js/comments.js?v=nethub-comments2"></script>
-  <script src="/js/detail.js?v=project-logo1"></script>
+  <script src="/js/detail.js?v=project-update-person-author1"></script>
 </body>
 </html>
