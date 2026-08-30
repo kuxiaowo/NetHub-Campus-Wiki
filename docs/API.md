@@ -22,7 +22,7 @@ window.CAMPUS_WIKI_CONFIG = {
 - 错误响应：FastAPI 默认错误结构，例如 `{"detail": "项目不存在"}`
 - 跨域：后端通过 `CORS_ORIGINS` 环境变量允许前端服务访问
 - 登录鉴权：需要登录的接口使用 `Authorization: Bearer <accessToken>`
-- 查看与下载权限：资源列表、Yearbook 阅读器数据、活动照片列表和图片查看保持公开；实际下载普通资源文件、Yearbook PDF、活动压缩包或单张照片时必须登录。前端未登录点击下载会弹出 `抱歉，需要登陆` 并阻止下载请求。
+- 查看与下载权限：资源列表、Yearbook 阅读器数据、活动照片列表和图片查看保持公开；实际下载普通资源文件、Yearbook PDF、批量活动照片或单张照片时必须登录。前端未登录点击下载会弹出 `抱歉，需要登陆` 并阻止下载请求。
 
 ## 用户结构
 
@@ -625,7 +625,6 @@ curl http://127.0.0.1:3100/api/resources/meta
 | `sortOrder` | `number` | 活动列表人工排序权重，数字越小越靠前 |
 | `photoDir` | `string \| null` | 活动照片目录 |
 | `coverImage` | `string \| null` | 自定义封面地址；未填写时使用照片目录第一张 |
-| `archiveUrl` | `string \| null` | 活动压缩文件 URL，存在同名 `.rar` 时返回 |
 | `coverSrc` | `string \| null` | 活动封面原图 URL |
 | `coverThumbSrc` | `string \| null` | 活动封面缩略图 URL |
 | `photoCount` | `number` | 活动照片数量 |
@@ -633,7 +632,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 活动卡片不使用 icon 字段；优先使用选填的自定义封面，未填写时使用按文件名自然排序的第一张照片。活动列表接口只返回封面和数量，不返回完整照片数组。
 
-活动级整包下载使用照片目录下的同名压缩文件。例如 `photoDir` 是 `/uploads/photos/春季运动会/` 时，压缩文件应放在 `/uploads/photos/春季运动会/春季运动会.rar`。只有该文件实际存在时，接口才返回 `archiveUrl`。前台点击活动整包下载或在照片放大弹窗中下载单张照片，都会让活动级 `downloads` 加 1。
+活动级批量下载不使用压缩包。前端在用户选择的位置下创建 `年份-活动名称` 文件夹，再使用每张照片的受保护 `/api/files/...` 地址逐张下载。目录写入依赖 File System Access API、用户手动授权及 HTTPS（localhost 例外）。不支持目录选择的 Safari、Firefox 等浏览器会先提示只能下载到默认目录，用户确认后再分批触发单文件下载；实际落盘位置和多文件许可由浏览器控制。至少成功保存或提交一张照片后，或在照片放大弹窗中下载单张照片时，活动级 `downloads` 加 1。
 
 ### 响应示例
 
@@ -659,7 +658,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 ## POST /api/photo-activities/{activity_id}/download
 
-记录一次活动照片下载，并返回更新后的活动摘要。该接口统计活动级下载量，前台下载整包压缩文件和下载单张放大照片都会调用它。
+记录一次活动照片下载，并返回更新后的活动摘要。该接口统计活动级下载量，前台批量下载至少成功保存一张照片后，或下载单张放大照片时会调用它。
 
 该接口必须登录，需携带 `Authorization: Bearer <accessToken>`。未登录返回 `401 Unauthorized`；前端未登录点击下载时会先弹出 `抱歉，需要登陆`，不会发起下载统计请求。
 
@@ -704,7 +703,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 ## GET /api/files/{file_path}
 
-从 `public/` 目录读取文件并作为附件返回。该接口用于受登录保护的下载，不用于普通图片查看。前端在下载普通资源文件、Yearbook PDF、活动压缩包或单张照片时，会把本地 `public/` URL 转换为 `/api/files/...` 下载 URL。
+从 `public/` 目录读取文件并作为附件返回。该接口用于受登录保护的下载，不用于普通图片查看。前端在下载普通资源文件、Yearbook PDF、批量活动照片或单张照片时，会把本地 `public/` URL 转换为 `/api/files/...` 下载 URL。
 
 ### 鉴权
 
@@ -905,7 +904,7 @@ JSON 迁移覆盖 CAS 项目（含成员联系方式与动态）、普通资源�
 | `file` | `file` | 是 | 上传文件 |
 | `targetPath` | `string` | 否 | 相对 `public/` 的目标目录，例如 `uploads/yearbook` |
 
-允许扩展名：`jpg`、`jpeg`、`png`、`webp`、`gif`、`pdf`、`doc`、`docx`、`ppt`、`pptx`、`xls`、`xlsx`、`zip`、`rar`。单文件最大 50MB。普通文件上传后使用随机文件名保存；`.rar` 压缩文件保留原文件名，方便活动照片目录使用同名压缩文件。
+允许扩展名：`jpg`、`jpeg`、`png`、`webp`、`gif`、`pdf`、`doc`、`docx`、`ppt`、`pptx`、`xls`、`xlsx`、`zip`、`rar`。单文件最大 50MB。普通文件上传后统一使用随机文件名保存。
 
 `POST /api/admin/files/folder-upload` 使用 `multipart/form-data` 直接上传整个文件夹。字段：
 

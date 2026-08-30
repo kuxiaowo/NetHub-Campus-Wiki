@@ -281,7 +281,6 @@ class PhotoActivity(BaseModel):
     sortOrder: int
     photoDir: str | None = None
     coverImage: str | None = None
-    archiveUrl: str | None = None
     coverSrc: str | None = None
     coverThumbSrc: str | None = None
     photoCount: int

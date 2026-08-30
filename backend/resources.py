@@ -280,22 +280,6 @@ def _ensure_video_thumbnail(source: Path) -> str | None:
         return None
 
 
-def photo_archive_url(photo_dir: str | None) -> str | None:
-    """Return the same-name RAR URL when it exists inside a public photo directory."""
-
-    resolved = _public_url_to_path(photo_dir)
-    if resolved is None:
-        return None
-    target, relative = resolved
-    folder_name = Path(relative.rstrip("/")).name
-    if not folder_name:
-        return None
-    archive_file = target / f"{folder_name}.rar"
-    if not archive_file.is_file():
-        return None
-    return f"/{relative.rstrip('/')}/{folder_name}.rar"
-
-
 def format_photo_activity(row: dict[str, Any], legacy_photos: list[dict[str, Any]]) -> dict[str, Any]:
     """Return the public activity card shape with directory-derived cover data."""
 
@@ -309,7 +293,6 @@ def format_photo_activity(row: dict[str, Any], legacy_photos: list[dict[str, Any
         else (default_cover_images[0].get("thumbSrc") if default_cover_images else None)
     )
     directory_photo_count = len(_scan_photo_dir(row.get("photo_dir"), count_only=True)) if row.get("photo_dir") else 0
-    archive_url = photo_archive_url(row.get("photo_dir"))
     return {
         "id": row["id"],
         "activity": row["activity"],
@@ -320,7 +303,6 @@ def format_photo_activity(row: dict[str, Any], legacy_photos: list[dict[str, Any
         "sortOrder": row["sort_order"],
         "photoDir": row.get("photo_dir"),
         "coverImage": custom_cover or None,
-        "archiveUrl": archive_url,
         "coverSrc": cover_src,
         "coverThumbSrc": cover_thumb_src,
         "photoCount": directory_photo_count or row["photo_count"],

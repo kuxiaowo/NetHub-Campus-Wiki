@@ -269,6 +269,184 @@ function requireAuthForDownload() {
   return false;
 }
 
+function safeLocalFileName(value, fallback = 'file') {
+  const cleaned = String(value ?? '')
+    .replace(/[\u0000-\u001f<>:"/\\|?*]/g, '_')
+    .replace(/[. ]+$/g, '')
+    .trim();
+  const name = cleaned && cleaned !== '.' && cleaned !== '..' ? cleaned : fallback;
+  const windowsReservedName = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
+  return (windowsReservedName.test(name) ? `_${name}` : name).slice(0, 180);
+}
+
+function localFileNameFromUrl(value, fallback = 'photo') {
+  try {
+    const url = new URL(String(value ?? ''), window.location.origin);
+    const encodedName = url.pathname.split('/').filter(Boolean).pop() || '';
+    return safeLocalFileName(decodeURIComponent(encodedName), fallback);
+  } catch {
+    return safeLocalFileName('', fallback);
+  }
+}
+
+function uniqueLocalFileName(filename, usedNames) {
+  const safeName = safeLocalFileName(filename);
+  const extensionIndex = safeName.lastIndexOf('.');
+  const hasExtension = extensionIndex > 0;
+  const stem = hasExtension ? safeName.slice(0, extensionIndex) : safeName;
+  const extension = hasExtension ? safeName.slice(extensionIndex) : '';
+  let candidate = safeName;
+  let suffix = 2;
+  while (usedNames.has(candidate.toLocaleLowerCase())) {
+    candidate = `${stem} (${suffix})${extension}`;
+    suffix += 1;
+  }
+  usedNames.add(candidate.toLocaleLowerCase());
+  return candidate;
+}
+
+async function createUniqueLocalDirectory(parentHandle, requestedName) {
+  const baseName = safeLocalFileName(requestedName, '活动照片');
+  for (let suffix = 1; suffix <= 999; suffix += 1) {
+    const candidate = suffix === 1 ? baseName : `${baseName} (${suffix})`;
+    try {
+      await parentHandle.getDirectoryHandle(candidate);
+    } catch (error) {
+      if (error?.name === 'NotFoundError') {
+        return {
+          handle: await parentHandle.getDirectoryHandle(candidate, { create: true }),
+          name: candidate,
+        };
+      }
+      if (error?.name === 'TypeMismatchError') continue;
+      throw error;
+    }
+  }
+  throw new Error('无法创建活动照片文件夹，请选择其他下载位置。');
+}
+
+async function writeResponseToLocalFile(directoryHandle, filename, response) {
+  const fileHandle = await directoryHandle.getFileHandle(filename, { create: true });
+  const writable = await fileHandle.createWritable();
+  try {
+    if (!response.body) throw new Error('浏览器无法读取下载数据。');
+    await response.body.pipeTo(writable);
+  } catch (error) {
+    try {
+      await writable.abort();
+    } catch {
+      // 浏览器可能已经在 pipeTo 失败时自动中止写入。
+    }
+    try {
+      await directoryHandle.removeEntry(filename);
+    } catch {
+      // 清理不完整文件失败不应覆盖原始下载错误。
+    }
+    throw error;
+  }
+}
+
+function prepareLocalDownloads(files) {
+  const usedNames = new Set();
+  return files.map((file, index) => ({
+    url: file.url,
+    filename: uniqueLocalFileName(
+      file.filename || localFileNameFromUrl(file.url, `photo-${String(index + 1).padStart(4, '0')}.jpg`),
+      usedNames,
+    ),
+  }));
+}
+
+function triggerBrowserDownload(file) {
+  const link = document.createElement('a');
+  link.href = file.url;
+  link.download = file.filename;
+  link.rel = 'noreferrer';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+async function downloadFilesToDefaultDirectory(preparedFiles, options = {}) {
+  const confirmed = window.confirm(
+    '当前浏览器或访问方式不支持选择下载文件夹，只能将照片批量下载到浏览器的默认下载目录。\n\n'
+    + '浏览器可能会询问是否允许多个文件下载；请选择“允许”。是否继续？',
+  );
+  if (!confirmed) throw new DOMException('用户取消批量下载', 'AbortError');
+
+  const result = {
+    deliveryMode: 'default-directory',
+    folderName: null,
+    total: preparedFiles.length,
+    completed: 0,
+    succeeded: 0,
+    failed: [],
+  };
+  const batchSize = 4;
+  options.onProgress?.({ ...result });
+
+  for (let offset = 0; offset < preparedFiles.length; offset += batchSize) {
+    const batch = preparedFiles.slice(offset, offset + batchSize);
+    batch.forEach((file) => {
+      triggerBrowserDownload(file);
+      result.completed += 1;
+      result.succeeded += 1;
+    });
+    options.onProgress?.({ ...result });
+    if (offset + batchSize < preparedFiles.length) {
+      await new Promise((resolve) => window.setTimeout(resolve, 200));
+    }
+  }
+  return result;
+}
+
+async function downloadFilesToSelectedDirectory(files, options = {}) {
+  const preparedFiles = prepareLocalDownloads(files);
+  if (!window.isSecureContext || typeof window.showDirectoryPicker !== 'function') {
+    return downloadFilesToDefaultDirectory(preparedFiles, options);
+  }
+
+  const parentHandle = await window.showDirectoryPicker({
+    id: 'nethub-photo-downloads',
+    mode: 'readwrite',
+    startIn: 'downloads',
+  });
+  const directory = await createUniqueLocalDirectory(parentHandle, options.folderName);
+  const result = {
+    deliveryMode: 'selected-directory',
+    folderName: directory.name,
+    total: preparedFiles.length,
+    completed: 0,
+    succeeded: 0,
+    failed: [],
+  };
+  let nextIndex = 0;
+  const concurrency = Math.max(1, Math.min(Number(options.concurrency) || 3, 6, preparedFiles.length || 1));
+  options.onProgress?.({ ...result });
+
+  async function worker() {
+    while (nextIndex < preparedFiles.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      const file = preparedFiles[currentIndex];
+      try {
+        const response = await fetch(file.url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        await writeResponseToLocalFile(directory.handle, file.filename, response);
+        result.succeeded += 1;
+      } catch (error) {
+        result.failed.push({ filename: file.filename, message: error?.message || '下载失败' });
+      } finally {
+        result.completed += 1;
+        options.onProgress?.({ ...result, failed: [...result.failed] });
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  return result;
+}
+
 /**
  * 渲染 CAS 三项标记。
  *

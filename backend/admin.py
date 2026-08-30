@@ -1709,8 +1709,7 @@ async def admin_upload_file(
     if not target_dir.is_dir():
         raise HTTPException(status_code=422, detail="上传目标必须是目录")
 
-    original_name = _safe_upload_filename(file.filename)
-    target_name = original_name if suffix == "rar" and original_name else f"{secrets.token_urlsafe(18)}.{suffix}"
+    target_name = f"{secrets.token_urlsafe(18)}.{suffix}"
     target_file = target_dir / target_name
     size = 0
     with target_file.open("wb") as output:

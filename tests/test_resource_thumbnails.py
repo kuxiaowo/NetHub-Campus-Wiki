@@ -120,6 +120,7 @@ class ResourceThumbnailTest(unittest.TestCase):
             self.assertEqual(activity["coverSrc"], "/Photos/activity/2.jpg")
             self.assertEqual(activity["coverThumbSrc"], "/Photos/activity/.thumbs/2.webp")
             self.assertEqual(activity["photoCount"], 2)
+            self.assertNotIn("archiveUrl", activity)
 
     def test_activity_custom_cover_precedes_first_photo(self) -> None:
         from backend import resources

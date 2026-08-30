@@ -325,6 +325,7 @@ function renderPhotos(activities) {
   currentActivity = current;
   photoTitle.textContent = current.activity;
   photoMeta.textContent = `${current.year} · ${current.photoCount} 张照片 · 热度 ${current.hot} · 下载 ${current.downloads || 0}`;
+  downloadActivity.disabled = true;
   activePhotoItems = [];
   photoGrid.innerHTML = '<div class="empty">正在加载活动照片...</div>';
   loadActivityPhotos(current).catch((error) => {
@@ -349,6 +350,7 @@ async function loadActivityPhotos(activity) {
     downloadMetric: 'photoActivity',
     downloadMetricId: activity.id,
   }));
+  downloadActivity.disabled = activePhotoItems.length === 0;
   photoMeta.textContent = `${activity.year} · ${activePhotoItems.length} 张照片 · 热度 ${activity.hot} · 下载 ${activity.downloads || 0}`;
   photoGrid.innerHTML = activePhotoItems.length
     ? activePhotoItems.map(photoButton).join('')
@@ -530,25 +532,51 @@ async function downloadModalPhoto() {
   });
 }
 
-async function downloadCurrentActivityArchive() {
+async function downloadCurrentActivityPhotos() {
   if (!currentActivity) return;
   if (!requireAuthForDownload()) return;
-
-  const archiveUrl = currentActivity.archiveUrl;
-  if (!archiveUrl) {
-    window.alert('当前活动还没有配置压缩文件。');
+  if (!activePhotoItems.length) {
+    window.alert('当前活动没有可下载的照片。');
     return;
   }
 
-  const updated = await trackPhotoActivityDownload(currentActivity.id);
-  updateCurrentActivityDownloads(updated);
-
-  const link = document.createElement('a');
-  link.href = authenticatedPublicFileUrl(archiveUrl) || safeExternalUrl(archiveUrl);
-  link.download = `${currentActivity.activity}.rar`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
+  const activity = currentActivity;
+  const originalLabel = downloadActivity.textContent;
+  downloadActivity.disabled = true;
+  try {
+    const result = await downloadFilesToSelectedDirectory(
+      activePhotoItems.map((item, index) => ({
+        url: authenticatedPublicFileUrl(item.src) || item.src,
+        filename: localFileNameFromUrl(item.src, `photo-${String(index + 1).padStart(4, '0')}.jpg`),
+      })),
+      {
+        folderName: `${activity.year}-${activity.activity}`,
+        concurrency: 3,
+        onProgress(progress) {
+          const action = progress.deliveryMode === 'default-directory' ? '提交下载' : '下载中';
+          downloadActivity.textContent = `${action} ${progress.completed}/${progress.total}`;
+          photoMeta.textContent = `${action} ${progress.completed}/${progress.total} 张照片${progress.failed.length ? ` · 失败 ${progress.failed.length}` : ''}`;
+        },
+      },
+    );
+    if (result.succeeded) {
+      const updated = await trackPhotoActivityDownload(activity.id);
+      updateCurrentActivityDownloads(updated);
+    }
+    if (result.deliveryMode === 'default-directory') {
+      window.alert(`已向浏览器提交 ${result.succeeded} 张照片，请在默认下载目录中查看。若下载数量不完整，请检查浏览器是否已允许多个文件下载。`);
+    } else if (result.failed.length) {
+      window.alert(`已保存 ${result.succeeded}/${result.total} 张照片到“${result.folderName}”，${result.failed.length} 张下载失败。`);
+    } else {
+      window.alert(`已将 ${result.succeeded} 张照片保存到“${result.folderName}”。`);
+    }
+  } catch (error) {
+    if (error?.name !== 'AbortError') window.alert(error?.message || '下载照片失败。');
+  } finally {
+    downloadActivity.disabled = false;
+    downloadActivity.textContent = originalLabel;
+    if (currentActivity?.id === activity.id) updateCurrentActivityDownloads(currentActivity);
+  }
 }
 
 [resourceYear, resourceSort].forEach((control) => control.addEventListener('change', () => {
@@ -588,7 +616,7 @@ resourceSearch.addEventListener('keydown', (event) => {
   }
 });
 
-downloadActivity.addEventListener('click', downloadCurrentActivityArchive);
+downloadActivity.addEventListener('click', downloadCurrentActivityPhotos);
 yearbookPrev.addEventListener('click', () => shiftYearbook(-1));
 yearbookNext.addEventListener('click', () => shiftYearbook(1));
 backToResources.addEventListener('click', closeYearbook);
