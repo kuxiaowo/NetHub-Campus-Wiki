@@ -14,19 +14,8 @@ public/Photos/*
 public/yearbook/*
 !public/yearbook/.gitkeep
 
-# Public media files and generated thumbnails
+# Large public content libraries and generated thumbnails
 public/**/.thumbs/
-public/**/*.jpg
-public/**/*.jpeg
-public/**/*.png
-public/**/*.gif
-public/**/*.webp
-public/**/*.avif
-public/**/*.bmp
-public/**/*.tif
-public/**/*.tiff
-public/**/*.heic
-public/**/*.heif
 public/**/*.mp4
 public/**/*.m4v
 public/**/*.mov
@@ -35,9 +24,3 @@ public/**/*.mkv
 public/**/*.webm
 public/**/*.wmv
 public/**/*.flv
-public/**/*.mp3
-public/**/*.wav
-public/**/*.ogg
-public/**/*.m4a
-public/**/*.aac
-public/**/*.flac
