@@ -24,7 +24,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from backend.main import app  # noqa: E402
 from backend.bootstrap_admin import create_initial_admin  # noqa: E402
-from backend.database import get_db_connection  # noqa: E402
+from backend.database import _backfill_project_members, get_db_connection  # noqa: E402
 
 
 class SocialMessagingFlowTest(unittest.TestCase):
@@ -40,6 +40,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         Image.new("RGB", (10, 10), "purple").save(upload_buffer, format="PNG")
         cls.upload_photo = upload_buffer.getvalue()
         create_initial_admin("test_admin", "test-admin-password-123", "Test Admin")
+        cls._seed_business_fixtures()
         cls.client = TestClient(app)
         cls.admin_token = cls._login("test_admin", "test-admin-password-123")
         cls.alice = cls._register("alice_user", "Alice")
@@ -75,6 +76,44 @@ class SocialMessagingFlowTest(unittest.TestCase):
     @staticmethod
     def _headers(token: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {token}"}
+
+    @classmethod
+    def _seed_business_fixtures(cls) -> None:
+        """测试自行准备业务数据，不依赖生产数据库初始化脚本。"""
+
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO projects
+                      (id, name, leader, members, category, year, description)
+                    VALUES
+                      (1, '测试项目', '李明', '李明, 王小雨, Chen Alex',
+                       '测试分类', 2026, '集成测试项目')
+                    """
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO resources
+                      (id, title, description, year, category, label, image, resource_url)
+                    VALUES
+                      (1, '测试资源', '集成测试资源', 2026, 'other', '其他资源',
+                       'https://example.com/test-cover.png',
+                       'https://example.com/test-resource.pdf')
+                    """
+                )
+                cursor.executemany(
+                    """
+                    INSERT INTO announcements
+                      (id, title, summary, content, status, is_pinned, published_at)
+                    VALUES (%s, %s, %s, %s, 'published', %s, CURRENT_TIMESTAMP)
+                    """,
+                    [
+                        (1, "测试公告一", "测试摘要一", "测试内容一", 1),
+                        (2, "测试公告二", "测试摘要二", "测试内容二", 0),
+                    ],
+                )
+            _backfill_project_members(connection._connection)
 
     def test_00_password_length_limits_cover_all_auth_endpoints(self) -> None:
         maximum_password = "a" * 128

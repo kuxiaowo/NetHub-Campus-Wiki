@@ -12,7 +12,7 @@ DATABASE_PATH=data/campus_wiki.db
 ```
 
 相对路径以项目根目录为基准，也可以配置绝对路径。后端首次连接一个空数据库时，
-自动执行 `sql/schema.sql`，创建表、索引、外键、触发器和示例业务数据，不创建用户账号。
+自动执行 `sql/schema.sql`，只创建表、索引、外键和触发器，不创建业务数据或用户账号。
 脚本最后设置 `PRAGMA user_version = 1`，后端以此判断数据库是否已经初始化。
 
 首次部署通过 `python -m backend.bootstrap_admin --username <昵称>` 交互式创建首个管理员。该命令在已有启用中的管理员时会拒绝执行，密码也不会作为命令行参数传递。

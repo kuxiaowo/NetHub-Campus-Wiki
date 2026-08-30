@@ -76,27 +76,5 @@ WHEN NEW.updated_at = OLD.updated_at BEGIN
   UPDATE comments SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
-INSERT INTO announcements
-  (title, summary, content, status, is_pinned, created_by, published_at)
-VALUES
-(
-  'CAS 项目库原型上线',
-  '欢迎提交你的项目资料，让更多同学发现正在发生的校园创意与行动。',
-  'CAS 项目库现已开放浏览。你可以查看项目简介、成员、动态和相关资源。后续我们还会继续完善项目提交、成员关联和校园互动功能。欢迎通过管理员提交你的项目资料。',
-  'published', 1, NULL, datetime('now', '-2 days')
-),
-(
-  '本周五举办 CAS 项目分享会',
-  '本周五 16:00 举办 CAS 项目分享会，欢迎正在筹备或已经开展项目的同学参加。',
-  '分享会将在本周五 16:00 举行。现场将介绍优秀项目案例、CAS 记录方法和团队协作经验，也会预留自由交流时间。具体地点请留意后续更新。',
-  'published', 0, NULL, datetime('now', '-1 day')
-),
-(
-  '项目展示页支持媒体与动态更新',
-  '项目详情现已支持照片、视频链接和阶段性动态。',
-  '项目负责人可以通过管理后台维护项目照片、视频链接和阶段性进展。成员信息也会逐步与注册账号关联，方便同学进一步了解项目并发起校园交流。',
-  'published', 0, NULL, CURRENT_TIMESTAMP
-);
-
 PRAGMA user_version = 3;
 COMMIT;

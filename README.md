@@ -37,7 +37,7 @@ Campus Wiki/
 │       └── detail.js
 ├── docs/API.md            # 详细接口文档
 ├── docs/DATABASE.md       # 数据库结构文档
-├── sql/schema.sql         # SQLite 初始化脚本和示例业务数据
+├── sql/schema.sql         # SQLite 数据库结构初始化脚本
 └── requirements.txt
 ```
 
@@ -82,8 +82,8 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 ### 3. 初始化数据库
 
 无需安装或启动数据库服务。后端首次启动时会自动创建
-`DATABASE_PATH` 指向的 SQLite 文件，并执行 `sql/schema.sql` 写入表结构、
-示例业务数据。初始化脚本不会创建任何用户账号。
+`DATABASE_PATH` 指向的 SQLite 文件，并执行 `sql/schema.sql` 写入表结构。
+初始化脚本不会创建业务数据或用户账号。
 
 如需重新初始化本地数据，请先停止后端并备份或删除 SQLite 文件，再启动后端。
 
@@ -123,7 +123,7 @@ python3 frontend_server.py
 
 ## 数据库结构
 
-当前只保留一个数据库初始化脚本：`sql/schema.sql`。空数据库首次连接时会自动执行该脚本，写入数据库结构和示例业务数据，但不创建账号。初始化后包含这些表：
+当前只保留一个数据库初始化脚本：`sql/schema.sql`。空数据库首次连接时会自动执行该脚本，只写入数据库结构，不创建业务数据或账号。初始化后包含这些表：
 
 - `users`：用户账号。密码使用 PBKDF2-HMAC-SHA256 哈希保存，`role` 使用 `admin` / `user` 区分管理员和普通用户。
 - `people` / `project_members`：现实人员档案和 CAS 项目成员关系。成员角色、排序和项目内联系方式保存在关系表中；只有管理员可以在 CAS 项目详情的成员区域把人员档案绑定到账号。
