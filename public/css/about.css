@@ -199,6 +199,18 @@
   line-height: 1.8;
 }
 
+.about-techx-name {
+  font-weight: 900;
+}
+
+.about-techx-name span:first-child {
+  color: #087dbf;
+}
+
+.about-techx-name span:last-child {
+  color: #e8322b;
+}
+
 .about-feature-copy a {
   margin-top: 19px;
   display: inline-flex;
@@ -242,6 +254,16 @@
 }
 
 .about-feature-wiki img {
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  object-position: top center;
+}
+
+.about-feature-mood {
+  background: linear-gradient(135deg, #eaf8ff 0%, #8fd7ed 48%, #168ab8 100%);
+}
+
+.about-feature-mood img {
   aspect-ratio: 16 / 10;
   object-fit: cover;
   object-position: top center;

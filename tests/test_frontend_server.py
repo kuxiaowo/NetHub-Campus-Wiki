@@ -230,6 +230,25 @@ class FrontendServerTest(unittest.TestCase):
         self.assertIn(b"/user.html?id=", about_script)
         self.assertIn(b"member.contactValue", about_script)
         self.assertNotIn(b"data-bind-project-member", about_page)
+        self.assertIn("产品 03 · 联合项目".encode("utf-8"), about_page)
+        self.assertIn("NetHub 小组与".encode("utf-8"), about_page)
+        self.assertIn("Tech".encode("utf-8"), about_page)
+        self.assertIn(b'href="https://sdgj.tech"', about_page)
+        self.assertIn(b'src="/assets/about/mood-meter.webp"', about_page)
+        self.assertNotIn(b'/assets/nethub-icon.png', about_page)
+        self.assertEqual(about_page.count(b'src="/assets/about/nethub-icon.webp"'), 4)
+
+        status, mood_meter, content_type = self.fetch("/assets/about/mood-meter.webp")
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "image/webp")
+        self.assertEqual(mood_meter[:4], b"RIFF")
+        self.assertEqual(mood_meter[8:12], b"WEBP")
+
+        status, about_icon, content_type = self.fetch("/assets/about/nethub-icon.webp")
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "image/webp")
+        self.assertEqual(about_icon[:4], b"RIFF")
+        self.assertEqual(about_icon[8:12], b"WEBP")
 
     def test_project_logo_fallback_is_shared_and_fills_the_middle_row(self) -> None:
         _, shared_script, _ = self.fetch("/js/api.js")
