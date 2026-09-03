@@ -159,8 +159,10 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory="$PROJECT_DIR"
-EnvironmentFile="$ENV_FILE"
+# Path directives are not command lines. Some systemd releases treat quotes as
+# literal path characters here, so emit the resolved absolute paths directly.
+WorkingDirectory=$PROJECT_DIR
+EnvironmentFile=$ENV_FILE
 ExecStart="$CONDA_EXE" run --no-capture-output -n $CONDA_ENV_NAME python -m backend.main
 Restart=on-failure
 RestartSec=5
@@ -177,8 +179,8 @@ Wants=$API_UNIT
 
 [Service]
 Type=simple
-WorkingDirectory="$PROJECT_DIR"
-EnvironmentFile="$ENV_FILE"
+WorkingDirectory=$PROJECT_DIR
+EnvironmentFile=$ENV_FILE
 ExecStart="$CONDA_EXE" run --no-capture-output -n $CONDA_ENV_NAME python frontend_server.py
 Restart=on-failure
 RestartSec=5
