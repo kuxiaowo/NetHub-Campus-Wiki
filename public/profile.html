@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="管理 NetHub 个人资料和私信权限。" />
+  <meta property="og:site_name" content="NetHub Campus Wiki" />
+  <meta property="og:title" content="个人中心 - NetHub Campus Wiki" />
+  <meta property="og:image" content="/og.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <title>个人中心 - NetHub Campus Wiki</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=3" />
+  <link rel="stylesheet" href="/css/styles.css?v=project-logo1" />
+</head>
+<body>
+  <header class="site-header">
+    <nav class="navbar container">
+      <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
+        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
+        <span class="brand-copy"><strong>NetHub</strong><small>Campus Wiki</small></span>
+      </a>
+      <div class="nav-links" aria-label="主导航">
+        <a href="/index.html">首页</a>
+        <a href="/projects.html">CAS 项目库</a>
+        <a href="/resources.html">资源中心</a>
+        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到<span class="nav-new-badge">new</span></a>
+        <a href="/about.html">关于我们</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="container profile-layout">
+    <section id="profileGate" class="card messages-gate is-hidden">
+      <h1>登录后管理个人资料</h1>
+      <a class="button" href="/index.html">返回首页登录</a>
+    </section>
+    <div id="profileApp" class="profile-grid is-hidden">
+      <aside class="card profile-summary">
+        <div id="profileAvatarPreview" class="profile-avatar"></div>
+        <h1 id="profileTitle">个人中心</h1>
+        <p id="profileHandle"></p>
+        <a id="publicProfileLink" class="button secondary" href="#">查看公开主页</a>
+      </aside>
+      <div class="profile-content">
+        <section class="card">
+          <div class="section-title"><div><h2>个人资料</h2><span>公开展示给其他校园用户</span></div></div>
+          <form id="profileForm" class="profile-form">
+            <label>姓名或展示名<input class="input" name="displayName" maxlength="80" /></label>
+            <label>头像图片
+              <input id="profileAvatarInput" class="input" type="file" accept="image/jpeg,image/png,image/webp" />
+            </label>
+            <div class="profile-avatar-actions">
+              <button id="profileAvatarUpload" class="button secondary compact" type="button" disabled>上传头像</button>
+              <button id="profileAvatarRemove" class="button secondary compact danger" type="button">移除头像</button>
+              <small>支持 JPEG、PNG、WebP，最大 5 MB；上传后自动裁成正方形。</small>
+            </div>
+            <label>个人简介<textarea class="input" name="bio" maxlength="300" rows="5"></textarea></label>
+            <label>谁可以给我发私信
+              <select class="input" name="messagingPermission">
+                <option value="everyone">所有用户（未建立联系者每日限发一条）</option>
+                <option value="following">仅我关注的人</option>
+                <option value="mutual">仅互相关注</option>
+                <option value="nobody">不接收新私信</option>
+              </select>
+            </label>
+            <div class="profile-form-actions">
+              <span id="profileMessage" aria-live="polite"></span>
+              <button class="button" type="submit">保存资料</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <script src="/js/config.js"></script>
+  <script src="/js/api.js?v=photo-folder-download1"></script>
+  <script src="/js/profile.js?v=profile-badge-hidden1"></script>
+</body>
+</html>

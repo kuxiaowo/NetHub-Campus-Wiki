@@ -8,17 +8,18 @@ import hmac
 import json
 import os
 import re
+from sqlite3 import IntegrityError
 import time
 from typing import Any, Literal
 
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pymysql.err import IntegrityError
-
+from backend.auth_policy import PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH
 from backend.config import settings
 from backend.database import get_db_connection
 
 UserRole = Literal["admin", "user"]
+DELETED_USER_DISPLAY_NAME = "已注销用户"
 
 PASSWORD_ALGORITHM = "pbkdf2_sha256"
 PASSWORD_ITERATIONS = 260_000
@@ -38,6 +39,7 @@ def _base64url_decode(value: str) -> bytes:
 def hash_password(password: str) -> str:
     """使用 PBKDF2-HMAC-SHA256 生成带盐密码哈希。"""
 
+    validate_password(password)
     salt = os.urandom(16)
     digest = hashlib.pbkdf2_hmac(
         "sha256",
@@ -57,6 +59,11 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, password_hash: str) -> bool:
     """校验明文密码是否匹配存储的 PBKDF2 哈希。"""
+
+    # Avoid spending CPU and memory on oversized credentials even when this
+    # function is called outside the validated HTTP request models.
+    if len(password) > PASSWORD_MAX_LENGTH:
+        return False
 
     try:
         algorithm, iterations, salt_value, digest_value = password_hash.split("$", 3)
@@ -82,10 +89,40 @@ def format_user(row: dict[str, Any]) -> dict[str, Any]:
         "id": row["id"],
         "username": row["username"],
         "displayName": row.get("display_name"),
+        "avatarUrl": row.get("avatar_url"),
+        "bio": row.get("bio") or "",
         "role": row["role"],
         "isActive": bool(row.get("is_active")),
+        "campusVerified": bool(row.get("campus_verified")),
+        "messagingPermission": row.get("messaging_permission") or "everyone",
+        "linkedPersonId": row.get("person_id"),
         "createdAt": row.get("created_at"),
     }
+
+
+def public_user_identity(
+    row: dict[str, Any],
+    *,
+    id_key: str,
+    username_key: str,
+    display_name_key: str,
+    avatar_url_key: str,
+    deleted_at_key: str,
+    campus_verified_key: str | None = None,
+) -> dict[str, Any]:
+    """格式化可嵌入留言、私信等响应的公开用户身份。"""
+
+    deleted = bool(row.get(deleted_at_key))
+    result = {
+        "id": row.get(id_key),
+        "username": None if deleted else row.get(username_key),
+        "displayName": DELETED_USER_DISPLAY_NAME if deleted else row.get(display_name_key),
+        "avatarUrl": None if deleted else row.get(avatar_url_key),
+        "deleted": deleted,
+    }
+    if campus_verified_key is not None:
+        result["campusVerified"] = False if deleted else bool(row.get(campus_verified_key))
+    return result
 
 
 def validate_username(username: str) -> str:
@@ -96,8 +133,10 @@ def validate_username(username: str) -> str:
 
 
 def validate_password(password: str) -> None:
-    if len(password) < 8:
-        raise HTTPException(status_code=422, detail="密码长度至少为 8 位")
+    if len(password) < PASSWORD_MIN_LENGTH:
+        raise HTTPException(status_code=422, detail=f"密码长度至少为 {PASSWORD_MIN_LENGTH} 个字符")
+    if len(password) > PASSWORD_MAX_LENGTH:
+        raise HTTPException(status_code=422, detail=f"密码长度不能超过 {PASSWORD_MAX_LENGTH} 个字符")
 
 
 def create_user(username: str, password: str, display_name: str | None = None) -> dict[str, Any]:
@@ -121,9 +160,7 @@ def create_user(username: str, password: str, display_name: str | None = None) -
                 cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
                 row = cursor.fetchone()
     except IntegrityError as exc:
-        if exc.args and exc.args[0] == 1062:
-            raise HTTPException(status_code=409, detail="昵称已存在") from exc
-        raise
+        raise HTTPException(status_code=409, detail="昵称已存在") from exc
 
     return format_user(row)
 
@@ -149,9 +186,7 @@ def update_username(user_id: int, username: str) -> dict[str, Any]:
                 cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
                 row = cursor.fetchone()
     except IntegrityError as exc:
-        if exc.args and exc.args[0] == 1062:
-            raise HTTPException(status_code=409, detail="昵称已存在") from exc
-        raise
+        raise HTTPException(status_code=409, detail="昵称已存在") from exc
 
     return format_user(row)
 
@@ -246,7 +281,16 @@ def decode_access_token(token: str) -> dict[str, Any]:
 def get_user_by_id(user_id: int) -> dict[str, Any] | None:
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM users WHERE id = %s LIMIT 1", (user_id,))
+            cursor.execute(
+                """
+                SELECT u.*, p.id AS person_id
+                FROM users u
+                LEFT JOIN people p ON p.user_id = u.id
+                WHERE u.id = %s
+                LIMIT 1
+                """,
+                (user_id,),
+            )
             row = cursor.fetchone()
     return None if row is None else format_user(row)
 

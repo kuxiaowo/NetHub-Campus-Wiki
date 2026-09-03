@@ -3,39 +3,81 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta property="og:site_name" content="NetHub Campus Wiki" />
+  <meta property="og:title" content="CAS 项目库 - NetHub Campus Wiki" />
+  <meta property="og:description" content="发现校园 CAS 项目与真实项目成员。" />
+  <meta property="og:image" content="/og.png" />
+  <meta name="twitter:card" content="summary_large_image" />
   <title>CAS 项目库</title>
-  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=3" />
+  <link rel="stylesheet" href="/css/styles.css?v=project-logo1" />
 </head>
 <body>
   <header class="site-header">
     <nav class="navbar container">
-      <a class="brand" href="/index.html">校园论坛</a>
+      <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
+        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
+        <span class="brand-copy">
+          <strong>NetHub</strong>
+          <small>Campus Wiki</small>
+        </span>
+      </a>
       <div class="nav-links" aria-label="主导航">
         <a href="/index.html">首页</a>
-        <a class="active" href="/projects.html">CAS 项目库</a>
+        <a class="active" href="/projects.html" aria-current="page">CAS 项目库</a>
         <a href="/resources.html">资源中心</a>
+        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到<span class="nav-new-badge">new</span></a>
+        <a href="/about.html">关于我们</a>
       </div>
     </nav>
   </header>
 
-  <main class="container library-layout">
-    <aside class="card sidebar">
-      <h2>筛选项目</h2>
-      <label>关键词</label>
-      <input id="searchInput" class="input" placeholder="搜索名称、负责人、简介" />
+  <section class="container project-filter-bar" aria-label="项目搜索与筛选">
+    <div class="card project-search-card">
+      <label class="project-search-field" for="searchInput">
+        <img src="/assets/icons/heroicons/magnifying-glass.svg" alt="" aria-hidden="true" />
+        <span class="sr-only">搜索项目</span>
+        <input id="searchInput" type="search" autocomplete="off" />
+      </label>
+      <button
+        id="projectFilterToggle"
+        class="project-filter-toggle"
+        type="button"
+        aria-label="显示详细筛选"
+        aria-expanded="false"
+        aria-controls="projectAdvancedFilters"
+      >
+        <img src="/assets/icons/heroicons/funnel.svg" alt="" aria-hidden="true" />
+        <span id="projectFilterCount" class="project-filter-count" hidden></span>
+      </button>
+    </div>
 
-      <label>年份</label>
-      <select id="yearSelect" class="input">
-        <option value="">全部年份</option>
-      </select>
+    <div id="projectAdvancedFilters" class="card project-advanced-filters project-filter-options-only" role="region" aria-label="详细筛选" hidden>
+      <div class="project-filter-controls">
+        <label for="yearSelect">
+          <span>年份</span>
+          <select id="yearSelect" class="input">
+            <option value="">全部年份</option>
+          </select>
+        </label>
 
-      <label>排序</label>
-      <select id="sortSelect" class="input">
-        <option value="latest">最新</option>
-        <option value="popular">热门</option>
-      </select>
+        <label for="sortSelect">
+          <span>排序</span>
+          <select id="sortSelect" class="input">
+            <option value="latest">最新发布</option>
+            <option value="popular">最多浏览</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </section>
 
-      <h3>分类</h3>
+  <main class="container library-layout project-library-layout">
+    <aside class="card sidebar filter-category-sidebar">
+      <div class="filter-sidebar-title">
+        <h2>项目分类</h2>
+        <button id="clearProjectFilters" type="button">清除</button>
+      </div>
       <div id="categoryList" class="category-list"></div>
     </aside>
 
@@ -50,9 +92,26 @@
     </section>
   </main>
 
-  <footer class="footer">点击项目卡片查看完整信息</footer>
+  <footer class="site-footer">
+    <div class="container site-footer-inner">
+      <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
+        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
+        <span class="brand-copy">
+          <strong>NetHub</strong>
+          <small>Campus Wiki</small>
+        </span>
+      </a>
+      <nav class="site-footer-links" aria-label="页脚导航">
+        <a href="/index.html">首页</a>
+        <a href="/projects.html">CAS 项目库</a>
+        <a href="/resources.html">资源中心</a>
+        <a href="/about.html">关于我们</a>
+      </nav>
+      <p class="site-footer-copy">© 2026 NetHub Campus Wiki</p>
+    </div>
+  </footer>
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=auth-ui8"></script>
-  <script src="/js/projects.js"></script>
+  <script src="/js/api.js?v=photo-folder-download1"></script>
+  <script src="/js/projects.js?v=unified-filter1"></script>
 </body>
 </html>

@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python 调试程序: FastAPI",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "backend.main",
+            "jinja": true,
+            "justMyCode": true
+        }
+    ]
+}

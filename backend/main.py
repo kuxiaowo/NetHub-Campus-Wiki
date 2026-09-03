@@ -2,16 +2,18 @@
 
 后端职责：
 - 提供 REST API。
-- 读取 MySQL 数据并整理响应结构。
+- 读取 SQLite 数据并整理响应结构。
 - 暴露 OpenAPI 文档。
 
 后端不再托管前端页面；前端由 frontend_server.py 单独提供静态服务。
 """
 
+from contextlib import asynccontextmanager
 import mimetypes
 import re
 import sys
 from pathlib import Path
+from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,7 +24,12 @@ if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from backend.admin import router as admin_router
-from backend.config import settings
+from backend.announcements import router as announcements_router
+from backend.comments import router as comments_router
+from backend.messaging import router as messaging_router
+from backend.project_updates import router as project_updates_router
+from backend.social import router as social_router
+from backend.config import settings, validate_runtime_settings
 from backend.auth import (
     authenticate_user,
     change_user_password,
@@ -33,20 +40,27 @@ from backend.auth import (
     get_optional_current_user,
     update_username,
 )
+from backend.auth_rate_limit import (
+    clear_login_failures,
+    enforce_login_request,
+    enforce_password_change_request,
+    enforce_register_request,
+    record_login_failure,
+)
 from backend.database import get_db_connection
-from backend.projects import get_project, list_meta, list_projects
+from backend.projects import decorate_project_for_viewer, get_project, list_meta, list_projects
 from backend.resources import (
     YearbookResourceError,
     bump_photo_activity_downloads,
     bump_resource_metric,
     get_activity_photo_detail,
+    get_resource,
     get_yearbook_detail,
     list_photo_activities,
     list_resource_meta,
     list_resources,
 )
 from backend.schemas import (
-    AnnouncementsResponse,
     ChangePasswordRequest,
     HealthResponse,
     LoginRequest,
@@ -66,11 +80,14 @@ from backend.schemas import (
     YearbookDetailResponse,
 )
 
-ANNOUNCEMENTS = [
-    "CAS 项目库原型上线：欢迎提交你的项目资料。",
-    "本周五 16:00 将举办 CAS 项目分享会。",
-    "项目展示页已支持照片/视频链接和动态更新。",
-]
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """启动即校验安全配置，避免服务带着弱密钥监听端口。"""
+
+    validate_runtime_settings()
+    yield
+
 
 # FastAPI 实例集中声明接口元信息，/docs 会根据这些内容生成接口文档。
 app = FastAPI(
@@ -80,6 +97,7 @@ app = FastAPI(
         "前端由独立静态服务提供。"
     ),
     version="1.1.0",
+    lifespan=lifespan,
     contact={"name": "Campus Wiki Team"},
     openapi_tags=[
         {"name": "system", "description": "服务状态与运行信息。"},
@@ -87,6 +105,10 @@ app = FastAPI(
         {"name": "content", "description": "首页内容接口。"},
         {"name": "projects", "description": "CAS 项目库查询接口。"},
         {"name": "resources", "description": "资源中心和活动照片查询接口。"},
+        {"name": "social", "description": "用户资料、关注、黑名单和管理员维护的人员账号绑定。"},
+        {"name": "messages", "description": "一对一私信、动态限流和实时消息。"},
+        {"name": "announcements", "description": "公告列表、详情和后台维护。"},
+        {"name": "comments", "description": "公告、项目和资源共用留言区。"},
     ],
 )
 
@@ -100,6 +122,11 @@ app.add_middleware(
 )
 
 app.include_router(admin_router)
+app.include_router(project_updates_router)
+app.include_router(social_router)
+app.include_router(messaging_router)
+app.include_router(announcements_router)
+app.include_router(comments_router)
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -164,20 +191,11 @@ def health():
         return {"ok": False, "message": "数据库连接失败", "detail": str(exc)}
 
 
-@app.get("/api/announcements", response_model=AnnouncementsResponse, tags=["content"])
-def announcements():
-    """返回首页公告。
-
-    当前公告先放在内存常量里，后续如果需要后台管理，可以迁移到 announcements 表。
-    """
-
-    return {"data": ANNOUNCEMENTS}
-
-
 @app.post("/api/auth/register", response_model=User, tags=["auth"])
-def register(payload: RegisterRequest):
+def register(payload: RegisterRequest, request: Request):
     """开放注册普通用户，注册后的默认角色为 user。"""
 
+    enforce_register_request(request)
     return create_user(
         username=payload.username,
         password=payload.password,
@@ -186,10 +204,17 @@ def register(payload: RegisterRequest):
 
 
 @app.post("/api/auth/login", response_model=LoginResponse, tags=["auth"])
-def login(payload: LoginRequest):
+def login(payload: LoginRequest, request: Request):
     """使用昵称和密码登录，返回 Bearer Token。"""
 
-    user = authenticate_user(payload.username, payload.password)
+    rate_config = enforce_login_request(request, payload.username)
+    try:
+        user = authenticate_user(payload.username, payload.password)
+    except HTTPException as error:
+        if error.status_code == 401:
+            record_login_failure(payload.username, rate_config)
+        raise
+    clear_login_failures(payload.username)
     return {"accessToken": create_access_token(user), "tokenType": "bearer", "user": user}
 
 
@@ -208,9 +233,14 @@ def update_current_user(payload: UpdateCurrentUserRequest, user: dict = Depends(
 
 
 @app.patch("/api/auth/password", response_model=User, tags=["auth"])
-def change_password(payload: ChangePasswordRequest, user: dict = Depends(get_current_user)):
+def change_password(
+    payload: ChangePasswordRequest,
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
     """修改当前登录用户密码，必须提供原密码。"""
 
+    enforce_password_change_request(request, user["id"])
     return change_user_password(
         user_id=user["id"],
         current_password=payload.currentPassword,
@@ -241,13 +271,21 @@ def projects(
 
 
 @app.get("/api/projects/{project_id}", response_model=ProjectDetailResponse, tags=["projects"])
-def project_detail(project_id: int):
+def project_detail(
+    project_id: int,
+    track: bool = Query(default=True, description="是否计入前台浏览热度。"),
+    user: dict | None = Depends(get_optional_current_user),
+):
     """返回单个项目详情。"""
 
-    project = get_project(project_id)
+    project = get_project(
+        project_id,
+        track_view=track,
+        viewer_user_id=user["id"] if user else None,
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    return {"data": project}
+    return {"data": decorate_project_for_viewer(project, user)}
 
 
 @app.get("/api/resources/meta", response_model=ResourceMetaResponse, tags=["resources"])
@@ -259,7 +297,7 @@ def resources_meta():
 
 @app.get("/api/resources", response_model=ResourceListResponse, tags=["resources"])
 def resources(
-    category: str | None = Query(default=None, description="按资源分类筛选。"),
+    category: Literal["yearbook", "teacher", "other"] | None = Query(default=None, description="按资源分类筛选。"),
     year: int | None = Query(default=None, description="按资源年份筛选。"),
     search: str | None = Query(default=None, description="搜索资源名称、简介和分类。"),
     sort: str = Query(default="hot", pattern="^(hot|new|old|download)$", description="排序方式。"),
@@ -267,6 +305,22 @@ def resources(
     """返回资源中心普通资源列表。"""
 
     return {"data": list_resources(category=category, year=year, search=search, sort=sort)}
+
+
+@app.get("/api/resources/{resource_id}", response_model=ResourceDetailResponse, tags=["resources"])
+def resource_detail(
+    resource_id: int,
+    track: bool = Query(default=True, description="是否计入前台浏览热度。"),
+    user: dict | None = Depends(get_optional_current_user),
+):
+    resource = get_resource(
+        resource_id,
+        track_view=track,
+        viewer_user_id=user["id"] if user else None,
+    )
+    if resource is None:
+        raise HTTPException(status_code=404, detail="资源不存在")
+    return {"data": resource}
 
 
 @app.get("/api/resources/{resource_id}/yearbook", response_model=YearbookDetailResponse, tags=["resources"])
@@ -341,7 +395,7 @@ def photo_activity_photos(
 if __name__ == "__main__":
     uvicorn.run(
         "backend.main:app",
-        host="0.0.0.0",
+        host=settings.api_host,
         port=settings.api_port,
-        reload=True,
+        reload=settings.api_reload,
     )

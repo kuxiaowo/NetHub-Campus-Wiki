@@ -3,55 +3,113 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>校园论坛 - 首页</title>
-  <link rel="stylesheet" href="/css/styles.css" />
+  <meta property="og:site_name" content="NetHub Campus Wiki" />
+  <meta property="og:title" content="NetHub Campus Wiki" />
+  <meta property="og:description" content="从 CAS 项目，到校园私信。" />
+  <meta property="og:image" content="/og.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="description" content="发现 NetHub Campus Wiki 中的校园 CAS 项目、共享资源与活动影像。" />
+  <title>首页 - NetHub Campus Wiki</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=3" />
+  <link rel="stylesheet" href="/css/styles.css?v=project-logo1" />
+  <link rel="stylesheet" href="/css/home.css?v=home-project-photo1" />
 </head>
-<body>
+<body class="home-content">
   <header class="site-header">
     <nav class="navbar container">
-      <a class="brand" href="/index.html">校园论坛</a>
+      <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
+        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
+        <span class="brand-copy">
+          <strong>NetHub</strong>
+          <small>Campus Wiki</small>
+        </span>
+      </a>
       <div class="nav-links" aria-label="主导航">
-        <a class="active" href="/index.html">首页</a>
+        <a class="active" href="/index.html" aria-current="page">首页</a>
         <a href="/projects.html">CAS 项目库</a>
         <a href="/resources.html">资源中心</a>
+        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到<span class="nav-new-badge">new</span></a>
+        <a href="/about.html">关于我们</a>
       </div>
     </nav>
   </header>
 
-  <main class="container page-grid">
-    <section class="hero card">
-      <p class="eyebrow">Campus Activity & Service</p>
-      <h1>校园论坛</h1>
-      <p>一个简洁的校园项目展示入口：查看公告、发现优秀 CAS 项目，并为后续论坛、账号、评论等功能预留扩展空间。</p>
-      <a class="button" href="/projects.html">浏览 CAS 项目库</a>
-    </section>
+  <main class="container home-main">
+    <div class="home-top-grid">
+      <section class="home-intro" aria-labelledby="homeTitle">
+        <div>
+          <p class="home-intro-label">NetHub Campus Wiki</p>
+          <h1 id="homeTitle">校园项目与资料，<br /><span>一处查找。</span></h1>
+        </div>
+        <div class="home-intro-actions" aria-label="主要入口">
+          <a class="button" href="/projects.html">CAS 项目</a>
+          <a class="button secondary" href="/resources.html">校园资料</a>
+        </div>
+      </section>
 
-    <section class="card">
-      <div class="section-title">
-        <h2>最新公告</h2>
-        <span>Announcements</span>
-      </div>
-      <ul id="announcementList" class="announcement-list skeleton-list"></ul>
-    </section>
+      <section class="card home-notifications" aria-labelledby="homeNotificationsTitle">
+        <div class="home-notifications-head">
+          <h2 id="homeNotificationsTitle">通知</h2>
+          <a href="/announcements.html">全部 <span aria-hidden="true">→</span></a>
+        </div>
+        <ul id="notificationList" class="home-notification-list" aria-live="polite">
+          <li class="home-notification-empty">正在加载...</li>
+        </ul>
+      </section>
+    </div>
 
-    <section class="card full-width">
+    <section class="card home-popular-section" aria-labelledby="popularProjectsTitle">
       <div class="section-title with-control">
         <div>
-          <h2>推荐项目</h2>
-          <span>按最新或热门排序</span>
+          <h2 id="popularProjectsTitle">热门项目</h2>
+          <span>按项目浏览热度排序</span>
         </div>
-        <select id="recommendSort" class="input small">
-          <option value="latest">最新</option>
-          <option value="popular">热门</option>
-        </select>
+        <a class="home-section-link" href="/projects.html?sort=popular">全部项目 <span aria-hidden="true">→</span></a>
       </div>
-      <div id="recommendProjects" class="project-grid"></div>
+      <div id="popularProjectList" class="home-popular-grid" aria-live="polite">
+        <div class="empty">正在加载...</div>
+      </div>
+    </section>
+
+    <section class="card home-popular-section" aria-labelledby="popularResourcesTitle">
+      <div class="section-title with-control">
+        <div>
+          <h2 id="popularResourcesTitle">热门资源</h2>
+          <span>按资源浏览热度排序</span>
+        </div>
+        <a class="home-section-link" href="/resources.html?sort=hot">全部资源 <span aria-hidden="true">→</span></a>
+      </div>
+      <div id="popularResourceList" class="home-popular-grid" aria-live="polite">
+        <div class="empty">正在加载...</div>
+      </div>
+    </section>
+
+    <section class="home-contact-entry">
+      <p><strong>有项目或资料想补充？</strong><span>也可以联系我们获取网站搭建支持。</span></p>
+      <a href="/about.html">联系我们 <span aria-hidden="true">→</span></a>
     </section>
   </main>
 
-  <footer class="footer">校园论坛原型 · 前端静态服务 + FastAPI API + MySQL</footer>
+  <footer class="site-footer">
+    <div class="container site-footer-inner">
+      <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
+        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
+        <span class="brand-copy">
+          <strong>NetHub</strong>
+          <small>Campus Wiki</small>
+        </span>
+      </a>
+      <nav class="site-footer-links" aria-label="页脚导航">
+        <a href="/index.html">首页</a>
+        <a href="/projects.html">CAS 项目库</a>
+        <a href="/resources.html">资源中心</a>
+        <a href="/about.html">关于我们</a>
+      </nav>
+      <p class="site-footer-copy">© 2026 NetHub Campus Wiki</p>
+    </div>
+  </footer>
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=auth-ui8"></script>
-  <script src="/js/index.js"></script>
+  <script src="/js/api.js?v=photo-folder-download1"></script>
+  <script src="/js/index.js?v=home-project-photo1"></script>
 </body>
 </html>
