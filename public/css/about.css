@@ -138,13 +138,6 @@
   text-align: center;
 }
 
-.about-section-head .about-work-title {
-  color: #102849;
-  font-size: clamp(30px, 4vw, 44px);
-  letter-spacing: .04em;
-  line-height: 1.18;
-}
-
 .about-section-head h2,
 .about-more-head h2,
 .about-contact-card h2,
@@ -199,6 +192,14 @@
   line-height: 1.8;
 }
 
+.about-section-head > p:last-child {
+  max-width: 520px;
+  margin: 14px auto 0;
+  color: #6b7d94;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
 .about-techx-name {
   font-weight: 900;
 }
@@ -225,6 +226,30 @@
   color: var(--primary-dark);
 }
 
+.about-feature-copy .about-product-link {
+  padding: 10px 12px 10px 14px;
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  column-gap: 7px;
+  border: 1px solid #cfe0f5;
+  border-radius: 9px;
+  background: #f5f9ff;
+}
+
+.about-feature-copy .about-product-link:hover {
+  border-color: #abc8eb;
+  background: #edf5ff;
+}
+
+.about-product-link small {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  color: #71839a;
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .02em;
+}
+
 .about-feature-media {
   min-width: 0;
   margin: 0;
@@ -243,6 +268,17 @@
   border-radius: 9px;
   background: #fff;
   box-shadow: 0 15px 32px rgba(17, 48, 87, .2);
+  transition: transform .28s ease;
+}
+
+.about-feature-image-link {
+  display: block;
+  border-radius: 9px;
+}
+
+.about-feature-image-link:hover img,
+.about-feature-image-link:focus-visible img {
+  transform: scale(1.025);
 }
 
 .about-feature-todo {
@@ -607,5 +643,9 @@
 @media (prefers-reduced-motion: reduce) {
   .about-page * {
     scroll-behavior: auto !important;
+  }
+
+  .about-feature-media img {
+    transition: none;
   }
 }

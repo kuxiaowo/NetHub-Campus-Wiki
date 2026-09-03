@@ -234,6 +234,8 @@ class FrontendServerTest(unittest.TestCase):
         self.assertIn("NetHub 小组与".encode("utf-8"), about_page)
         self.assertIn("Tech".encode("utf-8"), about_page)
         self.assertIn(b'href="https://sdgj.tech"', about_page)
+        self.assertIn(b'href="https://todolist.nethub.wiki"', about_page)
+        self.assertNotIn(b'href="https://www.nethub.wiki"', about_page)
         self.assertIn(b'src="/assets/about/mood-meter.webp"', about_page)
         self.assertNotIn(b'/assets/nethub-icon.png', about_page)
         self.assertEqual(about_page.count(b'src="/assets/about/nethub-icon.webp"'), 4)
@@ -249,6 +251,12 @@ class FrontendServerTest(unittest.TestCase):
         self.assertEqual(content_type, "image/webp")
         self.assertEqual(about_icon[:4], b"RIFF")
         self.assertEqual(about_icon[8:12], b"WEBP")
+
+        _, home_page, _ = self.fetch("/index.html")
+        self.assertIn(b'href="https://todolist.nethub.wiki"', home_page)
+        self.assertIn(b'class="home-todo-preview" href="https://todolist.nethub.wiki"', home_page)
+        self.assertIn(b'src="/assets/about/todolist.webp"', home_page)
+        self.assertIn(b'class="about-feature-image-link" href="https://todolist.nethub.wiki"', about_page)
 
     def test_project_logo_fallback_is_shared_and_fills_the_middle_row(self) -> None:
         _, shared_script, _ = self.fetch("/js/api.js")
