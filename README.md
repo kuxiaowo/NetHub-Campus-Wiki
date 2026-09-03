@@ -37,15 +37,21 @@ Campus Wiki/
 │       └── detail.js
 ├── docs/API.md            # 详细接口文档
 ├── docs/DATABASE.md       # 数据库结构文档
-├── scripts/init_linux.sh  # Linux、Conda、systemd 用户服务初始化
+├── scripts/
+│   ├── init_linux.sh          # 同时初始化前后端
+│   ├── init_frontend_linux.sh # 仅初始化前端
+│   └── init_backend_linux.sh  # 仅初始化后端
 ├── sql/schema.sql         # 只创建 SQLite 结构的初始化脚本
-└── requirements.txt
+├── requirements-frontend.txt # 前端静态服务依赖
+└── requirements.txt          # 后端及一键部署依赖
 ```
 
 ## Linux 部署
 
 需要 Linux、systemd 和当前用户可调用的 Conda。脚本不使用 root，会把服务安装到
-`~/.config/systemd/user/`。先检查 `.env.example`，再执行：
+`~/.config/systemd/user/`。先检查 `.env.example`，再按部署方式选择一个入口。
+
+在同一台服务器部署前后端：
 
 ```bash
 cp .env.example .env
@@ -53,12 +59,36 @@ cp .env.example .env
 bash scripts/init_linux.sh --admin your_admin --display-name "管理员"
 ```
 
-管理员密码由终端交互读取，不会写入命令行历史。脚本可重复执行，并会：
+仅部署后端：
 
-- 创建或复用 `.env` 中 `CONDA_ENV_NAME` 指定的 Conda 环境；
-- 安装 `requirements.txt`，在密钥留空时生成独立的 `AUTH_SECRET_KEY`；
-- 创建空数据库结构并依次执行迁移，不插入任何示例业务数据；
-- 创建并启动 `<前缀>-api.service` 和 `<前缀>-frontend.service` 两个 systemd 用户服务。
+```bash
+cp .env.example .env
+# 设置后端端口、CORS、数据库路径等配置
+bash scripts/init_backend_linux.sh --admin your_admin --display-name "管理员"
+```
+
+仅部署前端：
+
+```bash
+cp .env.example .env
+# 分机部署时必须把 FRONTEND_API_BASE_URL 设置为后端的完整 /api 地址
+bash scripts/init_frontend_linux.sh
+```
+
+后端或一键脚本通过 `--admin` 创建管理员时，密码由终端交互读取，不会写入命令行历史。
+三个脚本均可重复执行，并会：
+
+- 三个入口都会创建或复用 `.env` 中 `CONDA_ENV_NAME` 指定的 Conda 环境；
+- 后端入口安装 `requirements.txt`、生成缺失的 `AUTH_SECRET_KEY`、初始化数据库，
+  并只创建和启动 `<前缀>-api.service`；
+- 前端入口只安装 `requirements-frontend.txt`，并只创建和启动
+  `<前缀>-frontend.service`，不会初始化数据库或操作 API 服务；
+- 原 `init_linux.sh` 保持一键部署行为，同时创建并启动两个服务。
+
+脚本只操作当前入口负责的服务，不会停止或删除之前部署的另一项服务。前后端分机部署时，
+前端服务器的 `FRONTEND_API_BASE_URL` 必须设置为后端的完整 API 前缀，例如
+`https://api.example.com/api`；后端服务器的 `CORS_ORIGINS` 必须包含前端页面来源，例如
+`https://wiki.example.com`。
 
 常用维护命令：
 
