@@ -4,13 +4,18 @@
 字段整理成前端使用的 camelCase JSON，路由层只处理 HTTP 参数和响应模型。
 """
 
+import io
 import re
+import shutil
+import subprocess
 import time
 from pathlib import Path
 from typing import Any, Literal
 
 from backend.config import settings
 from backend.database import get_db_connection
+from backend.resource_types import resource_type_options
+from backend.view_tracking import can_track_view, mark_view_tracked
 
 ResourceSort = Literal["hot", "new", "old", "download"]
 PhotoSort = Literal["hot", "new", "old", "photoCount", "download"]
@@ -18,13 +23,15 @@ ResourceMetric = Literal["hot", "downloads"]
 BASE_DIR = Path(__file__).resolve().parents[1]
 PUBLIC_DIR = BASE_DIR / "public"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 YEARBOOK_PDF_EXTENSION = ".pdf"
 WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:/")
 THUMB_DIR_NAME = ".thumbs"
-THUMB_MAX_SIZE = (640, 640)
+THUMB_MAX_SIZE = (settings.thumbnail_max_width, settings.thumbnail_max_height)
+THUMB_WEBP_QUALITY = settings.thumbnail_webp_quality
+THUMB_WEBP_METHOD = settings.thumbnail_webp_method
+VIDEO_THUMBNAIL_TIMEOUT_SECONDS = settings.video_thumbnail_timeout_seconds
 _PHOTO_DIR_CACHE: dict[str, dict[str, Any]] = {}
-_HOT_TRACK: dict[tuple[str, int, int], float] = {}
-HOT_THROTTLE_SECONDS = 5.0
 
 
 class YearbookResourceError(Exception):
@@ -59,7 +66,7 @@ def _public_url_to_path(value: str | None) -> tuple[Path, str] | None:
 def _photo_files(target: Path) -> list[Path]:
     return [
         item
-        for item in sorted(target.iterdir(), key=lambda path: path.name.lower())
+        for item in sorted(target.iterdir(), key=_natural_sort_key)
         if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS
     ]
 
@@ -88,6 +95,30 @@ def yearbook_cover_url(resource_url: str | None) -> str | None:
         if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS:
             return _ensure_thumbnail(item) or _public_file_url(item)
     return None
+
+
+def image_thumbnail_url(image_url: str | None) -> str | None:
+    """Return a generated thumbnail when an image URL points inside ``public/``."""
+
+    resolved = _public_url_to_path(image_url)
+    if resolved is None:
+        return None
+    source, _ = resolved
+    if not source.is_file() or source.suffix.lower() not in IMAGE_EXTENSIONS:
+        return None
+    return _ensure_thumbnail(source)
+
+
+def teacher_video_cover_url(resource_url: str | None) -> str | None:
+    """Return a WebP thumbnail generated from a local teacher video's first frame."""
+
+    resolved = _public_url_to_path(resource_url)
+    if resolved is None:
+        return None
+    source, _ = resolved
+    if not source.is_file() or source.suffix.lower() not in VIDEO_EXTENSIONS:
+        return None
+    return _ensure_video_thumbnail(source)
 
 
 def _scan_photo_dir(
@@ -178,35 +209,90 @@ def _ensure_thumbnail(source: Path) -> str | None:
             image.thumbnail(THUMB_MAX_SIZE)
             if image.mode not in {"RGB", "RGBA"}:
                 image = image.convert("RGB")
-            image.save(thumb_path, "WEBP", quality=82, method=6)
+            image.save(
+                thumb_path,
+                "WEBP",
+                quality=THUMB_WEBP_QUALITY,
+                method=THUMB_WEBP_METHOD,
+            )
         return f"/{thumb_path.relative_to(PUBLIC_DIR.resolve()).as_posix()}"
     except (OSError, UnidentifiedImageError):
         return None
 
 
-def photo_archive_url(photo_dir: str | None) -> str | None:
-    """Return the same-name RAR URL when it exists inside a public photo directory."""
+def _ensure_video_thumbnail(source: Path) -> str | None:
+    """Extract the first video frame with FFmpeg and cache it as a WebP thumbnail."""
 
-    resolved = _public_url_to_path(photo_dir)
-    if resolved is None:
+    thumb_dir = source.parent / THUMB_DIR_NAME
+    thumb_path = thumb_dir / f"{source.stem}.video.webp"
+    try:
+        from PIL import Image, UnidentifiedImageError
+    except ImportError:
         return None
-    target, relative = resolved
-    folder_name = Path(relative.rstrip("/")).name
-    if not folder_name:
+
+    try:
+        if thumb_path.is_file() and thumb_path.stat().st_mtime >= source.stat().st_mtime:
+            return f"/{thumb_path.relative_to(PUBLIC_DIR.resolve()).as_posix()}"
+
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            return None
+        result = subprocess.run(
+            [
+                ffmpeg,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(source),
+                "-frames:v",
+                "1",
+                "-vf",
+                f"scale={THUMB_MAX_SIZE[0]}:{THUMB_MAX_SIZE[1]}:force_original_aspect_ratio=decrease",
+                "-f",
+                "image2pipe",
+                "-vcodec",
+                "png",
+                "pipe:1",
+            ],
+            check=True,
+            capture_output=True,
+            timeout=VIDEO_THUMBNAIL_TIMEOUT_SECONDS,
+        )
+        thumb_dir.mkdir(exist_ok=True)
+        with Image.open(io.BytesIO(result.stdout)) as image:
+            image.thumbnail(THUMB_MAX_SIZE)
+            if image.mode not in {"RGB", "RGBA"}:
+                image = image.convert("RGB")
+            image.save(
+                thumb_path,
+                "WEBP",
+                quality=THUMB_WEBP_QUALITY,
+                method=THUMB_WEBP_METHOD,
+            )
+        return f"/{thumb_path.relative_to(PUBLIC_DIR.resolve()).as_posix()}"
+    except (
+        OSError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        UnidentifiedImageError,
+    ):
         return None
-    archive_file = target / f"{folder_name}.rar"
-    if not archive_file.is_file():
-        return None
-    return f"/{relative.rstrip('/')}/{folder_name}.rar"
 
 
 def format_photo_activity(row: dict[str, Any], legacy_photos: list[dict[str, Any]]) -> dict[str, Any]:
     """Return the public activity card shape with directory-derived cover data."""
 
     scanned_photos = _scan_photo_dir(row.get("photo_dir"), cover_only=True)
-    cover_images = scanned_photos or legacy_photos[:1]
+    default_cover_images = scanned_photos or legacy_photos[:1]
+    custom_cover = str(row.get("cover_image") or "").strip()
+    cover_src = custom_cover or (default_cover_images[0]["src"] if default_cover_images else None)
+    cover_thumb_src = (
+        image_thumbnail_url(custom_cover)
+        if custom_cover
+        else (default_cover_images[0].get("thumbSrc") if default_cover_images else None)
+    )
     directory_photo_count = len(_scan_photo_dir(row.get("photo_dir"), count_only=True)) if row.get("photo_dir") else 0
-    archive_url = photo_archive_url(row.get("photo_dir"))
     return {
         "id": row["id"],
         "activity": row["activity"],
@@ -216,9 +302,9 @@ def format_photo_activity(row: dict[str, Any], legacy_photos: list[dict[str, Any
         "downloads": row.get("downloads", 0),
         "sortOrder": row["sort_order"],
         "photoDir": row.get("photo_dir"),
-        "archiveUrl": archive_url,
-        "coverSrc": cover_images[0]["src"] if cover_images else None,
-        "coverThumbSrc": cover_images[0].get("thumbSrc") if cover_images else None,
+        "coverImage": custom_cover or None,
+        "coverSrc": cover_src,
+        "coverThumbSrc": cover_thumb_src,
         "photoCount": directory_photo_count or row["photo_count"],
         "createdAt": row.get("created_at"),
     }
@@ -227,9 +313,12 @@ def format_photo_activity(row: dict[str, Any], legacy_photos: list[dict[str, Any
 def format_resource(row: dict[str, Any]) -> dict[str, Any]:
     """把 resources 表行转换为前端资源卡片需要的数据结构。"""
 
-    image = row["image"]
+    custom_image = row.get("image") or ""
+    image = custom_image
     if row["category"] == "yearbook":
-        image = yearbook_cover_url(row.get("resource_url")) or image
+        image = image or yearbook_cover_url(row.get("resource_url")) or ""
+    elif row["category"] == "teacher":
+        image = image or teacher_video_cover_url(row.get("resource_url")) or ""
 
     return {
         "id": row["id"],
@@ -241,10 +330,30 @@ def format_resource(row: dict[str, Any]) -> dict[str, Any]:
         "hot": row["hot"],
         "downloads": row["downloads"],
         "image": image,
+        "coverImage": custom_image or None,
         "resourceUrl": row["resource_url"],
         "createdAt": row.get("created_at"),
         "updatedAt": row.get("updated_at"),
     }
+
+
+def get_resource(
+    resource_id: int,
+    *,
+    track_view: bool = False,
+    viewer_user_id: int | None = None,
+) -> dict[str, Any] | None:
+    """读取单个普通资源，并可按前台浏览行为自动累计热度。"""
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            if track_view and can_track_view("resource", resource_id, viewer_user_id):
+                cursor.execute("UPDATE resources SET hot = hot + 1 WHERE id = %s", (resource_id,))
+                if cursor.rowcount:
+                    mark_view_tracked("resource", resource_id, viewer_user_id)
+            cursor.execute("SELECT * FROM resources WHERE id = %s LIMIT 1", (resource_id,))
+            row = cursor.fetchone()
+    return format_resource(row) if row else None
 
 
 def bump_resource_metric(resource_id: int, metric: ResourceMetric) -> dict[str, Any] | None:
@@ -277,37 +386,12 @@ def bump_photo_activity_downloads(activity_id: int) -> dict[str, Any] | None:
                 WHERE pa.id = %s
                 GROUP BY
                   pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads,
-                  pa.sort_order, pa.photo_dir, pa.created_at, pa.updated_at
+                  pa.sort_order, pa.photo_dir, pa.cover_image, pa.created_at, pa.updated_at
                 """,
                 (activity_id,),
             )
             row = cursor.fetchone()
     return format_photo_activity(row, []) if row else None
-
-
-def _hot_track_key(scope: str, item_id: int, user_id: int | None) -> tuple[str, int, int] | None:
-    if user_id is None:
-        return None
-    return (scope, item_id, user_id)
-
-
-def _can_track_hot(scope: str, item_id: int, user_id: int | None) -> bool:
-    key = _hot_track_key(scope, item_id, user_id)
-    if key is None:
-        return True
-
-    now = time.monotonic()
-    previous = _HOT_TRACK.get(key)
-    if previous is not None and now - previous < HOT_THROTTLE_SECONDS:
-        return False
-    return True
-
-
-def _mark_hot_tracked(scope: str, item_id: int, user_id: int | None) -> None:
-    key = _hot_track_key(scope, item_id, user_id)
-    if key is None:
-        return
-    _HOT_TRACK[key] = time.monotonic()
 
 
 def get_yearbook_detail(
@@ -320,10 +404,10 @@ def get_yearbook_detail(
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            if track_view and _can_track_hot("resource", resource_id, viewer_user_id):
+            if track_view and can_track_view("resource", resource_id, viewer_user_id):
                 cursor.execute("UPDATE resources SET hot = hot + 1 WHERE id = %s", (resource_id,))
                 if cursor.rowcount:
-                    _mark_hot_tracked("resource", resource_id, viewer_user_id)
+                    mark_view_tracked("resource", resource_id, viewer_user_id)
             cursor.execute("SELECT * FROM resources WHERE id = %s LIMIT 1", (resource_id,))
             row = cursor.fetchone()
 
@@ -371,30 +455,17 @@ def get_yearbook_detail(
 
 
 def list_resource_meta() -> dict[str, list[dict[str, Any]] | list[int]]:
-    """查询资源中心筛选器需要的分类和年份。"""
+    """Return fixed resource types and the years currently present in data."""
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT value, label, sort_order
-                FROM resource_categories
-                WHERE is_active = 1
-                ORDER BY sort_order ASC, id ASC
-                """
-            )
-            categories = [
-                {"value": row["value"], "label": row["label"], "sortOrder": row["sort_order"]}
-                for row in cursor.fetchall()
-            ]
-
             cursor.execute("SELECT DISTINCT year FROM resources ORDER BY year DESC")
             years = [row["year"] for row in cursor.fetchall()]
 
             cursor.execute("SELECT DISTINCT year FROM photo_activities ORDER BY year DESC")
             photo_years = [row["year"] for row in cursor.fetchall()]
 
-    return {"categories": categories, "years": years, "photoYears": photo_years}
+    return {"categories": resource_type_options(), "years": years, "photoYears": photo_years}
 
 
 def list_resources(
@@ -476,12 +547,13 @@ def list_photo_activities(
           pa.downloads,
           pa.sort_order,
           pa.photo_dir,
+          pa.cover_image,
           pa.created_at,
           COUNT(pi.id) AS photo_count
         FROM photo_activities pa
         LEFT JOIN photo_items pi ON pi.activity_id = pa.id
         {where_sql}
-        GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads, pa.sort_order, pa.photo_dir, pa.created_at
+        GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads, pa.sort_order, pa.photo_dir, pa.cover_image, pa.created_at
         ORDER BY {order_map[sort]}, pa.id DESC
     """
 
@@ -540,10 +612,10 @@ def get_activity_photo_detail(
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            if track_view and _can_track_hot("photo_activity", activity_id, viewer_user_id):
+            if track_view and can_track_view("photo_activity", activity_id, viewer_user_id):
                 cursor.execute("UPDATE photo_activities SET hot = hot + 1 WHERE id = %s", (activity_id,))
                 if cursor.rowcount:
-                    _mark_hot_tracked("photo_activity", activity_id, viewer_user_id)
+                    mark_view_tracked("photo_activity", activity_id, viewer_user_id)
 
             cursor.execute(
                 """
@@ -553,7 +625,7 @@ def get_activity_photo_detail(
                 WHERE pa.id = %s
                 GROUP BY
                   pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads,
-                  pa.sort_order, pa.photo_dir, pa.created_at, pa.updated_at
+                  pa.sort_order, pa.photo_dir, pa.cover_image, pa.created_at, pa.updated_at
                 """,
                 (activity_id,),
             )

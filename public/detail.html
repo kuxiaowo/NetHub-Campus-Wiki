@@ -3,28 +3,105 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta property="og:site_name" content="NetHub Campus Wiki" />
+  <meta property="og:title" content="CAS 项目详情 - NetHub Campus Wiki" />
+  <meta property="og:description" content="查看项目动态、结构化成员档案并联系已注册成员。" />
+  <meta property="og:image" content="/og.png" />
+  <meta name="twitter:card" content="summary_large_image" />
   <title>项目详情</title>
-  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=3" />
+  <link rel="stylesheet" href="/css/styles.css?v=project-member-updates2" />
 </head>
 <body>
   <header class="site-header">
     <nav class="navbar container">
-      <a class="brand" href="/index.html">校园论坛</a>
+      <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
+        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
+        <span class="brand-copy">
+          <strong>NetHub</strong>
+          <small>Campus Wiki</small>
+        </span>
+      </a>
       <div class="nav-links" aria-label="主导航">
         <a href="/index.html">首页</a>
-        <a class="active" href="/projects.html">CAS 项目库</a>
+        <a class="active" href="/projects.html" aria-current="page">CAS 项目库</a>
         <a href="/resources.html">资源中心</a>
+        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到<span class="nav-new-badge">new</span></a>
+        <a href="/about.html">关于我们</a>
       </div>
     </nav>
   </header>
 
   <main class="container detail-container">
-    <a class="back-link" href="/projects.html">← 返回项目库</a>
-    <article id="projectDetail" class="card detail-card">加载中...</article>
+    <nav id="detailBreadcrumb" class="detail-breadcrumb" aria-label="面包屑">
+      <a href="/projects.html">项目库</a>
+      <span>加载中</span>
+    </nav>
+
+    <article id="projectDetail" class="detail-page" aria-live="polite">
+      <section class="card detail-hero is-loading">
+        <div class="detail-hero-visual"></div>
+        <div class="detail-hero-copy">
+          <div class="skeleton-line short"></div>
+          <div class="skeleton-line title"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line medium"></div>
+        </div>
+      </section>
+    </article>
+    <section id="projectComments" class="card comments-section" aria-label="项目留言"></section>
   </main>
 
+  <div id="projectUpdateModal" class="admin-modal project-update-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="projectUpdateModalTitle">
+    <div class="admin-modal-backdrop" data-project-update-close></div>
+    <section class="admin-modal-panel project-update-modal-panel">
+      <div class="admin-modal-head">
+        <h2 id="projectUpdateModalTitle">发布项目动态</h2>
+        <button class="icon-button" type="button" aria-label="关闭" data-project-update-close>×</button>
+      </div>
+      <form id="projectUpdateForm" class="admin-form">
+        <label>
+          <span>动态内容</span>
+          <textarea id="projectUpdateContent" class="input" rows="6" maxlength="2000" placeholder="记录项目的最新进展……"></textarea>
+          <small class="admin-muted">最多 2000 个字符，可与照片二选一。</small>
+        </label>
+        <label>
+          <span>动态照片</span>
+          <input id="projectUpdatePhotos" class="input" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" multiple />
+          <small id="projectUpdatePhotoSummary" class="admin-muted">可一次多选，最多 9 张，单张不超过 5MB。</small>
+        </label>
+        <div id="projectUpdateMessage" class="auth-message" aria-live="polite"></div>
+        <div class="admin-modal-actions">
+          <button class="button secondary" type="button" data-project-update-close>取消</button>
+          <button id="projectUpdateSubmit" class="button" type="submit">发布</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container site-footer-inner">
+      <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
+        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
+        <span class="brand-copy">
+          <strong>NetHub</strong>
+          <small>Campus Wiki</small>
+        </span>
+      </a>
+      <nav class="site-footer-links" aria-label="页脚导航">
+        <a href="/index.html">首页</a>
+        <a href="/projects.html">CAS 项目库</a>
+        <a href="/resources.html">资源中心</a>
+        <a href="/about.html">关于我们</a>
+        <a href="/admin.html">管理后台</a>
+      </nav>
+      <p class="site-footer-copy">© 2026 NetHub Campus Wiki</p>
+    </div>
+  </footer>
+
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=auth-ui8"></script>
-  <script src="/js/detail.js"></script>
+  <script src="/js/api.js?v=photo-folder-download1"></script>
+  <script src="/js/comments.js?v=nethub-comments2"></script>
+  <script src="/js/detail.js?v=project-update-person-author1"></script>
 </body>
 </html>

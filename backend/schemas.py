@@ -7,8 +7,11 @@ Pydantic 模型用于三件事：
 """
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from backend.auth_policy import PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH
 
 
 class HealthResponse(BaseModel):
@@ -20,20 +23,22 @@ class HealthResponse(BaseModel):
     detail: str | None = Field(default=None, description="更具体的诊断信息。")
 
 
-class AnnouncementsResponse(BaseModel):
-    """首页公告响应。"""
-
-    data: list[str] = Field(description="公告文本列表。")
-
-
 class User(BaseModel):
     """登录用户信息。"""
 
     id: int
     username: str
     displayName: str | None = None
+    avatarUrl: str | None = None
+    bio: str = ""
     role: str = Field(pattern="^(admin|user)$")
     isActive: bool
+    campusVerified: bool = False
+    messagingPermission: str = Field(
+        default="everyone",
+        pattern="^(everyone|following|mutual|nobody)$",
+    )
+    linkedPersonId: int | None = None
     createdAt: datetime | None = None
 
 
@@ -41,7 +46,7 @@ class RegisterRequest(BaseModel):
     """用户注册请求。"""
 
     username: str = Field(min_length=3, max_length=32)
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
     displayName: str | None = Field(default=None, max_length=80)
 
 
@@ -49,14 +54,14 @@ class LoginRequest(BaseModel):
     """用户登录请求。"""
 
     username: str
-    password: str
+    password: str = Field(max_length=PASSWORD_MAX_LENGTH)
 
 
 class ChangePasswordRequest(BaseModel):
     """当前用户修改密码请求。"""
 
-    currentPassword: str
-    newPassword: str = Field(min_length=8)
+    currentPassword: str = Field(max_length=PASSWORD_MAX_LENGTH)
+    newPassword: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
 
 
 class UpdateCurrentUserRequest(BaseModel):
@@ -88,6 +93,41 @@ class CasFlags(BaseModel):
     service: bool = Field(description="是否包含 Service。")
 
 
+class ProjectMember(BaseModel):
+    """结构化 CAS 项目成员。"""
+
+    personId: int
+    name: str
+    role: str = Field(pattern="^(leader|member)$")
+    avatarUrl: str | None = None
+    userId: int | None = None
+    username: str | None = None
+    registered: bool = False
+    sortOrder: int = 0
+    contactType: str | None = Field(default=None, pattern="^(wechat|phone|email|other)$")
+    contactValue: str | None = None
+
+
+class ProjectUpdate(BaseModel):
+    """一条可携带独立照片的 CAS 项目动态。"""
+
+    id: str | None = None
+    content: str = ""
+    images: list[str] = Field(default_factory=list)
+    authorPersonId: int | None = None
+    authorUserId: int | None = None
+    authorName: str | None = None
+    authorRole: str | None = Field(default=None, pattern="^(admin|leader|member)$")
+    createdAt: str | None = None
+    canDelete: bool = False
+
+
+class ProjectViewerPermissions(BaseModel):
+    """当前访问者对单个项目的操作权限。"""
+
+    canCreateUpdate: bool = False
+
+
 class Project(BaseModel):
     """项目对象。
 
@@ -105,10 +145,15 @@ class Project(BaseModel):
                 "year": 2026,
                 "icon": "https://picsum.photos/seed/noise-map-icon/300/300",
                 "description": "使用传感器采集校园不同地点的噪音数据。",
-                "media": ["https://picsum.photos/seed/noise-map/900/520"],
+                "media": [],
                 "cas": {"creativity": True, "activity": True, "service": True},
                 "popularity": 96,
-                "updates": ["完成第一版传感器数据模拟器"],
+                "updates": [
+                    {
+                        "content": "完成第一版传感器数据模拟器",
+                        "images": ["https://picsum.photos/seed/noise-map/900/520"],
+                    }
+                ],
                 "createdAt": "2026-05-10T10:00:00",
                 "updatedAt": "2026-05-10T10:00:00",
             }
@@ -119,14 +164,16 @@ class Project(BaseModel):
     name: str
     leader: str
     members: str
+    memberList: list[ProjectMember] = Field(default_factory=list)
     category: str
     year: int
-    icon: str
+    icon: str | None = None
     description: str
     media: list[str]
     cas: CasFlags
     popularity: int
-    updates: list[str]
+    updates: list[str | ProjectUpdate]
+    viewerPermissions: ProjectViewerPermissions = Field(default_factory=ProjectViewerPermissions)
     createdAt: datetime | None = None
     updatedAt: datetime | None = None
 
@@ -146,7 +193,7 @@ class ProjectDetailResponse(BaseModel):
 class ResourceCategory(BaseModel):
     """资源分类筛选项。"""
 
-    value: str = Field(description="分类值，用于查询参数。")
+    value: Literal["yearbook", "photos", "teacher", "other"] = Field(description="固定分类值，用于查询参数。")
     label: str = Field(description="分类展示名称。")
     sortOrder: int = Field(description="人工排序权重，数字越小越靠前。")
 
@@ -166,11 +213,12 @@ class Resource(BaseModel):
     title: str
     description: str
     year: int
-    category: str
+    category: Literal["yearbook", "teacher", "other"]
     label: str
     hot: int
     downloads: int
     image: str
+    coverImage: str | None = None
     resourceUrl: str
     createdAt: datetime | None = None
     updatedAt: datetime | None = None
@@ -232,7 +280,7 @@ class PhotoActivity(BaseModel):
     downloads: int = 0
     sortOrder: int
     photoDir: str | None = None
-    archiveUrl: str | None = None
+    coverImage: str | None = None
     coverSrc: str | None = None
     coverThumbSrc: str | None = None
     photoCount: int

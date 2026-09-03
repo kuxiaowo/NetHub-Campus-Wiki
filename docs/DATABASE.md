@@ -1,357 +1,183 @@
 # 数据库文档
 
-本文档只说明 MySQL 数据库结构、字段含义、示例值和表关系，不描述 HTTP API。接口请求和响应见 `docs/API.md`。
+项目使用 SQLite。数据库是一个本地文件，不需要单独安装、启动或维护数据库
+服务；Python 后端使用标准库 `sqlite3` 访问。
 
-## 基本信息
+## 配置与初始化
 
-- 数据库名：`campus_cas_forum`
-- 数据库版本：MySQL 8+
-- 默认字符集：`utf8mb4`
-- 默认排序规则：`utf8mb4_unicode_ci`
-- 初始化脚本：`sql/schema.sql`
+数据库路径由 `.env` 中的 `DATABASE_PATH` 控制：
 
-数据库结构有两个需要保持一致的来源：
-
-- `sql/schema.sql`：用于全量初始化或重建数据库。
-- `backend/db_repair.py`：用于管理员后台“检查并补全结构”，自动补齐已运行数据库缺失的表、字段、索引和外键。
-
-任何数据库结构改动都必须同时更新这两处，否则新库和旧库补全逻辑会漂移。说白了，改表只改 `schema.sql` 是不够的，`backend/db_repair.py` 也要同步改；不然以后按钮看起来很勤快，实际补的是旧标准。
-
-在 Linux 服务器上推荐从项目根目录直接导入：
-
-```bash
-mysql -u root -p --default-character-set=utf8mb4 < sql/schema.sql
+```env
+DATABASE_PATH=data/campus_wiki.db
 ```
 
-也可以进入 MySQL 后使用 Linux 绝对路径执行：
+相对路径以项目根目录为基准，也可以配置绝对路径。后端首次连接一个空数据库时，
+自动执行 `sql/schema.sql`，只创建表、索引、外键和触发器，不插入业务数据或用户账号。
+脚本最后设置 `PRAGMA user_version = 1`，后端以此判断数据库是否已经初始化。
 
-```sql
-source /opt/campus-wiki/sql/schema.sql;
-```
+首次部署通过 `python -m backend.bootstrap_admin --username <昵称>` 交互式创建首个管理员。该命令在已有启用中的管理员时会拒绝执行，密码也不会作为命令行参数传递。
 
-## 表关系概览
+运行参数：
+
+- `foreign_keys = ON`：启用外键与级联删除。
+- `journal_mode = WAL`：提升并发读写体验。
+- `busy_timeout`：由 `.env` 的 `DATABASE_BUSY_TIMEOUT_MS` 控制，默认 5000 毫秒。
+- 连接等待时间：由 `.env` 的 `DATABASE_CONNECT_TIMEOUT_SECONDS` 控制，默认 5 秒。
+- `recursive_triggers = OFF`：更新时间触发器不递归执行。
+
+数据库查看器和在线“修复表结构”接口已经删除。后续结构变更应采用版本化迁移
+脚本，并递增 `user_version`，不要让运行中的网站任意修改表结构。
+
+## 表关系
 
 ```text
+users
+
 projects
+project_categories
 
 resources
 
 photo_activities 1 ──── n photo_items
 
-users
+announcements ─┐
+projects ──────┼── comments 1 ──── n comments (reply)
+resources ─────┘       │
+                       ├──── n comment_likes
+                       ├──── n comment_reports
+                       └──── n comment_notifications
 ```
 
-- `projects` 独立保存 CAS 项目库数据。
-- `resources` 独立保存资源中心普通资源卡片。
-- `photo_activities` 保存活动照片分组。
-- `photo_items` 保存活动下的单张照片，通过 `activity_id` 关联 `photo_activities.id`。
-- `users` 保存登录账号、密码哈希、角色和启用状态。
-
-## `users`
-
-用户账号表。用于注册、登录、当前用户信息和角色区分。
-
-### 字段
-
-| 字段 | 类型 | 约束 | 示例值 | 作用 |
-| --- | --- | --- | --- | --- |
-| `id` | `INT` | 主键，自增 | `1` | 用户唯一 ID |
-| `username` | `VARCHAR(32)` | 非空，唯一 | `student01` | 昵称/登录用户名 |
-| `password_hash` | `VARCHAR(255)` | 非空 | `pbkdf2_sha256$...` | PBKDF2-HMAC-SHA256 密码哈希 |
-| `display_name` | `VARCHAR(80)` | 可空 | `学生 01` | 姓名 |
-| `role` | `ENUM('admin','user')` | 非空，默认 `user`，索引 | `user` | 用户角色 |
-| `is_active` | `TINYINT(1)` | 非空，默认 `1`，索引 | `1` | 账号是否启用 |
-| `created_at` | `TIMESTAMP` | 非空，默认当前时间 | `2026-05-21 12:00:00` | 创建时间 |
-| `updated_at` | `TIMESTAMP` | 非空，自动更新 | `2026-05-21 12:00:00` | 更新时间 |
-
-### 角色
-
-| `role` | 展示文案 | 说明 |
-| --- | --- | --- |
-| `admin` | 管理员 | 管理员账号，后续可用于后台权限控制 |
-| `user` | 普通用户 | 默认注册角色 |
-
-注册接口创建的账号固定为 `user`。初始化管理员账号可以先注册一个普通用户，再在 MySQL 中执行：
-
-```sql
-UPDATE users SET role = 'admin' WHERE username = '你的昵称';
-```
-
-当前用户字段不拆分额外昵称字段：昵称/登录用户名存 `username`，姓名存 `display_name`。用户可以自行修改自己的 `username`；管理员后台可以编辑用户的 `display_name`、角色和启用状态。
-
-### 索引
-
-| 索引 | 字段 | 作用 |
-| --- | --- | --- |
-| `PRIMARY` | `id` | 主键查询 |
-| `uq_users_username` | `username` | 保证昵称唯一 |
-| `idx_users_role` | `role` | 按角色筛选 |
-| `idx_users_active` | `is_active` | 按启用状态筛选 |
-
-## `projects`
-
-CAS 项目库表。用于项目库列表、首页推荐项目和项目详情页。
-
-### 字段
-
-| 字段 | 类型 | 约束 | 示例值 | 作用 |
-| --- | --- | --- | --- | --- |
-| `id` | `INT` | 主键，自增 | `1` | 项目唯一 ID |
-| `name` | `VARCHAR(120)` | 非空 | `校园噪音地图` | 项目名称 |
-| `leader` | `VARCHAR(80)` | 非空 | `李明` | 项目负责人 |
-| `members` | `TEXT` | 非空 | `李明, 王小雨, Chen Alex` | 项目成员描述 |
-| `category` | `VARCHAR(60)` | 非空，索引 | `科技创新` | 项目分类，用于筛选 |
-| `year` | `INT` | 非空，索引 | `2026` | 项目年份，用于筛选 |
-| `icon` | `VARCHAR(255)` | 可空 | `https://picsum.photos/seed/noise-map-icon/300/300` | 项目图标图片 URL |
-| `description` | `TEXT` | 非空 | `使用传感器采集校园不同地点的噪音数据...` | 项目简介 |
-| `media` | `JSON` | 可空 | `["https://picsum.photos/seed/noise-map/900/520"]` | 项目图片或视频链接数组 |
-| `cas_creativity` | `TINYINT(1)` | 非空，默认 `0` | `1` | 是否包含 CAS Creativity |
-| `cas_activity` | `TINYINT(1)` | 非空，默认 `0` | `1` | 是否包含 CAS Activity |
-| `cas_service` | `TINYINT(1)` | 非空，默认 `0` | `1` | 是否包含 CAS Service |
-| `popularity` | `INT` | 非空，默认 `0`，索引 | `96` | 热度值，用于推荐排序 |
-| `updates` | `JSON` | 可空 | `["完成第一版传感器数据模拟器"]` | 项目动态文本数组 |
-| `created_at` | `TIMESTAMP` | 非空，默认当前时间 | `2026-05-10 10:00:00` | 创建时间 |
-| `updated_at` | `TIMESTAMP` | 非空，自动更新 | `2026-05-10 10:00:00` | 更新时间 |
-
-### 索引
-
-| 索引 | 字段 | 作用 |
-| --- | --- | --- |
-| `PRIMARY` | `id` | 主键查询 |
-| `idx_category` | `category` | 分类筛选 |
-| `idx_year` | `year` | 年份筛选 |
-| `idx_popularity` | `popularity` | 热度排序 |
-
-### 设计说明
-
-- `icon` 现在是图片 URL，不再存 emoji。
-- `media` 是项目正文媒体资源，可以包含多张图或视频链接；数组顺序就是正式详情页展示顺序，管理员只在后台项目详情视图中拖拽排序，拖动结束后自动保存，正式前台详情页只展示。
-- `icon` 和 `media` 分开：`icon` 用于卡片/列表头像，`media` 用于详情页媒体区。
-- CAS 三项用三个布尔字段保存，后端会组合成前端的 `cas.creativity/activity/service`。
-
-## `project_categories`
-
-CAS 项目库左侧分类表。用于控制项目分类是否启用和展示顺序，不控制项目本身排序。
-
-| 字段 | 类型 | 约束 | 示例值 | 作用 |
-| --- | --- | --- | --- | --- |
-| `id` | `INT` | 主键，自增 | `1` | 分类记录 ID |
-| `name` | `VARCHAR(60)` | 非空，唯一 | `科技创新` | 分类名称，对应 `projects.category` |
-| `sort_order` | `INT` | 非空，默认 `0`，索引 | `10` | 人工排序权重，数字越小越靠前 |
-| `is_active` | `TINYINT(1)` | 非空，默认 `1`，索引 | `1` | 是否在项目库显示 |
-| `created_at` | `TIMESTAMP` | 非空，默认当前时间 | `2026-05-10 10:00:00` | 创建时间 |
-| `updated_at` | `TIMESTAMP` | 非空，自动更新 | `2026-05-10 10:00:00` | 更新时间 |
-
-默认分类顺序为 `科技创新 = 10`、`公益服务 = 20`、`运动健康 = 30`。
-
-## `resources`
-
-资源中心普通资源表。用于资源中心中的 Yearbook、其他资料卡片。活动照片不再通过本表保存入口，统一来自 `photo_activities`。
-
-### 字段
-
-| 字段 | 类型 | 约束 | 示例值 | 作用 |
-| --- | --- | --- | --- | --- |
-| `id` | `INT` | 主键，自增 | `1` | 资源唯一 ID |
-| `title` | `VARCHAR(160)` | 非空 | `2026 校园 Yearbook` | 资源标题 |
-| `description` | `TEXT` | 可空 | `收录年度班级合影、活动纪实...` | 资源简介 |
-| `year` | `INT` | 非空，索引 | `2026` | 资源年份 |
-| `category` | `VARCHAR(40)` | 非空，索引 | `yearbook` | 资源分类值，给程序筛选使用 |
-| `label` | `VARCHAR(60)` | 非空 | `Yearbook` | 资源分类展示名 |
-| `hot` | `INT` | 非空，默认 `0`，索引 | `96` | 热度，用于排序 |
-| `downloads` | `INT` | 非空，默认 `0`，索引 | `820` | 下载次数，用于排序 |
-| `image` | `VARCHAR(600)` | 非空 | `https://images.unsplash.com/...` | 资源封面图片 URL |
-| `resource_url` | `VARCHAR(600)` | 非空 | `https://images.unsplash.com/...` | 资源访问或下载 URL |
-| `created_at` | `TIMESTAMP` | 非空，默认当前时间 | `2026-05-10 10:00:00` | 创建时间 |
-| `updated_at` | `TIMESTAMP` | 非空，自动更新 | `2026-05-10 10:00:00` | 更新时间 |
-
-### 当前分类值
-
-| `category` | `label` | 说明 |
-| --- | --- | --- |
-| `yearbook` | `Yearbook` | 年鉴资源 |
-| `other` | `其他资源` | 文档或其他资料 |
-
-`resource_categories` 中仍保留 `photos` 作为左侧“活动照片”入口，但 `resources.category = 'photos'` 不再作为前台兼容数据源。
-
-### 索引
-
-| 索引 | 字段 | 作用 |
-| --- | --- | --- |
-| `PRIMARY` | `id` | 主键查询 |
-| `idx_resource_category` | `category` | 分类筛选 |
-| `idx_resource_year` | `year` | 年份筛选 |
-| `idx_resource_hot` | `hot` | 热度排序 |
-| `idx_resource_downloads` | `downloads` | 下载量排序 |
-
-### 设计说明
-
-- 资源中心不使用 icon 字段。
-- 卡片视觉只使用 `image` 作为封面图。
-- `category` 是稳定程序值，`label` 是展示文字。
-- 普通资源卡片不使用人工排序，仍按接口的 `hot`、`new`、`old`、`download` 规则排序。
-- 前台打开 Yearbook 阅读器会让 `hot` 加 1；热度使用通用节流逻辑，同一登录账户对同一对象 5 秒内只会增加一次。已登录用户点击普通资源链接、Yearbook PDF 或 Yearbook 单页图片下载会让 `downloads` 加 1，下载数不节流；未登录用户由前端提示登录，不会增加下载数。后台预览不计入热度和下载数。
-- Yearbook 资源不新增字段，复用 `resource_url` 作为目录 URL。该目录必须位于 `public/` 下，目录内放所有页面图片和 PDF 文件；页面图片支持 `.jpg`、`.jpeg`、`.png`、`.webp`、`.gif`。封面不单独维护，接口会自动使用文件名自然升序的第一张图片缩略图作为 `image` 展示值。前台阅读器按文件名自然升序展示图片，并复用活动照片的 `.thumbs/*.webp` 懒生成逻辑；双页阅读器优先加载缩略图，放大和下载仍使用原图。PDF 使用文件名自然升序的第一个 `.pdf`。建议命名为 `001.png`、`002.png`、`yearbook.pdf`。
-
-## `resource_categories`
-
-资源中心左侧分类表。用于控制资源分类展示名称、是否启用和人工排序。
+## 表说明
 
-| 字段 | 类型 | 约束 | 示例值 | 作用 |
-| --- | --- | --- | --- | --- |
-| `id` | `INT` | 主键，自增 | `1` | 分类记录 ID |
-| `value` | `VARCHAR(40)` | 非空，唯一 | `other` | 分类程序值，对应 `resources.category` |
-| `label` | `VARCHAR(60)` | 非空 | `其他资源` | 分类展示名称 |
-| `sort_order` | `INT` | 非空，默认 `0`，索引 | `999` | 人工排序权重，数字越小越靠前 |
-| `is_active` | `TINYINT(1)` | 非空，默认 `1`，索引 | `1` | 是否在资源中心显示 |
-| `created_at` | `TIMESTAMP` | 非空，默认当前时间 | `2026-05-10 10:00:00` | 创建时间 |
-| `updated_at` | `TIMESTAMP` | 非空，自动更新 | `2026-05-10 10:00:00` | 更新时间 |
+### `users`
 
-默认分类顺序为 `yearbook = 10`、`photos = 20`、`other = 999`，所以“其他资源”默认显示在左侧分类底部。
+保存登录账号、PBKDF2 密码哈希、角色和启用状态。
 
-## `photo_activities`
+- `username` 唯一。
+- `role` 只能为 `admin` 或 `user`。
+- `is_active` 只能为 `0` 或 `1`。
+- `deleted_at` 非空表示账号已匿名化注销；该行继续保留，以维持历史留言和私信外键。
+- 新注册账号固定为普通用户；管理员通过后台用户管理调整角色。
 
-活动照片分组表。每条记录代表一个活动，例如“春季运动会”。
+### `auth_security_settings` / `auth_rate_limit_buckets`
 
-### 字段
+`auth_security_settings` 是单行动态配置表，保存注册、普通登录、管理员登录、用户名连续失败冷却和修改密码的限额，并记录最后修改人和时间。管理员后台保存后，后续请求立即读取新值。
 
-| 字段 | 类型 | 约束 | 示例值 | 作用 |
-| --- | --- | --- | --- | --- |
-| `id` | `INT` | 主键，自增 | `1` | 活动唯一 ID |
-| `activity` | `VARCHAR(160)` | 非空 | `春季运动会` | 活动名称 |
-| `description` | `TEXT` | 非空 | `记录开幕式、接力赛、领奖瞬间...` | 活动简介，用于全部活动卡片和搜索 |
-| `year` | `INT` | 非空，索引 | `2026` | 活动年份 |
-| `hot` | `INT` | 非空，默认 `0`，索引 | `98` | 活动热度 |
-| `downloads` | `INT` | 非空，默认 `0`，索引 | `24` | 活动下载次数 |
-| `sort_order` | `INT` | 非空，默认 `0`，索引 | `10` | 活动列表人工排序权重，数字越小越靠前 |
-| `photo_dir` | `VARCHAR(600)` | 可空 | `/uploads/sports-2026/` | 活动照片目录 URL，指向 `public/` 下的文件夹 |
-| `created_at` | `TIMESTAMP` | 非空，默认当前时间 | `2026-05-10 10:00:00` | 创建时间 |
-| `updated_at` | `TIMESTAMP` | 非空，自动更新 | `2026-05-10 10:00:00` | 更新时间 |
+`auth_rate_limit_buckets` 保存经过 SHA-256 摘要处理的 IP、用户名或用户 ID 限流桶，不直接保存这些标识的原文。固定窗口和连续登录失败记录均写入该表，因此服务重启后计数不会清空；超过保留时间的普通限流桶会在后续认证请求中清理。
 
-### 索引
+### `projects`
 
-| 索引 | 字段 | 作用 |
-| --- | --- | --- |
-| `PRIMARY` | `id` | 主键查询 |
-| `idx_photo_activity_year` | `year` | 年份筛选 |
-| `idx_photo_activity_hot` | `hot` | 热度排序 |
-| `idx_photo_activity_downloads` | `downloads` | 下载量排序 |
-| `idx_photo_activity_sort` | `sort_order, id` | 活动列表人工排序 |
+保存 CAS 项目。`asset_dir` 保存 `/CAS/` 下的项目资源目录。`updates` 使用 JSON
+字符串存储结构化动态数组，每项包含稳定 `id`、`content` 和属于该动态的相对
+图片路径 `images` 数组；公共数据访问层会把相对路径解析为完整 URL。新发布的动态还保存
+`authorPersonId`、`authorName`、`authorRole` 和 `createdAt`。动态作者关联项目成员档案，而不是站内用户；
+后台可选择当前项目的任意成员代发，无需先绑定账号。站内成员自行发布时，后端仍通过
+`project_members -> people.user_id` 校验其操作权限。删除动态时会同时从该 JSON 数组移除记录，并删除
+`asset_dir/updates/<动态ID>/` 中的专属上传文件。旧动态中的 `authorUserId` 仅用于兼容读取和权限判断。
+`media` 是旧版项目级媒体字段，仅保留用于接口结构兼容，新后台不再写入，前台也不展示。
+`cas_creativity`、`cas_activity`、`cas_service` 使用
+`0/1` 表示布尔值。`leader` 和 `members` 是供旧接口及列表展示使用的摘要字段；
+项目刚创建、尚未在详情页维护成员时，两者允许为空字符串。成员的规范数据以
+`project_members` 为准，负责人也只能由其中 `role = 'leader'` 的记录确定。
 
-### 设计说明
+### `project_categories`
 
-- 活动卡片不使用 icon 字段。
-- “全部活动”视图使用活动下第一张照片作为封面。
-- `sort_order` 只控制活动列表和“全部活动”中活动卡片的活动顺序，不控制单张照片排序。
-- `description` 是必填字段，当前开发阶段不做旧表兼容。
-- 活动照片 v1 推荐使用 `photo_dir` 目录模型：一个活动对应 `public/` 下的一个文件夹。
-- 公开活动照片接口会扫描 `photo_dir` 下的图片文件生成照片列表；未配置目录时兼容旧 `photo_items` 数据。
-- 前台进入活动照片详情会让 `hot` 加 1；热度使用通用节流逻辑，同一登录账户对同一活动 5 秒内只会增加一次。后台预览不计入热度。
-- `downloads` 是活动级统计，已登录用户在前台下载活动整包压缩文件或下载单张放大照片都会增加该字段；未登录用户由前端提示登录，不会增加下载数。
-- 初始化和重建数据库统一执行 `sql/schema.sql`。已运行的旧数据库如果缺少 `photo_activities.downloads` 或其他白名单结构项，需要在管理员后台数据库查看器手动点击“检查并补全结构”；该入口可补齐白名单表的缺失表、字段、索引和外键。生产环境仍建议先备份。
+保存 CAS 项目分类及人工排序权重。`name` 唯一，`sort_order` 越小越靠前。
 
-## `photo_items`
+### `resources`
 
-单张活动照片表。每条记录代表某个活动下的一张照片。
+保存普通资源、Yearbook 和“老师驾到”视频。活动照片不写入该表。`resource_url`
+保存资源文件、Yearbook 目录或浏览器可直接播放的视频 URL；“老师驾到”的
+`image` 保存选填的自定义封面 URL，留空时接口会尝试使用本地视频首帧；其他普通资源
+使用 `image` 保存封面 URL。
 
-### 字段
+资源类型不是数据库内容。`yearbook`、`photos`、`teacher` 和 `other` 固定定义在
+`backend/resource_types.py`，分别选择 Yearbook、活动照片、老师视频和普通资源处理逻辑。
 
-| 字段 | 类型 | 约束 | 示例值 | 作用 |
-| --- | --- | --- | --- | --- |
-| `id` | `INT` | 主键，自增 | `1` | 照片唯一 ID |
-| `activity_id` | `INT` | 非空，外键 | `1` | 所属活动 ID |
-| `title` | `VARCHAR(160)` | 非空 | `开幕式` | 照片标题，当前不在缩略图下展示，但用于 `alt` 和弹窗标题 |
-| `image_url` | `VARCHAR(600)` | 非空 | `https://images.unsplash.com/...` | 照片访问 URL |
-| `sort_order` | `INT` | 非空，默认 `0` | `1` | 活动内照片排序 |
-| `created_at` | `TIMESTAMP` | 非空，默认当前时间 | `2026-05-10 10:00:00` | 创建时间 |
+### `photo_activities`
 
-### 外键
+保存活动照片分组、热度、下载量、排序以及可选的 `photo_dir` 和 `cover_image`。配置目录时，后端
+优先扫描 `public/` 下的实际图片；未配置时兼容 `photo_items` 中的记录。`cover_image`
+为空时使用照片目录中的第一张图片作为封面。
 
-```sql
-FOREIGN KEY (activity_id) REFERENCES photo_activities(id)
-ON DELETE CASCADE
-```
+### `photo_items`
 
-作用：
+保存活动下的单张照片记录，通过 `activity_id` 外键关联 `photo_activities.id`。
+删除活动时，其照片记录会级联删除。
 
-- 每张照片必须属于一个活动。
-- 删除活动时，该活动下的照片记录会自动删除。
+### `announcements`
 
-### 索引
+保存公告标题、摘要、正文、发布/归档状态、置顶状态和浏览量。归档可重新发布；永久删除公告时，业务层会同步清理关联留言及通知。
 
-| 索引 | 字段 | 作用 |
-| --- | --- | --- |
-| `PRIMARY` | `id` | 主键查询 |
-| `idx_photo_items_activity` | `activity_id, sort_order` | 按活动取照片并排序 |
+### `comments`
 
-### 设计说明
+公告、项目和资源共用的多态留言表。`target_type + target_id` 标识留言对象；因为对象来自三张表，数据库不为 `target_id` 建单一外键，由后端在写入前验证目标存在。`parent_id` 记录直接回复对象，`root_id` 记录所属主留言，因此界面固定展示为两级，同时仍能表达“回复某条回复”。
 
-- 数据库存照片 URL，不存图片二进制。
-- 当前示例使用远程图片 URL。
-- 后续本地挂载方案建议使用相对路径，例如 `/uploads/photos/sports-2026/opening.jpg`。
-- 照片标题虽然不在缩略图下展示，但仍然有用：弹窗标题、图片 `alt`、文件下载名都可以使用它。
+`status` 为 `visible`、`deleted` 或 `hidden`。用户删除使用 `deleted` 并清空正文，以保留回复树；管理员处理举报可设为 `hidden`。
 
-## 活动照片下载设计
+### `comment_likes` / `comment_reports`
 
-当前前端保留“下载压缩文件”入口，同时照片放大弹窗也提供单张下载按钮。查看活动照片不要求登录；点击整包下载或单张照片下载必须登录，成功下载行为会增加 `photo_activities.downloads`。未登录点击下载时，前端提示 `抱歉，需要登陆`，不写入下载统计。
+`comment_likes` 使用 `(comment_id, user_id)` 联合主键防止重复点赞。`comment_reports` 对同一用户和留言保持一条记录，管理员可处理或忽略，并记录处理人和处理时间。
 
-活动压缩文件不单独写入数据库，由 `photo_dir` 自动推导：如果 `photo_dir` 是 `/uploads/photos/春季运动会/`，压缩文件应放在 `public/uploads/photos/春季运动会/春季运动会.rar`。只有同名 `.rar` 文件实际存在时，接口才返回 `archiveUrl`。
+### `comment_notifications`
 
-下载权限不新增数据库字段。图片查看仍使用 `public/` 下的原始 URL；需要登录的文件下载由后端根据现有 URL 映射到受保护文件读取逻辑，并校验登录 token 后返回附件。
+保存直接回复和留言点赞产生的永久通知。通知冗余保存目标类型和目标 ID，且不对 `comment_id` 设置级联外键，因此留言删除、隐藏或原内容不存在后仍可显示失效记录。`read_at` 保存分类已读状态；同一用户取消后重新点赞时复用原通知并重新标为未读。迁移 007 不回填升级前的互动。
 
-## 字段命名约定
+## 字段与接口命名
 
-- 数据库字段使用 `snake_case`。
-- 前端接口字段使用 `camelCase`。
-- 后端数据访问层负责转换，例如：
+数据库字段使用 `snake_case`，API 使用 `camelCase`，由后端数据访问层转换：
 
 ```text
-created_at -> createdAt
-updated_at -> updatedAt
+created_at   -> createdAt
+updated_at   -> updatedAt
 resource_url -> resourceUrl
-sort_order -> sortOrder
-image_url -> src
-photo_dir -> photoDir
+asset_dir    -> assetDir
+sort_order   -> sortOrder
+image_url    -> src
+photo_dir    -> photoDir
 ```
 
-`archiveUrl` 是由 `photo_dir` 推导出来的接口字段，不对应数据库字段。
+数据库只保存文件 URL、目录 URL 或相对于 CAS 项目目录的路径，不保存图片、PDF 或压缩包二进制。
 
-## 当前不做的设计
+## JSON 数据迁移
 
-- 不把图片二进制存入 MySQL。
-- 不在资源中心或活动照片表中保存 icon 字段。
-- 不自动删除字段，也不自动修改已有字段类型、默认值或可空性；结构补全只处理白名单表的缺失项。
-- 不在前端逐张下载整个活动照片；活动整包下载使用照片目录下的同名压缩文件。
+管理后台的 JSON 导入/导出是业务数据迁移层，不是 SQLite 物理备份。它包含 CAS
+项目、结构化成员及项目内联系方式、动态、普通资源、活动照片、统计值、人工顺序和
+资源路径；不包含数据库 ID、账号绑定、创建/更新时间，也不包含实际资源文件。
 
-## 管理后台数据约定
+每次导入都会创建新的业务记录和待确认人员档案，不按姓名或标题合并。一个导入批次
+使用同一个数据库事务：任意字段验证失败时不会写入；站内路径不存在或文件/目录类型
+不符时只产生预警，管理员明确确认后仍可整批导入。需要完整灾难恢复时仍应按下文备份
+SQLite 数据库及对应的 `public/` 资源目录。
 
-管理后台新增 `project_categories` 管理 CAS 项目库左侧分类顺序，新增 `resource_categories` 管理资源中心左侧分类顺序，继续使用 `projects`、`resources`、`photo_activities`、`photo_items` 管理项目、普通资源和活动照片。活动照片来源是 `photo_activities`，不是 `resources.category = 'photos'`。上传文件不写入 MySQL 二进制字段，只保存 URL。
+## 备份与重建
 
-### 上传文件
+备份时先停止后端，再复制 `DATABASE_PATH` 指向的 `.db` 文件。WAL 模式运行期间
+可能同时存在 `-wal` 和 `-shm` 文件，因此不要在服务持续写入时只复制主文件。
 
-- 上传目录：`public/uploads/`
-- 数据库存储：资源封面写入 `resources.image`，资源文件或目录 URL 写入 `resources.resource_url`，活动照片目录写入 `photo_activities.photo_dir`。
-- 上传过程不写入数据库；后台“文件管理”直接读取 `public/` 目录，资源管理中的普通资源和活动照片都只保存 URL 引用。
-- 普通文件名由后端生成随机安全文件名；`.rar` 压缩文件保留原文件名，用于活动照片目录同名下载。
-- 允许类型：`jpg`、`jpeg`、`png`、`webp`、`gif`、`pdf`、`doc`、`docx`、`ppt`、`pptx`、`xls`、`xlsx`、`zip`、`rar`。
+需要重建开发数据时：
 
-### 数据库查看器
+1. 停止后端。
+2. 备份或删除 `.db`、`.db-wal`、`.db-shm`。
+3. 重新启动后端，由 `sql/schema.sql` 自动初始化。
 
-数据库查看器是受控 CRUD，不开放任意 SQL。可访问表白名单：
+生产环境的数据迁移不应通过删除数据库完成。
 
-- `users`
-- `projects`
-- `project_categories`
-- `resource_categories`
-- `resources`
-- `photo_activities`
-- `photo_items`
+## 用户、人员与私信表
 
-字段限制：
+账号和现实人员采用分离模型：
 
-- `users.password_hash` 不返回、不允许编辑。
-- `users` 表新增记录必须通过用户管理接口创建，数据库查看器不直接创建用户。
-- `id`、`created_at`、`updated_at` 是只读字段。
-- 表名必须来自白名单，字段名必须来自 `INFORMATION_SCHEMA.COLUMNS`。
-- 删除 `photo_activities` 会通过外键级联删除对应 `photo_items`。
-- “检查并补全结构”按钮只补齐白名单表的缺失结构：缺表会创建空表，缺字段会按当前规格新增，缺索引和 `photo_items` 外键会尝试补上；不会插入示例数据，不会执行任意 SQL。
+- `users`：登录账号、公开资料、校园关联状态和私信权限。
+- `people`：已经被 CAS 项目收录的现实人员，`user_id` 可为空。
+- `project_members`：项目与人员的多对多关系，保存负责人/成员角色、历史展示名、排序以及该成员在当前项目中的联系方式。`contact_type` 可为 `wechat`、`phone`、`email`、`other` 或空，`contact_value` 保存对应内容；联系方式不放在 `people` 中，避免一个人在不同项目中的公开方式相互覆盖。
+- `person_claims`：旧版用户认领流程的历史记录表；当前不再开放新增或审核接口，仅为兼容已有数据库保留。
+- `user_follows`、`user_blocks`：用户关系和黑名单。
+- `conversations`：两名用户之间唯一的一对一会话。
+- `conversation_members`：每个参与者的已读、隐藏和免打扰状态。
+- `messages`：文本或项目卡片消息，撤回采用 `recalled_at` 软删除。
+- `message_reports`：消息举报审核记录。
+
+不要通过姓名自动把 `people` 绑定到 `users`。旧文本数据迁移会为每个项目创建独立人员档案，之后只能由管理员在对应 CAS 项目详情的成员区域选择账号完成绑定。
+
+数据库结构通过 `sql/migrations` 目录中的连续编号脚本升级。每个脚本必须在事务中执行并更新 `PRAGMA user_version`；后端检测到版本缺口时会拒绝启动，避免跳版本造成半套结构。当前最新版本为 12：002 增加用户关系、人员认领和私信，003 增加公告与通用留言，004 移除旧资源分类表，005 为项目成员关系增加联系方式，006 取消消息请求状态并统一私信会话，007 增加回复与点赞通知，008 增加 CAS 项目资源目录并迁移旧图标和动态图片路径，009 降权并禁用仍保留公开初始密码哈希的旧默认管理员，010 增加用户注销标记并把公告状态收敛为发布/归档，011 增加认证访问限制的动态配置和持久化计数，012 将中英文并列的 CAS 成员姓名统一为英文名在前。
