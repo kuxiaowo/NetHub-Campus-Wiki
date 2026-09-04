@@ -17,6 +17,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from backend.auth_policy import PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH
 from backend.config import settings
 from backend.database import get_db_connection
+from backend.media import public_media_url
 
 UserRole = Literal["admin", "user"]
 DELETED_USER_DISPLAY_NAME = "已注销用户"
@@ -89,7 +90,7 @@ def format_user(row: dict[str, Any]) -> dict[str, Any]:
         "id": row["id"],
         "username": row["username"],
         "displayName": row.get("display_name"),
-        "avatarUrl": row.get("avatar_url"),
+        "avatarUrl": public_media_url(row.get("avatar_url")),
         "bio": row.get("bio") or "",
         "role": row["role"],
         "isActive": bool(row.get("is_active")),
@@ -117,7 +118,7 @@ def public_user_identity(
         "id": row.get(id_key),
         "username": None if deleted else row.get(username_key),
         "displayName": DELETED_USER_DISPLAY_NAME if deleted else row.get(display_name_key),
-        "avatarUrl": None if deleted else row.get(avatar_url_key),
+        "avatarUrl": None if deleted else public_media_url(row.get(avatar_url_key)),
         "deleted": deleted,
     }
     if campus_verified_key is not None:

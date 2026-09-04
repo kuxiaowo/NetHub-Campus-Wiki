@@ -11,6 +11,7 @@ from fastapi import HTTPException, UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from backend.config import settings
+from backend.media import local_public_path
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 AVATAR_ROOT = BASE_DIR / "public" / "uploads" / "avatars"
@@ -19,9 +20,9 @@ MAX_AVATAR_SOURCE_PIXELS = 25_000_000
 
 
 def _managed_avatar_path(url: str | None) -> Path | None:
-    value = str(url or "").strip().replace("\\", "/")
-    prefix = "/uploads/avatars/"
-    if not value.startswith(prefix) or "?" in value or "#" in value:
+    value = local_public_path(url)
+    prefix = "uploads/avatars/"
+    if value is None or not value.startswith(prefix):
         return None
     relative = value.removeprefix(prefix)
     raw_path = Path(relative)

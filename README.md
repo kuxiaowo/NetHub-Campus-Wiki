@@ -63,7 +63,7 @@ bash scripts/init_linux.sh --admin your_admin --display-name "管理员"
 
 ```bash
 cp .env.example .env
-# 设置后端端口、CORS、数据库路径等配置
+# 设置后端端口、CORS、PUBLIC_MEDIA_BASE_URL、数据库路径等配置
 bash scripts/init_backend_linux.sh --admin your_admin --display-name "管理员"
 ```
 
@@ -88,7 +88,8 @@ bash scripts/init_frontend_linux.sh
 脚本只操作当前入口负责的服务，不会停止或删除之前部署的另一项服务。前后端分机部署时，
 前端服务器的 `FRONTEND_API_BASE_URL` 必须设置为后端的完整 API 前缀，例如
 `https://api.example.com/api`；后端服务器的 `CORS_ORIGINS` 必须包含前端页面来源，例如
-`https://wiki.example.com`。
+`https://wiki.example.com`，并把 `PUBLIC_MEDIA_BASE_URL` 设置为后端的 `/media` 地址，例如
+`https://api.example.com/media`。
 
 常用维护命令：
 
@@ -107,7 +108,7 @@ systemd 用户服务默认在用户登录后运行。如果还需要“服务器
 
 - 初始化：`CONDA_ENV_NAME`、`PYTHON_VERSION`、`SYSTEMD_SERVICE_PREFIX`；
 - 服务：`API_HOST`、`API_PORT`、`API_RELOAD`、`FRONTEND_HOST`、`FRONTEND_PORT`；
-- 浏览器访问：`FRONTEND_API_BASE_URL`、`CORS_ORIGINS`；
+- 浏览器访问：`FRONTEND_API_BASE_URL`、`PUBLIC_MEDIA_BASE_URL`、`CORS_ORIGINS`；
 - SQLite：`DATABASE_PATH`、连接超时和 busy timeout；
 - 认证：`AUTH_SECRET_KEY`、Token 有效期；
 - 文件处理：上传/导入大小、照片缓存、缩略图尺寸/质量/超时；
@@ -118,9 +119,12 @@ systemd 用户服务默认在用户登录后运行。如果还需要“服务器
 
 `FRONTEND_HOST=0.0.0.0` 使前端监听所有网卡。`FRONTEND_API_BASE_URL` 是浏览器实际请求的后端 API 前缀，必须包含 `/api`，例如 `https://api.example.com/api`。使用 `frontend_server.py` 启动前端时，`/js/config.js` 会动态生成；如果不填写，API 地址会自动使用当前页面的主机名和 `API_PORT`，因此从其他设备通过局域网 IP 打开时无需再改 API 地址。
 
+`PUBLIC_MEDIA_BASE_URL` 是后端公开图片和视频的浏览器访问前缀。分机部署时应设置为后端地址，例如 `https://api.example.com/media`。FastAPI 会直接从后端的 `public/` 目录发送这些媒体文件，相关接口也会返回该前缀下的绝对 URL。PDF、压缩包和 Office 文档不会通过 `/media` 公开，仍使用 `/api/files` 完成登录鉴权下载。
+
 `CORS_ORIGINS` 是允许访问后端的前端页面来源。默认的 `*` 便于从任意本机或局域网地址访问；正式公网部署时建议改为明确的协议、域名和端口，不带路径，例如 `https://wiki.example.com`。前后端分离部署时，需要同时修改：
 
 - 前端请求后端：`FRONTEND_API_BASE_URL=https://后端域名/api`
+- 后端媒体直出：`PUBLIC_MEDIA_BASE_URL=https://后端域名/media`
 - 后端允许前端跨域：`CORS_ORIGINS=https://前端域名`
 
 `AUTH_SECRET_KEY` 是登录 Token 的签名密钥，必须为每个部署单独随机生成，不能留空或复制公开示例。Linux 初始化脚本会在其留空时自动生成；手动部署可用：

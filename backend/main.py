@@ -48,6 +48,7 @@ from backend.auth_rate_limit import (
     record_login_failure,
 )
 from backend.database import get_db_connection
+from backend.media import PUBLIC_MEDIA_EXTENSIONS
 from backend.projects import decorate_project_for_viewer, get_project, list_meta, list_projects
 from backend.resources import (
     YearbookResourceError,
@@ -117,7 +118,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_methods=["GET", "HEAD", "POST", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
 
@@ -159,6 +160,25 @@ def _get_file_request_user(request: Request) -> dict:
         return get_current_user_from_token(token)
 
     raise HTTPException(status_code=401, detail="需要登录")
+
+
+@app.api_route("/media/{file_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
+def public_media_file(file_path: str):
+    """Serve public images and video directly from the backend host."""
+
+    target = _resolve_public_file(file_path)
+    if target.suffix.casefold() not in PUBLIC_MEDIA_EXTENSIONS:
+        raise HTTPException(status_code=404, detail="媒体文件不存在")
+    media_type, _ = mimetypes.guess_type(target.name)
+    return FileResponse(
+        target,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "public, max-age=300",
+            "Cross-Origin-Resource-Policy": "cross-origin",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @app.get("/api/files/{file_path:path}", tags=["resources"])

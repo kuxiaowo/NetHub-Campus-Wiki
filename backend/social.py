@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from backend.auth import format_user, get_current_user
 from backend.avatars import delete_managed_avatar, store_avatar
 from backend.database import get_db_connection
+from backend.media import public_media_url
 
 router = APIRouter(prefix="/api", tags=["social"])
 
@@ -134,7 +135,7 @@ def _public_profile(user_id: int, viewer_id: int | None = None) -> dict[str, Any
         "id": row["id"],
         "username": row["username"],
         "displayName": row.get("display_name"),
-        "avatarUrl": row.get("avatar_url"),
+        "avatarUrl": public_media_url(row.get("avatar_url")),
         "bio": row.get("bio") or "",
         "campusVerified": bool(row.get("campus_verified")),
         "linkedPersonId": row.get("person_id"),
@@ -180,7 +181,7 @@ def list_users(
                 "id": row["id"],
                 "username": row["username"],
                 "displayName": row.get("display_name"),
-                "avatarUrl": row.get("avatar_url"),
+                "avatarUrl": public_media_url(row.get("avatar_url")),
                 "bio": row.get("bio") or "",
                 "campusVerified": bool(row.get("campus_verified")),
                 "linkedPersonId": row.get("person_id"),
@@ -410,7 +411,7 @@ def person_detail(person_id: int):
         "data": {
             "id": row["id"],
             "displayName": row["display_name"],
-            "avatarUrl": row.get("user_avatar_url") or row.get("avatar_url"),
+            "avatarUrl": public_media_url(row.get("user_avatar_url") or row.get("avatar_url")),
             "status": row["status"],
             "registered": linked,
             "user": (

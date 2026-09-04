@@ -10,6 +10,7 @@ import secrets
 from typing import Any, Literal
 
 from backend.database import get_db_connection
+from backend.media import public_media_url
 from backend.project_assets import (
     ProjectAssetError,
     normalize_project_updates,
@@ -134,7 +135,7 @@ def list_project_members(project_id: int) -> list[dict[str, Any]]:
             "personId": row["person_id"],
             "name": row["display_name_snapshot"],
             "role": row["role"],
-            "avatarUrl": row.get("user_avatar_url") or row.get("person_avatar_url"),
+            "avatarUrl": public_media_url(row.get("user_avatar_url") or row.get("person_avatar_url")),
             "userId": row.get("user_id") if row.get("is_active") else None,
             "username": row.get("username") if row.get("is_active") else None,
             "registered": bool(row.get("user_id") and row.get("is_active")),
