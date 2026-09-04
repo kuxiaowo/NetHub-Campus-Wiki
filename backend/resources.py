@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from backend.config import settings
 from backend.database import get_db_connection
+from backend.media import local_public_path, public_media_url
 from backend.resource_types import resource_type_options
 from backend.view_tracking import can_track_view, mark_view_tracked
 
@@ -47,11 +48,11 @@ def _public_url_to_path(value: str | None) -> tuple[Path, str] | None:
     """Resolve a public URL or public-relative path to a safe local directory."""
 
     raw_value = (value or "").strip().replace("\\", "/")
-    if not raw_value:
+    if WINDOWS_DRIVE_PATTERN.match(raw_value):
         return None
-    if "://" in raw_value or WINDOWS_DRIVE_PATTERN.match(raw_value):
+    relative = local_public_path(raw_value)
+    if relative is None:
         return None
-    relative = raw_value.strip("/")
     raw_path = Path(relative)
     if raw_path.is_absolute() or raw_path.drive or ".." in raw_path.parts:
         return None
@@ -79,7 +80,8 @@ def _natural_sort_key(path: Path) -> list[int | str]:
 
 
 def _public_file_url(item: Path) -> str:
-    return f"/{item.relative_to(PUBLIC_DIR.resolve()).as_posix()}"
+    local_url = f"/{item.relative_to(PUBLIC_DIR.resolve()).as_posix()}"
+    return public_media_url(local_url) or local_url
 
 
 def yearbook_cover_url(resource_url: str | None) -> str | None:
@@ -160,7 +162,7 @@ def _format_photo_file(item: Path, index: int) -> dict[str, Any]:
     return {
         "id": index,
         "title": item.stem,
-        "src": f"/{item_relative}",
+        "src": public_media_url(f"/{item_relative}") or f"/{item_relative}",
         "thumbSrc": thumb_url,
         "sortOrder": index,
     }
@@ -201,7 +203,7 @@ def _ensure_thumbnail(source: Path) -> str | None:
 
     try:
         if thumb_path.is_file() and thumb_path.stat().st_mtime >= source.stat().st_mtime:
-            return f"/{thumb_path.relative_to(PUBLIC_DIR.resolve()).as_posix()}"
+            return _public_file_url(thumb_path)
 
         thumb_dir.mkdir(exist_ok=True)
         with Image.open(source) as image:
@@ -215,7 +217,7 @@ def _ensure_thumbnail(source: Path) -> str | None:
                 quality=THUMB_WEBP_QUALITY,
                 method=THUMB_WEBP_METHOD,
             )
-        return f"/{thumb_path.relative_to(PUBLIC_DIR.resolve()).as_posix()}"
+        return _public_file_url(thumb_path)
     except (OSError, UnidentifiedImageError):
         return None
 
@@ -232,7 +234,7 @@ def _ensure_video_thumbnail(source: Path) -> str | None:
 
     try:
         if thumb_path.is_file() and thumb_path.stat().st_mtime >= source.stat().st_mtime:
-            return f"/{thumb_path.relative_to(PUBLIC_DIR.resolve()).as_posix()}"
+            return _public_file_url(thumb_path)
 
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
@@ -270,7 +272,7 @@ def _ensure_video_thumbnail(source: Path) -> str | None:
                 quality=THUMB_WEBP_QUALITY,
                 method=THUMB_WEBP_METHOD,
             )
-        return f"/{thumb_path.relative_to(PUBLIC_DIR.resolve()).as_posix()}"
+        return _public_file_url(thumb_path)
     except (
         OSError,
         subprocess.CalledProcessError,
@@ -302,9 +304,9 @@ def format_photo_activity(row: dict[str, Any], legacy_photos: list[dict[str, Any
         "downloads": row.get("downloads", 0),
         "sortOrder": row["sort_order"],
         "photoDir": row.get("photo_dir"),
-        "coverImage": custom_cover or None,
-        "coverSrc": cover_src,
-        "coverThumbSrc": cover_thumb_src,
+        "coverImage": public_media_url(custom_cover),
+        "coverSrc": public_media_url(cover_src),
+        "coverThumbSrc": public_media_url(cover_thumb_src),
         "photoCount": directory_photo_count or row["photo_count"],
         "createdAt": row.get("created_at"),
     }
@@ -329,9 +331,9 @@ def format_resource(row: dict[str, Any]) -> dict[str, Any]:
         "label": row["label"],
         "hot": row["hot"],
         "downloads": row["downloads"],
-        "image": image,
-        "coverImage": custom_image or None,
-        "resourceUrl": row["resource_url"],
+        "image": public_media_url(image) or "",
+        "coverImage": public_media_url(custom_image),
+        "resourceUrl": public_media_url(row["resource_url"]) or row["resource_url"],
         "createdAt": row.get("created_at"),
         "updatedAt": row.get("updated_at"),
     }
@@ -584,7 +586,7 @@ def list_photo_activities(
             {
                 "id": row["id"],
                 "title": row["title"],
-                "src": row["image_url"],
+                "src": public_media_url(row["image_url"]) or row["image_url"],
                 "thumbSrc": None,
                 "sortOrder": row["sort_order"],
             }
@@ -652,7 +654,7 @@ def get_activity_photo_detail(
             {
                 "id": row["id"],
                 "title": row["title"],
-                "src": row["image_url"],
+                "src": public_media_url(row["image_url"]) or row["image_url"],
                 "thumbSrc": None,
                 "sortOrder": row["sort_order"],
             }

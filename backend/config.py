@@ -7,6 +7,7 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
@@ -65,6 +66,7 @@ class Settings:
     api_host: str = os.getenv("API_HOST", "0.0.0.0").strip()
     api_port: int = _env_int("API_PORT", _DEFAULT_API_PORT, minimum=1)
     api_reload: bool = _env_bool("API_RELOAD", False)
+    public_media_base_url: str = os.getenv("PUBLIC_MEDIA_BASE_URL", "").strip().rstrip("/")
     database_path: str = os.getenv("DATABASE_PATH", "data/campus_wiki.db")
     database_connect_timeout_seconds: float = _env_float(
         "DATABASE_CONNECT_TIMEOUT_SECONDS", 5, minimum=0
@@ -143,6 +145,15 @@ def validate_runtime_settings() -> None:
         raise RuntimeError("THUMBNAIL_WEBP_QUALITY 必须在 1-100 之间")
     if not 0 <= settings.thumbnail_webp_method <= 6:
         raise RuntimeError("THUMBNAIL_WEBP_METHOD 必须在 0-6 之间")
+    if settings.public_media_base_url:
+        media_url = urlsplit(settings.public_media_base_url)
+        if (
+            media_url.scheme not in {"http", "https"}
+            or not media_url.netloc
+            or media_url.query
+            or media_url.fragment
+        ):
+            raise RuntimeError("PUBLIC_MEDIA_BASE_URL 必须是无查询参数的 http/https URL")
     validate_auth_secret_key(settings.auth_secret_key)
 
 

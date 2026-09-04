@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from backend.config import PROJECT_ROOT
+from backend.media import public_media_url
 
 
 PUBLIC_DIR = PROJECT_ROOT / "public"
@@ -123,13 +124,14 @@ def project_asset_url(asset_dir: Any, relative_path: Any) -> str | None:
     if not raw:
         return None
     if raw.startswith(("http://", "https://", "/")):
-        return raw
+        return public_media_url(raw)
     try:
         clean = normalize_relative_image_path(raw, asset_dir, allow_legacy=True)
         normalized_dir = normalize_asset_dir(asset_dir)
     except ProjectAssetError:
         return None
-    return f"{normalized_dir}{clean}"
+    local_url = f"{normalized_dir}{clean}"
+    return public_media_url(local_url) or local_url
 
 
 def project_icon_url(asset_dir: Any, legacy_icon: Any = None) -> str | None:
@@ -139,10 +141,11 @@ def project_icon_url(asset_dir: Any, legacy_icon: Any = None) -> str | None:
             root = asset_dir_path(normalized_dir)
             for filename in ICON_FILENAMES:
                 if (root / filename).is_file():
-                    return f"{normalized_dir}{filename}"
+                    local_url = f"{normalized_dir}{filename}"
+                    return public_media_url(local_url) or local_url
         except ProjectAssetError:
             pass
-    return str(legacy_icon or "").strip() or None
+    return public_media_url(str(legacy_icon or "").strip())
 
 
 def parse_updates(value: Any) -> list[Any]:
