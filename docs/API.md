@@ -11,6 +11,7 @@ http://127.0.0.1:3100
 ```javascript
 window.CAMPUS_WIKI_CONFIG = {
   apiBaseUrl: 'http://127.0.0.1:3100/api',
+  accountsBaseUrl: 'https://auth.nethub.wiki',
 };
 ```
 
@@ -21,7 +22,7 @@ window.CAMPUS_WIKI_CONFIG = {
 - 排序参数：只接受文档列出的枚举值
 - 错误响应：FastAPI 默认错误结构，例如 `{"detail": "项目不存在"}`
 - 跨域：后端通过 `CORS_ORIGINS` 环境变量允许前端服务访问
-- 登录鉴权：需要登录的接口使用 `Authorization: Bearer <accessToken>`
+- 登录鉴权：浏览器通过 NetHub Accounts OIDC 登录，业务请求使用 Wiki 后端签发的 HttpOnly Cookie；跨域请求必须携带凭据
 - 查看与下载权限：资源列表、Yearbook 阅读器数据、活动照片列表和图片查看保持公开；实际下载普通资源文件、Yearbook PDF、批量活动照片或单张照片时必须登录。前端未登录点击下载会弹出 `抱歉，需要登陆` 并阻止下载请求。
 
 ## 用户结构
@@ -37,72 +38,25 @@ window.CAMPUS_WIKI_CONFIG = {
 | `isActive` | `boolean` | 账号是否启用 |
 | `createdAt` | `string \| null` | 创建时间 |
 
-## POST /api/auth/register
+## GET /api/auth/login
 
-开放注册普通用户。注册成功后角色固定为 `user`。
+发起 NetHub Accounts Authorization Code Flow。可选查询参数 `returnTo` 只允许 Wiki 前端同源 URL 或 `/` 开头的站内路径。后端生成 `state`、`nonce` 与 PKCE S256 verifier，把摘要和短期状态保存在 SQLite 后返回 `302` 到 Accounts。
 
-### 请求示例
+## GET /api/auth/callback
 
-```bash
-curl -X POST http://127.0.0.1:3100/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d "{\"username\":\"student01\",\"password\":\"password123\",\"displayName\":\"学生 01\"}"
-```
+Accounts 的精确回调地址。后端一次性消费 `state`，用 `client_secret_basic` 和 PKCE verifier 兑换令牌，随后使用 JWKS 验证 RS256 ID Token 的 `iss`、`aud`、`exp`、`iat`、`nonce`、`sub` 与 `sid`，并核对 UserInfo 的 `sub`。
 
-### 请求字段
+首次看到某个 `sub` 时创建 Wiki 本地成员，默认 `role=user`；后续登录只按 `sub` 关联，不持续同步中央用户名或显示名称。成功响应为 `303`，同时设置 `campus_wiki_session`（`HttpOnly`、`SameSite=Lax`，生产环境还包含 `Secure`）。
 
-| 字段 | 类型 | 必填 | 说明 |
-| --- | --- | --- | --- |
-| `username` | `string` | 是 | 昵称/登录用户名，3-32 位，只允许字母、数字和下划线 |
-| `password` | `string` | 是 | 至少 8 位 |
-| `displayName` | `string` | 否 | 姓名 |
+## POST /api/auth/logout
 
-### 成功响应
+撤销当前 Wiki 会话并删除本地 Cookie，返回 `204 No Content`。该操作不会退出 Accounts，也不会影响其他网站。
 
-返回 `User`。
+## POST /api/auth/backchannel-logout
 
-### 常见错误
+供 NetHub Accounts 调用，表单字段为 `logout_token`。后端验证 RS256 签名、Issuer、Audience、`iat`、`jti` 和 Back-Channel Logout `events`，再按 `sid`/`sub` 撤销本地会话。已验证的重复通知幂等返回成功；无效通知返回 `400`。
 
-- `409 Conflict`：昵称已存在。
-- `429 Too Many Requests`：来源 IP 在当前小时或当天的注册请求已达到管理员设置的上限；响应包含 `Retry-After`。
-- `422 Unprocessable Entity`：昵称或密码格式不符合要求。
-
-## POST /api/auth/login
-
-使用昵称和密码登录，返回 Bearer Token。
-
-### 请求示例
-
-```bash
-curl -X POST http://127.0.0.1:3100/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d "{\"username\":\"student01\",\"password\":\"password123\"}"
-```
-
-### 成功响应
-
-```json
-{
-  "accessToken": "header.payload.signature",
-  "tokenType": "bearer",
-  "user": {
-    "id": 1,
-    "username": "student01",
-    "displayName": "学生 01",
-    "role": "user",
-    "isActive": true,
-    "createdAt": "2026-05-21T12:00:00"
-  }
-}
-```
-
-### 常见错误
-
-- `401 Unauthorized`：昵称或密码错误。
-- `403 Forbidden`：账号已被禁用。
-- `429 Too Many Requests`：来源 IP 的登录请求过多，或同一用户名连续失败达到上限；响应包含 `Retry-After`。
-
-登录成功会清除该用户名的连续失败记录。普通登录按来源 IP 每分钟计数；管理员账号除普通限制外还应用管理员 IP 限制。默认值可在管理后台“访问限制”栏目查看和修改。
+旧 `POST /api/auth/register`、`POST /api/auth/login` 和 `PATCH /api/auth/password` 在配置 OIDC 客户端后统一返回 `410 Gone`。
 
 ## GET /api/auth/me
 
@@ -112,7 +66,7 @@ curl -X POST http://127.0.0.1:3100/api/auth/login \
 
 ```bash
 curl http://127.0.0.1:3100/api/auth/me \
-  -H "Authorization: Bearer <accessToken>"
+  --cookie "campus_wiki_session=<opaque-session>"
 ```
 
 ### 成功响应
@@ -121,18 +75,19 @@ curl http://127.0.0.1:3100/api/auth/me \
 
 ### 常见错误
 
-- `401 Unauthorized`：缺少 token、token 无效或 token 已过期。
+- `401 Unauthorized`：缺少会话、会话无效或已过期。
 - `403 Forbidden`：账号已被禁用。
 
 ## PATCH /api/auth/me
 
-修改当前登录用户的昵称。昵称同时作为登录用户名使用。
+修改 Wiki 本地昵称。它不会修改 Accounts 的中央用户名。
 
 ### 请求示例
 
 ```bash
 curl -X PATCH http://127.0.0.1:3100/api/auth/me \
-  -H "Authorization: Bearer <accessToken>" \
+  --cookie "campus_wiki_session=<opaque-session>" \
+  -H "Origin: http://127.0.0.1:3200" \
   -H "Content-Type: application/json" \
   -d "{\"username\":\"student02\"}"
 ```
@@ -149,7 +104,7 @@ curl -X PATCH http://127.0.0.1:3100/api/auth/me \
 
 ### 常见错误
 
-- `401 Unauthorized`：缺少 token、token 无效或 token 已过期。
+- `401 Unauthorized`：缺少会话、会话无效或已过期。
 - `403 Forbidden`：账号已被禁用。
 - `409 Conflict`：昵称已存在。
 - `422 Unprocessable Entity`：昵称格式不符合要求。
@@ -232,7 +187,7 @@ curl http://127.0.0.1:3100/api/announcements
 
 ## 留言接口
 
-公告、项目和普通资源使用同一套两级留言接口。读取公开，写操作需要 Bearer Token。
+公告、项目和普通资源使用同一套两级留言接口。读取公开，写操作需要有效的 Wiki Cookie 会话。
 
 - `GET /api/comments?targetType=announcement|project|resource&targetId=1&sort=hot|latest&page=1&pageSize=10`：分页读取主留言及其全部回复。
 - `GET /api/comments/{comment_id}/context`：读取指定可见留言所属的完整回复线程，用于通知深链接定位。
@@ -383,7 +338,7 @@ curl "http://127.0.0.1:3100/api/projects?category=科技创新&year=2026&sort=po
 
 查询参数：`track`，布尔值，默认为 `true`。
 
-详情中的 `viewerPermissions.canCreateUpdate` 表示当前 Bearer Token 对应的用户是否可发布动态。管理员和已由管理员绑定账号的本项目成员为 `true`。
+详情中的 `viewerPermissions.canCreateUpdate` 表示当前 Cookie 会话对应的用户是否可发布动态。管理员和已由管理员绑定账号的本项目成员为 `true`。
 
 ### 请求示例
 
@@ -455,7 +410,8 @@ curl http://127.0.0.1:3100/api/projects/1
 
 ```bash
 curl -X POST http://127.0.0.1:3100/api/projects/1/updates \
-  -H "Authorization: Bearer <accessToken>" \
+  --cookie "campus_wiki_session=<opaque-session>" \
+  -H "Origin: http://127.0.0.1:3200" \
   -F "content=完成了本周的校园展示" \
   -F "photos=@activity.jpg"
 ```
@@ -581,7 +537,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 给资源下载数加一，并返回更新后的资源。下载数不做 5 秒节流，前台点击普通资源链接、Yearbook PDF 下载或 Yearbook 单页图片下载时调用；后台预览和后台下载不调用，避免管理员操作影响公开统计。
 
-该接口必须登录，需携带 `Authorization: Bearer <accessToken>`。未登录返回 `401 Unauthorized`；前端未登录点击下载时会先弹出 `抱歉，需要登陆`，不会发起下载统计请求。
+该接口必须携带有效的 Wiki Cookie 会话。未登录返回 `401 Unauthorized`；前端未登录点击下载时会先弹出 `抱歉，需要登陆`，不会发起下载统计请求。
 
 ### 响应字段
 
@@ -660,7 +616,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 记录一次活动照片下载，并返回更新后的活动摘要。该接口统计活动级下载量，前台批量下载至少成功保存一张照片后，或下载单张放大照片时会调用它。
 
-该接口必须登录，需携带 `Authorization: Bearer <accessToken>`。未登录返回 `401 Unauthorized`；前端未登录点击下载时会先弹出 `抱歉，需要登陆`，不会发起下载统计请求。
+该接口必须携带有效的 Wiki Cookie 会话。未登录返回 `401 Unauthorized`；前端未登录点击下载时会先弹出 `抱歉，需要登陆`，不会发起下载统计请求。
 
 ### 响应字段
 
@@ -707,12 +663,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 ### 鉴权
 
-必须登录。接口支持两种传递 token 的方式：
-
-- `Authorization: Bearer <accessToken>`：适合 `fetch` 或 API 客户端。
-- `?token=<accessToken>`：适合浏览器 `<a download>` 这类无法附加请求头的下载链接。
-
-未登录、token 无效或 token 已过期时返回 `401 Unauthorized`。前端未登录点击下载时会先弹出 `抱歉，需要登陆`，不会跳转到该接口。
+必须登录，浏览器会自动携带 HttpOnly Cookie。前端下载使用带 `credentials: 'include'` 的 `fetch` 获取 Blob，不把会话 token 放入 URL、请求头或 JavaScript 存储。未登录、会话无效或已过期时返回 `401 Unauthorized`。
 
 ### 路径安全
 
@@ -729,7 +680,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 ## 用户资料与关系
 
-以下用户关系接口需 Bearer Token；人员档案详情可公开读取：
+以下用户关系接口需有效的 Wiki Cookie 会话；人员档案详情可公开读取：
 
 - `GET /api/users?search=`：搜索可私信的启用用户。
 - `GET /api/users/{user_id}`：用户公开资料、关注关系和已关联 CAS 项目。
@@ -770,14 +721,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 
 ## 管理后台 API
 
-所有管理后台接口都以 `/api/admin` 开头，并且必须携带 `Authorization: Bearer <accessToken>`。只有 `role` 为 `admin` 的用户可以访问。未登录返回 `401 Unauthorized`，普通用户返回 `403 Forbidden`。
-
-### 认证访问限制
-
-- `GET /api/admin/auth-security-settings`：读取当前注册、登录和修改密码限额。
-- `PATCH /api/admin/auth-security-settings`：更新一个或多个限额。允许字段为 `loginIpLimit`、`adminLoginIpLimit`、`loginFailureLimit`、`loginFailureCooldownMinutes`、`registerHourlyLimit`、`registerDailyLimit`、`passwordChangeHourlyLimit`。
-
-配置保存在数据库中，每次认证请求都会读取当前值，因此保存后无需重启即可生效。计数同样持久化到 SQLite；达到限制时返回 `429` 和 `Retry-After`。后端只采用 ASGI 提供的客户端地址，不直接信任浏览器提交的 `X-Forwarded-For`；反向代理部署应在 Uvicorn 层正确配置可信代理。
+所有管理后台接口都以 `/api/admin` 开头，并且必须携带有效的 Wiki Cookie 会话。只有 Wiki 本地 `role=admin` 的成员可以访问；中央管理员不会自动获得该角色。未登录返回 `401 Unauthorized`，普通成员返回 `403 Forbidden`。带会话 Cookie 的写请求还必须提供与 `CORS_ORIGINS` 匹配的 `Origin`。
 
 ### JSON 数据导入/导出
 
@@ -811,11 +755,10 @@ JSON 迁移覆盖 CAS 项目（含成员联系方式与动态）、普通资源�
 ### 用户管理
 
 - `GET /api/admin/users`：查询用户列表，支持 `search`、`role`、`isActive`。
-- `POST /api/admin/users`：创建用户。字段：`username`、`password`、`displayName`、`role`、`isActive`。
 - `PATCH /api/admin/users/{user_id}`：更新用户姓名、权限和状态。只允许字段：`displayName`、`role`、`isActive`。
 - `DELETE /api/admin/users/{user_id}`：匿名化注销用户。禁止删除当前账号和最后一个启用管理员；历史留言和私信保留并显示为“已注销用户”。
 
-`username` 是昵称/登录用户名，`displayName` 是姓名。`POST /api/admin/users` 允许管理员创建普通用户或管理员；`role` 只能是 `admin` 或 `user`。`PATCH /api/admin/users/{user_id}` 中 `displayName` 传空字符串时保存为 `NULL`。
+列表只包含至少访问过一次 Wiki 的本地成员，不显示全部中央账号。新成员由 OIDC 回调按 `sub` 自动创建，后台不提供本地密码账号创建入口。`role` 只能是 `admin` 或 `user`；停用成员会立即撤销其所有 Wiki 会话。`PATCH /api/admin/users/{user_id}` 中 `displayName` 传空字符串时保存为 `NULL`。
 
 ### 公告与留言
 

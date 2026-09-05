@@ -410,7 +410,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         with get_db_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("PRAGMA user_version")
-                self.assertEqual(cursor.fetchone()["user_version"], 13)
+                self.assertEqual(cursor.fetchone()["user_version"], 14)
                 cursor.execute("PRAGMA table_info(conversation_members)")
                 member_columns = {column["name"] for column in cursor.fetchall()}
                 self.assertNotIn("request_status", member_columns)
@@ -1898,7 +1898,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         self.assertEqual(deleted.status_code, 200, deleted.text)
         self.assertEqual(
             self.client.get("/api/auth/me", headers=self._headers(doomed_token)).status_code,
-            403,
+            401,
         )
         users = self.client.get(
             "/api/admin/users",

@@ -11,7 +11,12 @@ from urllib.request import Request, urlopen
 
 os.environ["FRONTEND_API_BASE_URL"] = "http://127.0.0.1:33100/api"
 
-from frontend_server import FrontendHandler, PUBLIC_DIR, frontend_api_base_url  # noqa: E402
+from frontend_server import (  # noqa: E402
+    FrontendHandler,
+    PUBLIC_DIR,
+    accounts_base_url,
+    frontend_api_base_url,
+)
 from http.server import ThreadingHTTPServer  # noqa: E402
 
 
@@ -79,6 +84,20 @@ class FrontendServerTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(content_type, "application/javascript")
         self.assertIn(b"http://127.0.0.1:33100/api", body)
+        self.assertIn(b"https://auth.nethub.wiki", body)
+
+    def test_oidc_frontend_does_not_expose_session_credentials(self) -> None:
+        _, shared_script, _ = self.fetch("/js/api.js")
+        _, admin_page, _ = self.fetch("/admin.html")
+        self.assertIn(b"credentials: 'include'", shared_script)
+        self.assertIn(b"/auth/login?returnTo=", shared_script)
+        self.assertNotIn(b"campusWikiAuthToken", shared_script)
+        self.assertNotIn(b"Authorization", shared_script)
+        self.assertNotIn(b'id="createUserButton"', admin_page)
+
+    def test_accounts_base_url_uses_oidc_issuer(self) -> None:
+        with patch.dict(os.environ, {"OIDC_ISSUER": "https://login.example.test/"}):
+            self.assertEqual(accounts_base_url(), "https://login.example.test")
 
     def test_default_api_config_follows_request_hostname(self) -> None:
         with patch.dict(os.environ, {"FRONTEND_API_BASE_URL": "", "API_PORT": "3100"}):

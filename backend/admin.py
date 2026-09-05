@@ -24,6 +24,7 @@ from backend.auth import (
     format_user,
     get_current_user,
     hash_password,
+    revoke_sessions,
     validate_password,
     validate_username,
 )
@@ -1163,6 +1164,8 @@ def admin_list_users(
 
 @router.post("/users")
 def admin_create_user(payload: dict[str, Any], _: dict[str, Any] = Depends(require_admin_user)):
+    if settings.oidc_client_secret:
+        raise HTTPException(status_code=410, detail="请让用户先通过 NetHub Accounts 登录 Wiki")
     username = str(payload.get("username") or "")
     password = str(payload.get("password") or "")
     role = payload.get("role") or "user"
@@ -1233,6 +1236,8 @@ def admin_update_user(
                     raise HTTPException(status_code=404, detail="用户不存在")
             cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
             row = cursor.fetchone()
+    if payload.get("isActive") is False:
+        revoke_sessions(user_id=user_id)
     return format_user(row)
 
 
@@ -1300,6 +1305,7 @@ def admin_delete_user(
             )
 
     delete_managed_avatar(old_avatar_url)
+    revoke_sessions(user_id=user_id)
     return {"ok": True}
 
 
