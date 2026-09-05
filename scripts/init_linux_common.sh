@@ -10,8 +10,6 @@ ENV_EXAMPLE="$PROJECT_DIR/.env.example"
 FRONTEND_REQUIREMENTS="$PROJECT_DIR/requirements-frontend.txt"
 BACKEND_REQUIREMENTS="$PROJECT_DIR/requirements.txt"
 SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-ADMIN_USERNAME=""
-ADMIN_DISPLAY_NAME=""
 
 log() {
   printf '[init] %s\n' "$*"
@@ -27,19 +25,15 @@ usage() {
   case "$mode" in
     all)
       cat <<'EOF'
-用法：scripts/init_linux.sh [--admin USERNAME] [--display-name NAME]
+用法：scripts/init_linux.sh
 
-  --admin USERNAME       初始化数据库后交互式创建首个管理员
-  --display-name NAME    管理员显示姓名（需与 --admin 一起使用）
   -h, --help             显示帮助
 EOF
       ;;
     backend)
       cat <<'EOF'
-用法：scripts/init_backend_linux.sh [--admin USERNAME] [--display-name NAME]
+用法：scripts/init_backend_linux.sh
 
-  --admin USERNAME       初始化数据库后交互式创建首个管理员
-  --display-name NAME    管理员显示姓名（需与 --admin 一起使用）
   -h, --help             显示帮助
 EOF
       ;;
@@ -62,18 +56,6 @@ parse_arguments() {
 
   while (($#)); do
     case "$1" in
-      --admin)
-        [[ "$mode" != "frontend" ]] || die "前端初始化不支持 --admin"
-        (($# >= 2)) || die "--admin 缺少昵称"
-        ADMIN_USERNAME="$2"
-        shift 2
-        ;;
-      --display-name)
-        [[ "$mode" != "frontend" ]] || die "前端初始化不支持 --display-name"
-        (($# >= 2)) || die "--display-name 缺少姓名"
-        ADMIN_DISPLAY_NAME="$2"
-        shift 2
-        ;;
       -h|--help)
         usage "$mode"
         exit 0
@@ -84,9 +66,6 @@ parse_arguments() {
     esac
   done
 
-  if [[ -n "$ADMIN_DISPLAY_NAME" && -z "$ADMIN_USERNAME" ]]; then
-    die "--display-name 必须与 --admin 一起使用"
-  fi
 }
 
 read_env() {
@@ -156,30 +135,10 @@ install_dependencies() {
 }
 
 prepare_backend() {
-  if [[ -z "$(read_env AUTH_SECRET_KEY)" ]]; then
-    AUTH_SECRET_KEY="$("$CONDA_EXE" run --no-capture-output -n "$CONDA_ENV_NAME" python -c 'import secrets; print(secrets.token_urlsafe(48))')"
-    ENV_FILE="$ENV_FILE" AUTH_SECRET_KEY="$AUTH_SECRET_KEY" \
-      "$CONDA_EXE" run --no-capture-output -n "$CONDA_ENV_NAME" python - <<'PY'
-import os
-from pathlib import Path
-
-path = Path(os.environ["ENV_FILE"])
-secret = os.environ["AUTH_SECRET_KEY"]
-lines = path.read_text(encoding="utf-8").splitlines()
-updated = []
-replaced = False
-for line in lines:
-    if line.lstrip().startswith("AUTH_SECRET_KEY="):
-        updated.append(f"AUTH_SECRET_KEY={secret}")
-        replaced = True
-    else:
-        updated.append(line)
-if not replaced:
-    updated.append(f"AUTH_SECRET_KEY={secret}")
-path.write_text("\n".join(updated) + "\n", encoding="utf-8")
-PY
-    log "已生成独立的 AUTH_SECRET_KEY"
-  fi
+  local oidc_client_secret
+  oidc_client_secret="$(read_env OIDC_CLIENT_SECRET)"
+  [[ ${#oidc_client_secret} -ge 32 ]] || die \
+    "OIDC_CLIENT_SECRET 未配置或过短；请先在 NetHub Accounts 注册 campus-wiki 客户端并把一次性密钥写入 .env"
 
   log "创建数据库结构并执行迁移（不会插入示例业务数据）"
   (
@@ -236,20 +195,6 @@ RestartSec=5
 [Install]
 WantedBy=default.target
 EOF
-}
-
-create_admin_if_requested() {
-  local -a admin_args=(--username "$ADMIN_USERNAME")
-  [[ -n "$ADMIN_USERNAME" ]] || return 0
-
-  if [[ -n "$ADMIN_DISPLAY_NAME" ]]; then
-    admin_args+=(--display-name "$ADMIN_DISPLAY_NAME")
-  fi
-  (
-    cd -- "$PROJECT_DIR"
-    "$CONDA_EXE" run --no-capture-output -n "$CONDA_ENV_NAME" \
-      python -m backend.bootstrap_admin "${admin_args[@]}"
-  )
 }
 
 show_linger_hint() {
@@ -310,10 +255,6 @@ run_initializer() {
   systemd-analyze --user verify "${unit_paths[@]}"
   systemctl --user daemon-reload
   systemctl --user enable --now "${unit_names[@]}"
-
-  if [[ "$mode" != "frontend" ]]; then
-    create_admin_if_requested
-  fi
 
   log "初始化完成"
   if [[ "$mode" != "frontend" ]]; then

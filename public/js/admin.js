@@ -2266,7 +2266,8 @@ function bindAdminEvents() {
   document.querySelectorAll('[data-file-picker-close]').forEach((item) => {
     item.addEventListener('click', closeFilePicker);
   });
-  adminEls.adminLogout.addEventListener('click', () => {
+  adminEls.adminLogout.addEventListener('click', async () => {
+    await request('/auth/logout', { method: 'POST' }).catch(() => null);
     clearAuthSession();
     window.location.href = '/index.html';
   });
@@ -2299,7 +2300,7 @@ function bindAdminEvents() {
     setFileActionMessage(`已选择：${folderName}（${files.length} 个文件）`);
   });
 
-  adminEls.createUserButton.addEventListener('click', () => openUserModal({ isActive: true, role: 'user' }));
+  adminEls.createUserButton?.addEventListener('click', () => openUserModal({ isActive: true, role: 'user' }));
   adminEls.refreshUsers.addEventListener('click', loadUsers);
   adminEls.userSearch.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') loadUsers();

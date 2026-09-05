@@ -15,7 +15,7 @@ DATABASE_PATH=data/campus_wiki.db
 自动执行 `sql/schema.sql`，只创建表、索引、外键和触发器，不插入业务数据或用户账号。
 脚本最后设置 `PRAGMA user_version = 1`，后端以此判断数据库是否已经初始化。
 
-首次部署通过 `python -m backend.bootstrap_admin --username <昵称>` 交互式创建首个管理员。该命令在已有启用中的管理员时会拒绝执行，密码也不会作为命令行参数传递。
+Wiki 不创建本地密码管理员。可在首次 OIDC 登录前配置 `WIKI_ADMIN_AUTH_SUBS`，或让成员登录一次后执行 `python -m backend.grant_admin --auth-sub <中央sub>`；授权只改变 Wiki 本地角色。
 
 运行参数：
 
@@ -31,7 +31,12 @@ DATABASE_PATH=data/campus_wiki.db
 ## 表关系
 
 ```text
-users
+users 1 ──── n auth_sessions
+  │
+  └──── 1 legacy_local_accounts_archive
+
+oidc_login_attempts
+backchannel_logout_events
 
 projects
 project_categories
@@ -52,13 +57,24 @@ resources ─────┘       │
 
 ### `users`
 
-保存登录账号、PBKDF2 密码哈希、角色和启用状态。
+保存访问过 Wiki 的本地成员、业务资料、角色和启用状态。
 
 - `username` 唯一。
+- `auth_sub` 唯一，保存 NetHub Accounts 的稳定用户标识；业务外键继续使用本地 `id`。
 - `role` 只能为 `admin` 或 `user`。
 - `is_active` 只能为 `0` 或 `1`。
 - `deleted_at` 非空表示账号已匿名化注销；该行继续保留，以维持历史留言和私信外键。
-- 新注册账号固定为普通用户；管理员通过后台用户管理调整角色。
+- 首次 OIDC 登录创建成员时固定为普通用户，除非 `sub` 明确列入 `WIKI_ADMIN_AUTH_SUBS`；首个访问者不会自动成为管理员。
+
+### `auth_sessions` / `oidc_login_attempts` / `backchannel_logout_events`
+
+`auth_sessions` 保存 Wiki 自己的不透明会话，只落库 SHA-256 token 摘要，并同时记录中央 `sub` 与 `sid`。会话有 7 天闲置期限和 30 天绝对期限（均可配置）；本地成员停用、删除或收到 Accounts 的退出通知时会撤销匹配会话。
+
+`oidc_login_attempts` 保存十分钟内有效的一次性 `state` 摘要、PKCE verifier、nonce 和安全返回地址。`backchannel_logout_events` 按 `jti` 去重签名退出通知；重复通知幂等成功。
+
+### `legacy_local_accounts_archive`
+
+迁移 014 不把旧 Wiki 开发账号导入 Accounts。它保留旧本地 `id` 及业务外键，归档旧用户名和密码哈希，清空 `users.password_hash`，把旧账号停用并降为普通角色。归档只用于审计或人工清理，不能用于登录。
 
 ### `auth_security_settings` / `auth_rate_limit_buckets`
 
@@ -180,4 +196,4 @@ SQLite 数据库及对应的 `public/` 资源目录。
 
 不要通过姓名自动把 `people` 绑定到 `users`。旧文本数据迁移会为每个项目创建独立人员档案，之后只能由管理员在对应 CAS 项目详情的成员区域选择账号完成绑定。
 
-数据库结构通过 `sql/migrations` 目录中的连续编号脚本升级。每个脚本必须在事务中执行并更新 `PRAGMA user_version`；后端检测到版本缺口时会拒绝启动，避免跳版本造成半套结构。当前最新版本为 12：002 增加用户关系、人员认领和私信，003 增加公告与通用留言，004 移除旧资源分类表，005 为项目成员关系增加联系方式，006 取消消息请求状态并统一私信会话，007 增加回复与点赞通知，008 增加 CAS 项目资源目录并迁移旧图标和动态图片路径，009 降权并禁用仍保留公开初始密码哈希的旧默认管理员，010 增加用户注销标记并把公告状态收敛为发布/归档，011 增加认证访问限制的动态配置和持久化计数，012 将中英文并列的 CAS 成员姓名统一为英文名在前。
+数据库结构通过 `sql/migrations` 目录中的连续编号脚本升级。每个脚本必须在事务中执行并更新 `PRAGMA user_version`；后端检测到版本缺口时会拒绝启动，避免跳版本造成半套结构。当前最新版本为 14：002–012 完成既有社交、项目与安全结构升级，013 增加可选资源封面，014 接入 NetHub Accounts、停用旧开发账号并增加 OIDC 状态、本地会话和退出通知去重表。

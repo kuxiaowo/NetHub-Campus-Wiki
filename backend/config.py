@@ -72,6 +72,31 @@ class Settings:
         "DATABASE_CONNECT_TIMEOUT_SECONDS", 5, minimum=0
     )
     database_busy_timeout_ms: int = _env_int("DATABASE_BUSY_TIMEOUT_MS", 5000)
+    oidc_issuer: str = os.getenv(
+        "OIDC_ISSUER", "https://auth.nethub.wiki"
+    ).strip().rstrip("/")
+    oidc_client_id: str = os.getenv("OIDC_CLIENT_ID", "campus-wiki").strip()
+    oidc_client_secret: str = os.getenv("OIDC_CLIENT_SECRET", "").strip()
+    oidc_redirect_uri: str = os.getenv(
+        "OIDC_REDIRECT_URI", "http://127.0.0.1:3100/api/auth/callback"
+    ).strip()
+    frontend_base_url: str = os.getenv(
+        "FRONTEND_BASE_URL", "http://127.0.0.1:3200"
+    ).strip().rstrip("/")
+    auth_cookie_secure: bool = _env_bool("AUTH_COOKIE_SECURE", True)
+    auth_session_idle_seconds: int = _env_int(
+        "AUTH_SESSION_IDLE_SECONDS", 7 * 24 * 60 * 60, minimum=300
+    )
+    auth_session_absolute_seconds: int = _env_int(
+        "AUTH_SESSION_ABSOLUTE_SECONDS", 30 * 24 * 60 * 60, minimum=3600
+    )
+    wiki_admin_auth_subs: tuple[str, ...] = tuple(
+        value.strip()
+        for value in os.getenv("WIKI_ADMIN_AUTH_SUBS", "").split(",")
+        if value.strip()
+    )
+    # Kept only for old local test fixtures. Production authentication no longer
+    # signs or accepts the former application JWT.
     auth_secret_key: str = os.getenv("AUTH_SECRET_KEY", "").strip()
     auth_token_expire_minutes: int = _env_int("AUTH_TOKEN_EXPIRE_MINUTES", 120, minimum=1)
     photo_dir_cache_minutes: int = _env_int("PHOTO_DIR_CACHE_MINUTES", 5)
@@ -106,7 +131,7 @@ class Settings:
         origin.strip()
         for origin in os.getenv(
             "CORS_ORIGINS",
-            "*",
+            "http://127.0.0.1:3200,http://localhost:3200",
         ).split(",")
         if origin.strip()
     )
@@ -154,7 +179,63 @@ def validate_runtime_settings() -> None:
             or media_url.fragment
         ):
             raise RuntimeError("PUBLIC_MEDIA_BASE_URL 必须是无查询参数的 http/https URL")
-    validate_auth_secret_key(settings.auth_secret_key)
+    issuer = urlsplit(settings.oidc_issuer)
+    if (
+        issuer.scheme != "https"
+        or not issuer.netloc
+        or issuer.username
+        or issuer.password
+        or issuer.query
+        or issuer.fragment
+    ):
+        raise RuntimeError("OIDC_ISSUER 必须使用 HTTPS")
+    if not settings.oidc_client_id:
+        raise RuntimeError("OIDC_CLIENT_ID 不能为空")
+    if len(settings.oidc_client_secret.encode("utf-8")) < 32:
+        raise RuntimeError("OIDC_CLIENT_SECRET 至少需要 32 字节")
+    redirect = urlsplit(settings.oidc_redirect_uri)
+    if (
+        redirect.scheme not in {"http", "https"}
+        or not redirect.netloc
+        or redirect.query
+        or redirect.fragment
+        or not redirect.path.endswith("/api/auth/callback")
+        or (
+            redirect.scheme == "http"
+            and redirect.hostname not in {"127.0.0.1", "localhost"}
+        )
+    ):
+        raise RuntimeError("OIDC_REDIRECT_URI 必须使用 HTTPS（本机回环开发除外）并指向 /api/auth/callback")
+    frontend = urlsplit(settings.frontend_base_url)
+    if (
+        frontend.scheme not in {"http", "https"}
+        or not frontend.netloc
+        or frontend.username
+        or frontend.password
+        or frontend.query
+        or frontend.fragment
+    ):
+        raise RuntimeError("FRONTEND_BASE_URL 必须是有效的 http/https 地址")
+    if redirect.scheme == "https" and not settings.auth_cookie_secure:
+        raise RuntimeError("HTTPS 部署必须设置 AUTH_COOKIE_SECURE=true")
+    if settings.auth_session_idle_seconds > settings.auth_session_absolute_seconds:
+        raise RuntimeError("AUTH_SESSION_IDLE_SECONDS 不能大于绝对会话期限")
+    if not settings.cors_origins or "*" in settings.cors_origins:
+        raise RuntimeError("Cookie 会话要求 CORS_ORIGINS 使用明确来源，不能使用通配符")
+    for origin in settings.cors_origins:
+        parsed_origin = urlsplit(origin)
+        if (
+            parsed_origin.scheme not in {"http", "https"}
+            or not parsed_origin.netloc
+            or parsed_origin.path not in {"", "/"}
+            or parsed_origin.query
+            or parsed_origin.fragment
+        ):
+            raise RuntimeError("CORS_ORIGINS 只能包含无路径的明确 http/https 来源")
+    frontend_origin = f"{frontend.scheme}://{frontend.netloc}"
+    allowed_origins = {origin.rstrip("/") for origin in settings.cors_origins}
+    if frontend_origin not in allowed_origins:
+        raise RuntimeError("CORS_ORIGINS 必须包含 FRONTEND_BASE_URL 的来源")
 
 
 def get_database_path() -> Path:

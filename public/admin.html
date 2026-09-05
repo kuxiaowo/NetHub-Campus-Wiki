@@ -24,7 +24,7 @@
         <button class="admin-nav-item" type="button" data-admin-view="projects" aria-pressed="false">CAS 项目管理</button>
         <button class="admin-nav-item" type="button" data-admin-view="resources" aria-pressed="false">资源管理</button>
         <button class="admin-nav-item" type="button" data-admin-view="community" aria-pressed="false">公告与留言</button>
-        <button class="admin-nav-item" type="button" data-admin-view="security" aria-pressed="false">访问限制</button>
+        <button class="admin-nav-item" type="button" data-admin-view="security" aria-pressed="false" hidden>旧认证限制</button>
       </nav>
       <a class="button secondary admin-home-link" href="/index.html">返回前台</a>
     </aside>
@@ -49,9 +49,8 @@
           <div class="admin-section-head">
             <div>
               <h2>用户管理</h2>
-              <p>查看用户列表，创建账号，调整角色和启用状态。</p>
+              <p>这里只显示访问过 Wiki 的本地成员。账号注册与密码由 NetHub Accounts 管理。</p>
             </div>
-            <button id="createUserButton" class="button compact" type="button">新建用户</button>
           </div>
           <div class="admin-toolbar">
             <input id="userSearch" class="input" type="search" placeholder="搜索昵称或姓名" />
@@ -318,7 +317,7 @@
           </section>
         </section>
 
-        <section class="admin-view" data-admin-panel="security">
+        <section class="admin-view" data-admin-panel="security" hidden>
           <div class="admin-section-head">
             <div>
               <h2>访问限制</h2>

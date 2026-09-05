@@ -7,7 +7,6 @@ const API_BASE = window.CAMPUS_WIKI_CONFIG?.apiBaseUrl || '/api';
  * path 只传 /api 后面的路径，例如 /projects。真实服务地址由 config.js 提供，
  * 这样前端服务和后端服务可以独立部署。
  */
-const AUTH_TOKEN_KEY = 'campusWikiAuthToken';
 const AUTH_USER_KEY = 'campusWikiAuthUser';
 const PROTECTED_FILE_EXTENSIONS = new Set([
   '.jpg', '.jpeg', '.png', '.webp', '.gif',
@@ -18,13 +17,15 @@ const PROTECTED_FILE_DIRS = new Set(['photos', 'yearbook']);
 
 async function request(path, options = {}) {
   const headers = new Headers(options.headers || {});
-  const token = getAuthToken();
-  if (token) headers.set('Authorization', `Bearer ${token}`);
   if (options.body && !(options.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
 
-  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    credentials: 'include',
+    headers,
+  });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     let detail = error.detail;
@@ -39,11 +40,14 @@ async function request(path, options = {}) {
     }
     throw new Error(detail || error.message || `请求失败：${response.status}`);
   }
+  if (response.status === 204) return null;
   return response.json();
 }
 
 function getAuthToken() {
-  return window.localStorage.getItem(AUTH_TOKEN_KEY);
+  // Compatibility name used by page modules. The real credential is an
+  // HttpOnly cookie and is deliberately unavailable to JavaScript.
+  return getStoredUser() ? 'cookie-session' : null;
 }
 
 function getStoredUser() {
@@ -54,14 +58,12 @@ function getStoredUser() {
   }
 }
 
-function saveAuthSession(token, user) {
-  window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+function saveAuthSession(_token, user) {
   window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
   window.dispatchEvent(new CustomEvent('campusWikiAuthChange', { detail: { user } }));
 }
 
 function clearAuthSession() {
-  window.localStorage.removeItem(AUTH_TOKEN_KEY);
   window.localStorage.removeItem(AUTH_USER_KEY);
   window.dispatchEvent(new CustomEvent('campusWikiAuthChange', { detail: { user: null } }));
 }
@@ -132,27 +134,19 @@ async function refreshGlobalMessageBadge() {
   }
 }
 
-async function loginUser(username, password) {
-  const result = await request('/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({ username, password }),
-  });
-  saveAuthSession(result.accessToken, result.user);
-  return result.user;
+function loginUser({ silent = false } = {}) {
+  const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (!silent) {
+    window.sessionStorage.removeItem('campus-wiki-sso-probe');
+    window.localStorage.removeItem('campus-wiki-sso-suppressed-until');
+  }
+  const prompt = silent ? '&prompt=none' : '';
+  window.location.assign(`${apiBaseUrl()}/auth/login?returnTo=${encodeURIComponent(returnTo)}${prompt}`);
 }
 
-async function registerUser(username, password, displayName) {
-  return request('/auth/register', {
-    method: 'POST',
-    body: JSON.stringify({ username, password, displayName: displayName || null }),
-  });
-}
-
-async function changeCurrentUserPassword(currentPassword, newPassword) {
-  return request('/auth/password', {
-    method: 'PATCH',
-    body: JSON.stringify({ currentPassword, newPassword }),
-  });
+function changeCurrentUserPassword() {
+  const accountsBaseUrl = window.CAMPUS_WIKI_CONFIG?.accountsBaseUrl || 'https://auth.nethub.wiki';
+  window.location.assign(`${accountsBaseUrl.replace(/\/$/, '')}/account`);
 }
 
 async function updateCurrentUsername(username) {
@@ -163,7 +157,6 @@ async function updateCurrentUsername(username) {
 }
 
 async function refreshCurrentUser() {
-  if (!getAuthToken()) return null;
   try {
     const user = await request('/auth/me');
     window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
@@ -258,9 +251,7 @@ function authenticatedPublicFileUrl(value) {
   const path = publicFilePath(value);
   if (!path) return null;
 
-  const token = getAuthToken();
-  const query = token ? `?token=${encodeURIComponent(token)}` : '';
-  return `${apiBaseUrl()}/files/${path}${query}`;
+  return `${apiBaseUrl()}/files/${path}`;
 }
 
 function requireAuthForDownload() {
@@ -430,7 +421,7 @@ async function downloadFilesToSelectedDirectory(files, options = {}) {
       nextIndex += 1;
       const file = preparedFiles[currentIndex];
       try {
-        const response = await fetch(file.url);
+        const response = await fetch(file.url, { credentials: 'include' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         await writeResponseToLocalFile(directory.handle, file.filename, response);
         result.succeeded += 1;
@@ -469,58 +460,17 @@ function authDialogTemplate() {
       <div class="auth-backdrop" data-auth-close></div>
       <section id="authPanel" class="auth-panel">
         <div id="authHead" class="auth-head">
-          <h2>账号</h2>
-          <p id="authHint">未登录：可浏览内容，登录后可参与更多校园互动。</p>
+          <h2>注册或登录</h2>
+          <p id="authHint">登录后可参与更多校园互动。</p>
         </div>
         <div id="authAccountState"></div>
-        <div class="auth-tabs" role="tablist" aria-label="账号操作">
-          <button id="authLoginTab" class="auth-tab active" type="button">登录</button>
-          <button id="authRegisterTab" class="auth-tab" type="button">注册</button>
-        </div>
         <form id="authLoginForm" class="auth-form">
-          <label>
-            <span class="sr-only">昵称</span>
-            <input class="input" name="username" autocomplete="username" placeholder="昵称" required minlength="3" maxlength="32" />
-          </label>
-          <label>
-            <span class="sr-only">密码</span>
-            <input class="input" name="password" type="password" autocomplete="current-password" placeholder="密码" required minlength="8" maxlength="128" />
-          </label>
-          <button class="button auth-submit" type="submit">登录</button>
-        </form>
-        <form id="authRegisterForm" class="auth-form is-hidden">
-          <label>
-            <span class="sr-only">姓名</span>
-            <input class="input" name="displayName" autocomplete="name" placeholder="姓名" maxlength="80" />
-          </label>
-          <label>
-            <span class="sr-only">昵称</span>
-            <input class="input" name="username" autocomplete="username" placeholder="昵称" required minlength="3" maxlength="32" />
-          </label>
-          <label>
-            <span class="sr-only">密码</span>
-            <input class="input" name="password" type="password" autocomplete="new-password" placeholder="密码（8-128 位）" required minlength="8" maxlength="128" />
-          </label>
-          <label>
-            <span class="sr-only">确认密码</span>
-            <input class="input" name="confirmPassword" type="password" autocomplete="new-password" placeholder="确认密码" required minlength="8" maxlength="128" />
-          </label>
-          <button class="button auth-submit" type="submit">注册并登录</button>
+          <p>本网站使用 NetHub 账号登录，请前往账号管理界面</p>
+          <button class="button auth-submit" type="submit">登录或注册 NetHub 账号后继续</button>
         </form>
         <form id="authPasswordForm" class="auth-form is-hidden">
-          <label>
-            <span class="sr-only">原密码</span>
-            <input class="input" name="currentPassword" type="password" autocomplete="current-password" placeholder="原密码" required minlength="8" maxlength="128" />
-          </label>
-          <label>
-            <span class="sr-only">新密码</span>
-            <input class="input" name="newPassword" type="password" autocomplete="new-password" placeholder="新密码（8-128 位）" required minlength="8" maxlength="128" />
-          </label>
-          <label>
-            <span class="sr-only">确认新密码</span>
-            <input class="input" name="confirmPassword" type="password" autocomplete="new-password" placeholder="确认新密码" required minlength="8" maxlength="128" />
-          </label>
-          <button class="button auth-submit" type="submit">修改密码</button>
+          <p>密码由 NetHub Accounts 统一管理。</p>
+          <button class="button auth-submit" type="submit">打开统一账号设置</button>
         </form>
         <form id="authUsernameForm" class="auth-form is-hidden">
           <label>
@@ -548,17 +498,12 @@ function initAuthNav() {
   const modal = document.querySelector('#authModal');
   const authPanel = document.querySelector('#authPanel');
   const authHead = document.querySelector('#authHead');
-  const authTabs = document.querySelector('.auth-tabs');
   const loginForm = document.querySelector('#authLoginForm');
-  const registerForm = document.querySelector('#authRegisterForm');
   const passwordForm = document.querySelector('#authPasswordForm');
   const usernameForm = document.querySelector('#authUsernameForm');
   const hint = document.querySelector('#authHint');
   const accountState = document.querySelector('#authAccountState');
   const message = document.querySelector('#authMessage');
-  const loginTab = document.querySelector('#authLoginTab');
-  const registerTab = document.querySelector('#authRegisterTab');
-  let mode = 'login';
   let currentUser = getStoredUser();
   let passwordFormOpen = false;
   let usernameFormOpen = false;
@@ -593,29 +538,21 @@ function initAuthNav() {
     if (!currentUser) {
       authPanel.classList.remove('is-account-menu');
       authHead.classList.remove('is-hidden');
-      authTabs.classList.remove('is-hidden');
       message.classList.remove('is-hidden');
       accountState.innerHTML = '';
-      hint.textContent = '未登录：可浏览内容，登录后可参与更多校园互动。';
-      loginForm.classList.toggle('is-hidden', mode !== 'login');
-      registerForm.classList.toggle('is-hidden', mode !== 'register');
+      hint.textContent = '登录后可参与更多校园互动。';
+      loginForm.classList.remove('is-hidden');
       passwordForm.classList.add('is-hidden');
       usernameForm.classList.add('is-hidden');
-      loginTab.classList.remove('is-hidden');
-      registerTab.classList.remove('is-hidden');
       return;
     }
 
     authPanel.classList.add('is-account-menu');
     authHead.classList.add('is-hidden');
-    authTabs.classList.add('is-hidden');
     message.classList.toggle('is-hidden', !passwordFormOpen && !usernameFormOpen);
     loginForm.classList.add('is-hidden');
-    registerForm.classList.add('is-hidden');
     passwordForm.classList.toggle('is-hidden', !passwordFormOpen);
     usernameForm.classList.toggle('is-hidden', !usernameFormOpen);
-    loginTab.classList.add('is-hidden');
-    registerTab.classList.add('is-hidden');
     accountState.innerHTML = `
       <div class="auth-profile-summary">
         <span class="auth-profile-avatar" data-initial="${escapeHtml(userInitial(currentUser))}">
@@ -637,6 +574,10 @@ function initAuthNav() {
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4.5 21a7.5 7.5 0 0 1 15 0"></path></svg>
           <span>个人中心</span><span class="auth-menu-arrow" aria-hidden="true">›</span>
         </a>
+        <button class="auth-menu-item" type="button" data-account-center>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"></path></svg>
+          <span>前往账户中心</span><span class="auth-menu-arrow" aria-hidden="true">›</span>
+        </button>
         <button class="auth-menu-item auth-menu-logout" type="button" data-logout>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H5v14h5"></path><path d="M13 8l4 4-4 4"></path><path d="M8 12h9"></path></svg>
           <span>退出账号</span>
@@ -651,6 +592,7 @@ function initAuthNav() {
         </button>
       </div>
     `;
+    accountState.querySelector('[data-account-center]')?.addEventListener('click', openAccountSettings);
     accountState.querySelector('[data-toggle-username]')?.addEventListener('click', () => {
       usernameFormOpen = !usernameFormOpen;
       if (usernameFormOpen) {
@@ -673,10 +615,15 @@ function initAuthNav() {
       message.classList.remove('error');
       renderAccountState();
       updateAuthPanelPosition();
-      if (passwordFormOpen) passwordForm.currentPassword.focus();
+      if (passwordFormOpen) passwordForm.querySelector('button')?.focus();
     });
-    accountState.querySelector('[data-logout]')?.addEventListener('click', () => {
+    accountState.querySelector('[data-logout]')?.addEventListener('click', async () => {
+      await request('/auth/logout', { method: 'POST' }).catch(() => null);
       clearAuthSession();
+      window.localStorage.setItem(
+        'campus-wiki-sso-suppressed-until',
+        String(Date.now() + 10 * 60 * 1000),
+      );
       window.clearInterval(globalMessageBadgeTimer);
       globalMessageBadgeTimer = null;
       passwordFormOpen = false;
@@ -686,12 +633,8 @@ function initAuthNav() {
     });
   }
 
-  function setMode(nextMode) {
-    mode = nextMode;
-    const isRegister = mode === 'register';
+  function setMode() {
     renderAccountState();
-    loginTab.classList.toggle('active', !isRegister);
-    registerTab.classList.toggle('active', isRegister);
     message.textContent = '登录后可保存你的项目资料与校园互动状态。';
     message.classList.remove('error');
   }
@@ -724,15 +667,13 @@ function initAuthNav() {
       accountState.querySelector('.auth-menu-item')?.focus();
       return;
     }
-    const activeForm = mode === 'register' ? registerForm : loginForm;
-    activeForm.username.focus();
+    loginForm.querySelector('button')?.focus();
   }
 
   function closeAuthModal() {
     modal.classList.remove('is-open');
     modal.setAttribute('aria-hidden', 'true');
     loginForm.reset();
-    registerForm.reset();
     passwordForm.reset();
     usernameForm.reset();
     passwordFormOpen = false;
@@ -741,8 +682,6 @@ function initAuthNav() {
     message.classList.remove('error');
   }
 
-  loginTab.addEventListener('click', () => setMode('login'));
-  registerTab.addEventListener('click', () => setMode('register'));
   document.querySelectorAll('[data-auth-close]').forEach((item) => item.addEventListener('click', closeAuthModal));
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && modal.classList.contains('is-open')) closeAuthModal();
@@ -751,90 +690,14 @@ function initAuthNav() {
     if (modal.classList.contains('is-open')) updateAuthPanelPosition();
   });
 
-  loginForm.addEventListener('submit', async (event) => {
+  loginForm.addEventListener('submit', (event) => {
     event.preventDefault();
-    message.textContent = '正在登录...';
-    message.classList.remove('error');
-    const submit = loginForm.querySelector('[type="submit"]');
-    submit.disabled = true;
-
-    try {
-      const formData = new FormData(loginForm);
-      const username = String(formData.get('username') || '');
-      const password = String(formData.get('password') || '');
-
-      const user = await loginUser(username, password);
-      renderUser(user);
-      closeAuthModal();
-    } catch (error) {
-      message.textContent = error.message;
-      message.classList.add('error');
-    } finally {
-      submit.disabled = false;
-    }
+    loginUser();
   });
 
-  registerForm.addEventListener('submit', async (event) => {
+  passwordForm.addEventListener('submit', (event) => {
     event.preventDefault();
-    message.textContent = '正在注册...';
-    message.classList.remove('error');
-    const submit = registerForm.querySelector('[type="submit"]');
-    submit.disabled = true;
-
-    try {
-      const formData = new FormData(registerForm);
-      const username = String(formData.get('username') || '');
-      const password = String(formData.get('password') || '');
-      const confirmPassword = String(formData.get('confirmPassword') || '');
-      const displayName = String(formData.get('displayName') || '').trim();
-
-      if (password !== confirmPassword) {
-        throw new Error('两次输入的密码不一致');
-      }
-
-      await registerUser(username, password, displayName);
-      const user = await loginUser(username, password);
-      renderUser(user);
-      closeAuthModal();
-    } catch (error) {
-      message.textContent = error.message;
-      message.classList.add('error');
-    } finally {
-      submit.disabled = false;
-    }
-  });
-
-  passwordForm.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    message.textContent = '正在修改密码...';
-    message.classList.remove('error');
-    const submit = passwordForm.querySelector('[type="submit"]');
-    submit.disabled = true;
-
-    try {
-      const formData = new FormData(passwordForm);
-      const currentPassword = String(formData.get('currentPassword') || '');
-      const newPassword = String(formData.get('newPassword') || '');
-      const confirmPassword = String(formData.get('confirmPassword') || '');
-
-      if (newPassword !== confirmPassword) {
-        throw new Error('两次输入的新密码不一致');
-      }
-
-      const user = await changeCurrentUserPassword(currentPassword, newPassword);
-      window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
-      passwordFormOpen = false;
-      renderUser(user);
-      renderAccountState();
-      passwordForm.reset();
-      message.textContent = '密码已修改';
-      message.classList.remove('error');
-    } catch (error) {
-      message.textContent = error.message;
-      message.classList.add('error');
-    } finally {
-      submit.disabled = false;
-    }
+    changeCurrentUserPassword();
   });
 
   usernameForm.addEventListener('submit', async (event) => {
@@ -864,7 +727,24 @@ function initAuthNav() {
   });
 
   renderUser(getStoredUser());
-  refreshCurrentUser().then(renderUser);
+  refreshCurrentUser().then((user) => {
+    renderUser(user);
+    if (user) {
+      window.sessionStorage.removeItem('campus-wiki-sso-probe');
+      window.localStorage.removeItem('campus-wiki-sso-suppressed-until');
+      return;
+    }
+    const alreadyProbed = window.sessionStorage.getItem('campus-wiki-sso-probe') === '1';
+    const suppressedUntil = Number(
+      window.localStorage.getItem('campus-wiki-sso-suppressed-until') || 0,
+    );
+    if (!alreadyProbed && Date.now() >= suppressedUntil) {
+      window.sessionStorage.setItem('campus-wiki-sso-probe', '1');
+      loginUser({ silent: true });
+      return;
+    }
+    openAuthModal('login');
+  });
 }
 
 const PROJECT_LOGO_FALLBACK_MAX_LENGTH = 8;
