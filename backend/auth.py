@@ -5,14 +5,14 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-import json
 import os
 import re
+import secrets
 from sqlite3 import IntegrityError
 import time
 from typing import Any, Literal
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from backend.auth_policy import PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH
 from backend.config import settings
@@ -26,6 +26,7 @@ PASSWORD_ALGORITHM = "pbkdf2_sha256"
 PASSWORD_ITERATIONS = 260_000
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]{3,32}$")
 bearer_scheme = HTTPBearer(auto_error=False)
+SESSION_COOKIE_NAME = "campus_wiki_session"
 
 
 def _base64url_encode(data: bytes) -> str:
@@ -233,50 +234,105 @@ def change_user_password(user_id: int, current_password: str, new_password: str)
     return format_user(updated_row)
 
 
-def create_access_token(user: dict[str, Any]) -> str:
-    """创建 HMAC-SHA256 签名的 Bearer Token。"""
+def _token_digest(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def create_session(
+    user_id: int,
+    *,
+    auth_sub: str | None = None,
+    sid: str | None = None,
+) -> str:
+    """Create a database-backed opaque session and return its raw token."""
 
     now = int(time.time())
-    payload = {
-        "sub": str(user["id"]),
-        "role": user["role"],
-        "exp": now + settings.auth_token_expire_minutes * 60,
-    }
-    header = {"alg": "HS256", "typ": "JWT"}
-    signing_input = ".".join(
-        [
-            _base64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8")),
-            _base64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8")),
-        ]
+    token = secrets.token_urlsafe(48)
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO auth_sessions
+                  (token_hash, user_id, auth_sub, sid, created_at, last_seen_at,
+                   idle_expires_at, absolute_expires_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    _token_digest(token),
+                    user_id,
+                    auth_sub,
+                    sid,
+                    now,
+                    now,
+                    now + settings.auth_session_idle_seconds,
+                    now + settings.auth_session_absolute_seconds,
+                ),
+            )
+    return token
+
+
+def create_access_token(user: dict[str, Any]) -> str:
+    """Compatibility helper for tests; the token is an opaque DB session."""
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT auth_sub FROM users WHERE id = %s", (user["id"],))
+            row = cursor.fetchone()
+    return create_session(
+        int(user["id"]),
+        auth_sub=row.get("auth_sub") if row else None,
     )
-    signature = hmac.new(
-        settings.auth_secret_key.encode("utf-8"),
-        signing_input.encode("ascii"),
-        hashlib.sha256,
-    ).digest()
-    return f"{signing_input}.{_base64url_encode(signature)}"
+
+
+def _session_record(token: str) -> dict[str, Any] | None:
+    if not token:
+        return None
+    now = int(time.time())
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT s.id AS auth_session_id, s.auth_sub AS session_auth_sub,
+                       s.sid AS auth_sid, s.idle_expires_at, s.absolute_expires_at,
+                       s.revoked_at, u.*, p.id AS person_id
+                FROM auth_sessions s
+                JOIN users u ON u.id = s.user_id
+                LEFT JOIN people p ON p.user_id = u.id
+                WHERE s.token_hash = %s
+                LIMIT 1
+                """,
+                (_token_digest(token),),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            if (
+                row.get("revoked_at") is not None
+                or int(row["idle_expires_at"]) <= now
+                or int(row["absolute_expires_at"]) <= now
+            ):
+                cursor.execute(
+                    "DELETE FROM auth_sessions WHERE id = %s", (row["auth_session_id"],)
+                )
+                return None
+            next_idle = min(
+                now + settings.auth_session_idle_seconds,
+                int(row["absolute_expires_at"]),
+            )
+            cursor.execute(
+                "UPDATE auth_sessions SET last_seen_at = %s, idle_expires_at = %s WHERE id = %s",
+                (now, next_idle, row["auth_session_id"]),
+            )
+    return row
 
 
 def decode_access_token(token: str) -> dict[str, Any]:
-    """验证 token 签名和过期时间。"""
+    """Resolve an opaque session token; former self-signed JWTs are rejected."""
 
-    try:
-        header_value, payload_value, signature_value = token.split(".", 2)
-        signing_input = f"{header_value}.{payload_value}"
-        expected = hmac.new(
-            settings.auth_secret_key.encode("utf-8"),
-            signing_input.encode("ascii"),
-            hashlib.sha256,
-        ).digest()
-        actual = _base64url_decode(signature_value)
-        if not hmac.compare_digest(actual, expected):
-            raise ValueError("invalid signature")
-        payload = json.loads(_base64url_decode(payload_value))
-        if int(payload.get("exp", 0)) < int(time.time()):
-            raise ValueError("expired token")
-        return payload
-    except (ValueError, json.JSONDecodeError, TypeError):
-        raise HTTPException(status_code=401, detail="登录状态无效或已过期") from None
+    row = _session_record(token)
+    if row is None:
+        raise HTTPException(status_code=401, detail="登录状态无效或已过期")
+    return {"sub": str(row["id"]), "sid": row.get("auth_sid")}
 
 
 def get_user_by_id(user_id: int) -> dict[str, Any] | None:
@@ -297,54 +353,151 @@ def get_user_by_id(user_id: int) -> dict[str, Any] | None:
 
 
 def get_current_user_from_token(token: str) -> dict[str, Any]:
-    payload = decode_access_token(token)
-    try:
-        user_id = int(payload["sub"])
-    except (KeyError, TypeError, ValueError):
-        raise HTTPException(status_code=401, detail="登录状态无效或已过期") from None
-
-    user = get_user_by_id(user_id)
-    if user is None:
-        raise HTTPException(status_code=401, detail="用户不存在")
+    row = _session_record(token)
+    if row is None:
+        raise HTTPException(status_code=401, detail="登录状态无效或已过期")
+    user = format_user(row)
     if not user["isActive"]:
         raise HTTPException(status_code=403, detail="账号已被禁用")
     return user
 
 
+def revoke_session(token: str) -> None:
+    if not token:
+        return
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "UPDATE auth_sessions SET revoked_at = %s WHERE token_hash = %s AND revoked_at IS NULL",
+                (int(time.time()), _token_digest(token)),
+            )
+
+
+def revoke_sessions(
+    *,
+    user_id: int | None = None,
+    auth_sub: str | None = None,
+    sid: str | None = None,
+) -> int:
+    filters = ["revoked_at IS NULL"]
+    params: list[Any] = [int(time.time())]
+    if user_id is not None:
+        filters.append("user_id = %s")
+        params.append(user_id)
+    if auth_sub is not None:
+        filters.append("auth_sub = %s")
+        params.append(auth_sub)
+    if sid is not None:
+        filters.append("sid = %s")
+        params.append(sid)
+    if len(filters) == 1:
+        return 0
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                f"UPDATE auth_sessions SET revoked_at = %s WHERE {' AND '.join(filters)}",
+                params,
+            )
+            return cursor.rowcount
+
+
+def provision_oidc_user(
+    *,
+    auth_sub: str,
+    preferred_username: str,
+    display_name: str,
+) -> dict[str, Any]:
+    """Return an existing local member or create one on first OIDC login."""
+
+    auth_sub = auth_sub.strip()
+    if not auth_sub or len(auth_sub) > 128:
+        raise HTTPException(status_code=502, detail="账号中心返回了无效的用户标识")
+    username = preferred_username.strip()[:64] or f"user-{auth_sub[:8]}"
+    name = display_name.strip()[:80] or username
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT * FROM users WHERE auth_sub = %s LIMIT 1", (auth_sub,))
+                row = cursor.fetchone()
+                if row is None:
+                    candidate = username
+                    cursor.execute(
+                        "SELECT id FROM users WHERE username = %s COLLATE NOCASE LIMIT 1",
+                        (candidate,),
+                    )
+                    if cursor.fetchone() is not None:
+                        suffix = hashlib.sha256(auth_sub.encode("utf-8")).hexdigest()[:12]
+                        candidate = f"{username[:51]}-{suffix}"
+                    role = "admin" if auth_sub in settings.wiki_admin_auth_subs else "user"
+                    cursor.execute(
+                        """
+                        INSERT INTO users
+                          (username, password_hash, display_name, role, is_active, auth_sub)
+                        VALUES (%s, '', %s, %s, 1, %s)
+                        """,
+                        (candidate, name, role, auth_sub),
+                    )
+                    user_id = cursor.lastrowid
+                    cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+                    row = cursor.fetchone()
+    except IntegrityError as exc:
+        # Concurrent callbacks for the same central identity may both observe no
+        # member before one insert wins. Resolve that race by reading the winner.
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT * FROM users WHERE auth_sub = %s LIMIT 1", (auth_sub,))
+                row = cursor.fetchone()
+        if row is None:
+            raise HTTPException(status_code=409, detail="本地成员创建冲突，请联系管理员") from exc
+    if not row.get("is_active"):
+        raise HTTPException(status_code=403, detail="本网站成员资格已被停用")
+    return format_user(row)
+
+
+def _request_token(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None,
+) -> str:
+    cookie = request.cookies.get(SESSION_COOKIE_NAME, "")
+    if cookie:
+        return cookie
+    # The compatibility Bearer path exists only for old isolated tests and
+    # local development without an OIDC client. Production uses HttpOnly cookies.
+    if (
+        not settings.oidc_client_secret
+        and credentials is not None
+        and credentials.scheme.lower() == "bearer"
+    ):
+        return credentials.credentials
+    return ""
+
+
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> dict[str, Any]:
-    if credentials is None or credentials.scheme.lower() != "bearer":
+    token = _request_token(request, credentials)
+    if not token:
         raise HTTPException(status_code=401, detail="需要登录")
-
-    payload = decode_access_token(credentials.credentials)
-    try:
-        user_id = int(payload["sub"])
-    except (KeyError, TypeError, ValueError):
-        raise HTTPException(status_code=401, detail="登录状态无效或已过期") from None
-
-    user = get_user_by_id(user_id)
-    if user is None:
-        raise HTTPException(status_code=401, detail="用户不存在")
+    row = _session_record(token)
+    if row is None:
+        raise HTTPException(status_code=401, detail="登录状态无效或已过期")
+    user = format_user(row)
     if not user["isActive"]:
         raise HTTPException(status_code=403, detail="账号已被禁用")
     return user
 
 
 def get_optional_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> dict[str, Any] | None:
-    """Return the current user when a valid bearer token is present."""
+    """Return the current user when a valid opaque session is present."""
 
-    if credentials is None or credentials.scheme.lower() != "bearer":
+    token = _request_token(request, credentials)
+    if not token:
         return None
-    try:
-        payload = decode_access_token(credentials.credentials)
-        user_id = int(payload["sub"])
-    except (HTTPException, KeyError, TypeError, ValueError):
+    row = _session_record(token)
+    if row is None or not row.get("is_active"):
         return None
-
-    user = get_user_by_id(user_id)
-    if user is None or not user["isActive"]:
-        return None
-    return user
+    return format_user(row)

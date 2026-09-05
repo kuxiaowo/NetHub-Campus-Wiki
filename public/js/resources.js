@@ -490,7 +490,7 @@ function closePhotoModal() {
 }
 
 function downloadBlob(url, filename) {
-  return fetch(url)
+  return fetch(url, { credentials: 'include' })
     .then((response) => {
       if (!response.ok) throw new Error(`下载失败：${response.status}`);
       return response.blob();

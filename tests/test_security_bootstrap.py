@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
 import tempfile
 import unittest
+from dataclasses import replace
+from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from backend.bootstrap_admin import AdminBootstrapError, create_initial_admin
-from backend.config import validate_auth_secret_key
+from backend.config import settings, validate_auth_secret_key, validate_runtime_settings
 from backend.main import app
 
 
@@ -38,6 +39,33 @@ class AuthSecretValidationTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "unsafe test configuration"):
                 with TestClient(app):
                     pass
+
+    def test_runtime_oidc_cookie_and_cors_configuration(self) -> None:
+        valid = replace(
+            settings,
+            oidc_issuer="https://accounts.example.test",
+            oidc_client_secret="s" * 48,
+            oidc_redirect_uri="https://wiki.example.test/api/auth/callback",
+            frontend_base_url="https://wiki.example.test",
+            auth_cookie_secure=True,
+            cors_origins=("https://wiki.example.test",),
+        )
+        with patch("backend.config.settings", valid):
+            validate_runtime_settings()
+
+        insecure_cookie = replace(valid, auth_cookie_secure=False)
+        with (
+            patch("backend.config.settings", insecure_cookie),
+            self.assertRaisesRegex(RuntimeError, "AUTH_COOKIE_SECURE"),
+        ):
+            validate_runtime_settings()
+
+        wrong_origin = replace(valid, cors_origins=("https://other.example.test",))
+        with (
+            patch("backend.config.settings", wrong_origin),
+            self.assertRaisesRegex(RuntimeError, "FRONTEND_BASE_URL"),
+        ):
+            validate_runtime_settings()
 
 
 class SchemaSecurityTest(unittest.TestCase):
@@ -68,7 +96,7 @@ class SchemaSecurityTest(unittest.TestCase):
                 connection.close()
 
         self.assertEqual(counts, {table: 0 for table in counts})
-        self.assertEqual(version, 13)
+        self.assertEqual(version, 14)
 
     def test_v10_migration_archives_drafts_and_marks_deleted_users(self) -> None:
         sql_root = Path(__file__).resolve().parents[1] / "sql"
@@ -140,6 +168,44 @@ class SchemaSecurityTest(unittest.TestCase):
         self.assertEqual(rows[0][1:], ("user", 0))
         self.assertEqual(rows[1][1:], ("admin", 1))
         self.assertEqual(version, 9)
+
+    def test_oidc_migration_preserves_local_id_but_disables_legacy_login(self) -> None:
+        sql_root = Path(__file__).resolve().parents[1] / "sql"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            connection = sqlite3.connect(Path(temp_dir) / "oidc-upgrade.db")
+            try:
+                connection.executescript((sql_root / "schema.sql").read_text(encoding="utf-8"))
+                for migration_path in sorted((sql_root / "migrations").glob("*.sql")):
+                    if migration_path.name.startswith("014_"):
+                        break
+                    connection.executescript(migration_path.read_text(encoding="utf-8"))
+                connection.execute(
+                    """
+                    INSERT INTO users (id, username, password_hash, display_name, role, is_active)
+                    VALUES (42, 'local_developer', 'legacy-password-hash', 'Local Dev', 'admin', 1)
+                    """
+                )
+                connection.commit()
+                connection.executescript(
+                    (sql_root / "migrations" / "014_nethub_accounts_oidc.sql").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                user = connection.execute(
+                    "SELECT id, username, password_hash, role, is_active, auth_sub FROM users WHERE id = 42"
+                ).fetchone()
+                archive = connection.execute(
+                    "SELECT username, password_hash FROM legacy_local_accounts_archive WHERE user_id = 42"
+                ).fetchone()
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
+            finally:
+                connection.close()
+
+        self.assertEqual(user[0], 42)
+        self.assertTrue(user[1].startswith("legacy_disabled_42_"))
+        self.assertEqual(user[2:], ("", "user", 0, None))
+        self.assertEqual(archive, ("local_developer", "legacy-password-hash"))
+        self.assertEqual(version, 14)
 
 
 class AdminBootstrapTest(unittest.TestCase):
