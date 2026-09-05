@@ -46,13 +46,9 @@
           <div class="section-title"><div><h2>个人资料</h2><span>公开展示给其他校园用户</span></div></div>
           <form id="profileForm" class="profile-form">
             <label>姓名或展示名<input class="input" name="displayName" maxlength="80" /></label>
-            <label>头像图片
-              <input id="profileAvatarInput" class="input" type="file" accept="image/jpeg,image/png,image/webp" />
-            </label>
             <div class="profile-avatar-actions">
-              <button id="profileAvatarUpload" class="button secondary compact" type="button" disabled>上传头像</button>
-              <button id="profileAvatarRemove" class="button secondary compact danger" type="button">移除头像</button>
-              <small>支持 JPEG、PNG、WebP，最大 5 MB；上传后自动裁成正方形。</small>
+              <a id="avatarAccountLink" class="button secondary compact" href="https://auth.nethub.wiki/account" target="_blank" rel="noopener noreferrer">在账户中心修改头像</a>
+              <small>头像由 NetHub Accounts 统一管理，更新后刷新本站即可生效。</small>
             </div>
             <label>个人简介<textarea class="input" name="bio" maxlength="300" rows="5"></textarea></label>
             <label>谁可以给我发私信
@@ -74,7 +70,7 @@
   </main>
 
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=photo-folder-download1"></script>
-  <script src="/js/profile.js?v=profile-badge-hidden1"></script>
+  <script src="/js/api.js?v=central-avatar1"></script>
+  <script src="/js/profile.js?v=central-avatar1"></script>
 </body>
 </html>

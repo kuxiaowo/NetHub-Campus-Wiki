@@ -9,6 +9,7 @@ import re
 import secrets
 from typing import Any, Literal
 
+from backend.auth import central_avatar_url
 from backend.database import get_db_connection
 from backend.media import public_media_url
 from backend.project_assets import (
@@ -117,6 +118,7 @@ def list_project_members(project_id: int) -> list[dict[str, Any]]:
                   u.username,
                   u.display_name,
                   u.avatar_url AS user_avatar_url,
+                  u.auth_sub AS user_auth_sub,
                   u.is_active
                 FROM project_members pm
                 JOIN people p ON p.id = pm.person_id
@@ -135,7 +137,8 @@ def list_project_members(project_id: int) -> list[dict[str, Any]]:
             "personId": row["person_id"],
             "name": row["display_name_snapshot"],
             "role": row["role"],
-            "avatarUrl": public_media_url(row.get("user_avatar_url") or row.get("person_avatar_url")),
+            "avatarUrl": central_avatar_url(row.get("user_auth_sub"))
+            or public_media_url(row.get("person_avatar_url")),
             "userId": row.get("user_id") if row.get("is_active") else None,
             "username": row.get("username") if row.get("is_active") else None,
             "registered": bool(row.get("user_id") and row.get("is_active")),

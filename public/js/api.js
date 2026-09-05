@@ -84,6 +84,13 @@ function userAvatarImage(user) {
     : '';
 }
 
+document.addEventListener('error', (event) => {
+  const image = event.target;
+  if (image instanceof HTMLImageElement && image.parentElement?.dataset.initial) {
+    image.remove();
+  }
+}, true);
+
 let globalMessageBadgeTimer = null;
 
 function ensureSocialNav() {
