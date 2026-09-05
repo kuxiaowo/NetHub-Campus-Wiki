@@ -169,14 +169,9 @@ def list_users(
         with conn.cursor() as cursor:
             cursor.execute(
                 f"""
-<<<<<<< Updated upstream
                 SELECT u.id, u.username, u.display_name, u.avatar_url, u.bio,
-                       u.campus_verified, p.id AS person_id
-=======
-                SELECT u.id, u.username, u.display_name, u.avatar_url, u.auth_sub, u.bio,
                        u.campus_verified,
                        (SELECT MIN(p.id) FROM people p WHERE p.user_id = u.id) AS person_id
->>>>>>> Stashed changes
                 FROM users u
                 WHERE {' AND '.join(where)}
                 ORDER BY u.campus_verified DESC, u.username ASC
