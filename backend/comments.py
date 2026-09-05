@@ -95,6 +95,7 @@ def _comment_dict(row: dict[str, Any]) -> dict[str, Any]:
             display_name_key="display_name",
             avatar_url_key="avatar_url",
             deleted_at_key="deleted_at",
+            auth_sub_key="auth_sub",
             campus_verified_key="campus_verified",
         ),
         "replyToUser": (
@@ -105,6 +106,7 @@ def _comment_dict(row: dict[str, Any]) -> dict[str, Any]:
                 display_name_key="reply_to_display_name",
                 avatar_url_key="reply_to_avatar_url",
                 deleted_at_key="reply_to_deleted_at",
+                auth_sub_key="reply_to_auth_sub",
             )
             if row.get("reply_to_user_id")
             else None
@@ -127,11 +129,13 @@ def _select_fields(viewer_id: int | None) -> tuple[str, list[Any]]:
         u.username,
         u.display_name,
         u.avatar_url,
+        u.auth_sub,
         u.campus_verified,
         u.deleted_at,
         reply_user.username AS reply_to_username,
         reply_user.display_name AS reply_to_display_name,
         reply_user.avatar_url AS reply_to_avatar_url,
+        reply_user.auth_sub AS reply_to_auth_sub,
         reply_user.deleted_at AS reply_to_deleted_at,
         (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id) AS like_count,
         EXISTS(
@@ -326,6 +330,7 @@ def list_comment_notifications(
                        actor.username AS actor_username,
                        actor.display_name AS actor_display_name,
                        actor.avatar_url AS actor_avatar_url,
+                       actor.auth_sub AS actor_auth_sub,
                        actor.campus_verified AS actor_campus_verified,
                        actor.deleted_at AS actor_deleted_at,
                        c.content AS comment_content,
@@ -375,6 +380,7 @@ def list_comment_notifications(
                     display_name_key="actor_display_name",
                     avatar_url_key="actor_avatar_url",
                     deleted_at_key="actor_deleted_at",
+                    auth_sub_key="actor_auth_sub",
                     campus_verified_key="actor_campus_verified",
                 ),
                 "comment": {

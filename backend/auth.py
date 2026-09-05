@@ -91,7 +91,8 @@ def format_user(row: dict[str, Any]) -> dict[str, Any]:
         "id": row["id"],
         "username": row["username"],
         "displayName": row.get("display_name"),
-        "avatarUrl": public_media_url(row.get("avatar_url")),
+        "avatarUrl": central_avatar_url(row.get("auth_sub")) or public_media_url(row.get("avatar_url")),
+        "accountUrl": f"{settings.oidc_issuer}/account",
         "bio": row.get("bio") or "",
         "role": row["role"],
         "isActive": bool(row.get("is_active")),
@@ -110,6 +111,7 @@ def public_user_identity(
     display_name_key: str,
     avatar_url_key: str,
     deleted_at_key: str,
+    auth_sub_key: str | None = None,
     campus_verified_key: str | None = None,
 ) -> dict[str, Any]:
     """格式化可嵌入留言、私信等响应的公开用户身份。"""
@@ -119,12 +121,22 @@ def public_user_identity(
         "id": row.get(id_key),
         "username": None if deleted else row.get(username_key),
         "displayName": DELETED_USER_DISPLAY_NAME if deleted else row.get(display_name_key),
-        "avatarUrl": None if deleted else public_media_url(row.get(avatar_url_key)),
+        "avatarUrl": (
+            None
+            if deleted
+            else central_avatar_url(row.get(auth_sub_key))
+            or public_media_url(row.get(avatar_url_key))
+        ),
         "deleted": deleted,
     }
     if campus_verified_key is not None:
         result["campusVerified"] = False if deleted else bool(row.get(campus_verified_key))
     return result
+
+
+def central_avatar_url(auth_sub: Any) -> str | None:
+    subject = str(auth_sub or "").strip()
+    return f"{settings.oidc_issuer}/avatars/{subject}" if subject else None
 
 
 def validate_username(username: str) -> str:

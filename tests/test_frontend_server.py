@@ -98,6 +98,10 @@ class FrontendServerTest(unittest.TestCase):
         self.assertNotIn(b'id="createUserButton"', admin_page)
         self.assertIn(b"data-account-center", shared_script)
         self.assertIn("前往账户中心".encode("utf-8"), shared_script)
+        self.assertIn(b"auth-menu-account-button", shared_script)
+        self.assertIn(b"authArea.addEventListener('click'", shared_script)
+        self.assertIn(b"closest('[data-open-auth]')", shared_script)
+        self.assertIn(b"pointer-events: none", (PUBLIC_DIR / "css" / "styles.css").read_bytes())
 
     def test_accounts_base_url_uses_oidc_issuer(self) -> None:
         with patch.dict(os.environ, {"OIDC_ISSUER": "https://login.example.test/"}):
@@ -432,10 +436,11 @@ class FrontendServerTest(unittest.TestCase):
         _, comments_script, _ = self.fetch("/js/comments.js")
         _, messages_script, _ = self.fetch("/js/messages.js")
 
-        self.assertIn(b'id="profileAvatarInput"', profile_page)
-        self.assertIn(b'id="profileAvatarUpload"', profile_page)
+        self.assertNotIn(b'id="profileAvatarInput"', profile_page)
+        self.assertNotIn(b'id="profileAvatarUpload"', profile_page)
         self.assertNotIn("头像地址".encode("utf-8"), profile_page)
-        self.assertIn(b"/users/me/avatar", profile_script)
+        self.assertNotIn(b"/users/me/avatar", profile_script)
+        self.assertIn(b"https://auth.nethub.wiki/account", profile_page)
         self.assertIn(b"data-delete-user", admin_script)
         self.assertIn(b"data-delete-announcement", admin_script)
         self.assertNotIn(b"{ value: 'draft'", admin_script)
