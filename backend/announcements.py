@@ -42,6 +42,7 @@ def _announcement_dict(row: dict[str, Any], *, include_content: bool = False) ->
                 display_name_key="author_display_name",
                 avatar_url_key="author_avatar_url",
                 deleted_at_key="author_deleted_at",
+                auth_sub_key="author_auth_sub",
             )
             if row.get("author_id")
             else None
@@ -146,6 +147,7 @@ def announcement_detail(
                   u.username AS author_username,
                   u.display_name AS author_display_name,
                   u.avatar_url AS author_avatar_url,
+                  u.auth_sub AS author_auth_sub,
                   u.deleted_at AS author_deleted_at,
                   (
                     SELECT COUNT(*) FROM comments c

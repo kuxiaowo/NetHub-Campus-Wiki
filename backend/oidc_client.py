@@ -270,6 +270,10 @@ def complete_login(code: str, state: str, cookie_state: str) -> dict[str, Any]:
         raise OidcClientError("账号中心暂时无法完成登录") from exc
     if not isinstance(userinfo, dict) or userinfo.get("sub") != claims.get("sub"):
         raise OidcClientError("UserInfo 与 ID Token 用户不一致")
+    expected_picture = f"{settings.oidc_issuer}/avatars/{claims['sub']}"
+    picture = str(userinfo.get("picture") or claims.get("picture") or "").strip()
+    if picture and picture != expected_picture:
+        raise OidcClientError("账号中心返回了不可信的头像地址")
     return {
         "sub": str(claims["sub"]),
         "sid": str(claims["sid"]),
@@ -277,6 +281,7 @@ def complete_login(code: str, state: str, cookie_state: str) -> dict[str, Any]:
             userinfo.get("preferred_username") or claims.get("preferred_username") or ""
         ),
         "name": str(userinfo.get("name") or claims.get("name") or ""),
+        "picture": expected_picture,
         "return_to": attempt["return_to"],
     }
 

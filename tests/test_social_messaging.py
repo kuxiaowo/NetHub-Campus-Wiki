@@ -1782,61 +1782,18 @@ class SocialMessagingFlowTest(unittest.TestCase):
         )
         self.assertEqual(rejected.status_code, 422)
 
-    def test_12_avatar_upload_replacement_and_removal(self) -> None:
-        user = self._register("avatar_user", "Avatar User")
+    def test_12_local_avatar_write_endpoints_are_gone(self) -> None:
+        self._register("avatar_user", "Avatar User")
         token = self._login("avatar_user", "password123")
-        with tempfile.TemporaryDirectory() as temp_dir:
-            avatar_root = Path(temp_dir) / "avatars"
-            with patch("backend.avatars.AVATAR_ROOT", avatar_root):
-                image_buffer = io.BytesIO()
-                Image.new("RGB", (800, 400), "orange").save(image_buffer, format="PNG")
-                uploaded = self.client.post(
-                    "/api/users/me/avatar",
-                    headers=self._headers(token),
-                    files={"avatar": ("wide.png", image_buffer.getvalue(), "image/png")},
-                )
-                self.assertEqual(uploaded.status_code, 200, uploaded.text)
-                first_url = uploaded.json()["avatarUrl"]
-                first_path = avatar_root / first_url.removeprefix("/uploads/avatars/")
-                self.assertTrue(first_path.is_file())
-                with Image.open(first_path) as stored:
-                    self.assertEqual(stored.format, "WEBP")
-                    self.assertEqual(stored.size, (512, 512))
-
-                replacement_buffer = io.BytesIO()
-                Image.new("RGB", (300, 900), "purple").save(replacement_buffer, format="JPEG")
-                replaced = self.client.post(
-                    "/api/users/me/avatar",
-                    headers=self._headers(token),
-                    files={"avatar": ("tall.jpg", replacement_buffer.getvalue(), "image/jpeg")},
-                )
-                self.assertEqual(replaced.status_code, 200, replaced.text)
-                self.assertNotEqual(replaced.json()["avatarUrl"], first_url)
-                self.assertFalse(first_path.exists())
-
-                invalid = self.client.post(
-                    "/api/users/me/avatar",
-                    headers=self._headers(token),
-                    files={"avatar": ("fake.png", b"not-an-image", "image/png")},
-                )
-                self.assertEqual(invalid.status_code, 422)
-
-                oversized = self.client.post(
-                    "/api/users/me/avatar",
-                    headers=self._headers(token),
-                    files={"avatar": ("large.png", b"x" * (5 * 1024 * 1024 + 1), "image/png")},
-                )
-                self.assertEqual(oversized.status_code, 413)
-
-                removed = self.client.delete(
-                    "/api/users/me/avatar",
-                    headers=self._headers(token),
-                )
-                self.assertEqual(removed.status_code, 200, removed.text)
-                self.assertIsNone(removed.json()["avatarUrl"])
-                self.assertEqual(list(avatar_root.rglob("*.webp")), [])
-
-        self.assertEqual(user["id"], uploaded.json()["id"])
+        uploaded = self.client.post(
+            "/api/users/me/avatar",
+            headers=self._headers(token),
+            files={"avatar": ("avatar.png", b"legacy", "image/png")},
+        )
+        self.assertEqual(uploaded.status_code, 410, uploaded.text)
+        self.assertIn("NetHub Accounts", uploaded.json()["detail"])
+        removed = self.client.delete("/api/users/me/avatar", headers=self._headers(token))
+        self.assertEqual(removed.status_code, 410, removed.text)
 
     def test_13_admin_user_deletion_anonymizes_history(self) -> None:
         doomed = self._register("delete_me_user", "Delete Me")
