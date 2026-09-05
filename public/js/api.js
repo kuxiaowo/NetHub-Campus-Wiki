@@ -141,12 +141,17 @@ function loginUser({ silent = false } = {}) {
     window.localStorage.removeItem('campus-wiki-sso-suppressed-until');
   }
   const prompt = silent ? '&prompt=none' : '';
-  window.location.assign(`${apiBaseUrl()}/auth/login?returnTo=${encodeURIComponent(returnTo)}${prompt}`);
+  const loginUrl = `${apiBaseUrl()}/auth/login?returnTo=${encodeURIComponent(returnTo)}${prompt}`;
+  if (silent) {
+    window.location.assign(loginUrl);
+    return;
+  }
+  window.open(loginUrl, '_blank', 'noopener,noreferrer');
 }
 
 function changeCurrentUserPassword() {
   const accountsBaseUrl = window.CAMPUS_WIKI_CONFIG?.accountsBaseUrl || 'https://auth.nethub.wiki';
-  window.location.assign(`${accountsBaseUrl.replace(/\/$/, '')}/account`);
+  window.open(`${accountsBaseUrl.replace(/\/$/, '')}/account`, '_blank', 'noopener,noreferrer');
 }
 
 async function updateCurrentUsername(username) {
@@ -592,7 +597,7 @@ function initAuthNav() {
         </button>
       </div>
     `;
-    accountState.querySelector('[data-account-center]')?.addEventListener('click', openAccountSettings);
+    accountState.querySelector('[data-account-center]')?.addEventListener('click', changeCurrentUserPassword);
     accountState.querySelector('[data-toggle-username]')?.addEventListener('click', () => {
       usernameFormOpen = !usernameFormOpen;
       if (usernameFormOpen) {
