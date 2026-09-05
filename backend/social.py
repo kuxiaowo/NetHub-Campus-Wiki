@@ -50,11 +50,10 @@ def _public_profile(user_id: int, viewer_id: int | None = None) -> dict[str, Any
                 """
                 SELECT
                   u.*,
-                  p.id AS person_id,
+                  (SELECT MIN(p.id) FROM people p WHERE p.user_id = u.id) AS person_id,
                   (SELECT COUNT(*) FROM user_follows f WHERE f.following_id = u.id) AS follower_count,
                   (SELECT COUNT(*) FROM user_follows f WHERE f.follower_id = u.id) AS following_count
                 FROM users u
-                LEFT JOIN people p ON p.user_id = u.id
                 WHERE u.id = %s AND u.is_active = 1
                 LIMIT 1
                 """,
@@ -112,11 +111,17 @@ def _public_profile(user_id: int, viewer_id: int | None = None) -> dict[str, Any
 
             cursor.execute(
                 """
-                SELECT p.id, p.name, p.year, pm.role
+                SELECT p.id, p.name, p.year,
+                       CASE
+                         WHEN MAX(CASE WHEN pm.role = 'leader' THEN 1 ELSE 0 END) = 1
+                         THEN 'leader'
+                         ELSE 'member'
+                       END AS role
                 FROM project_members pm
                 JOIN projects p ON p.id = pm.project_id
                 JOIN people person ON person.id = pm.person_id
                 WHERE person.user_id = %s
+                GROUP BY p.id, p.name, p.year
                 ORDER BY p.year DESC, p.id DESC
                 """,
                 (user_id,),
@@ -164,10 +169,15 @@ def list_users(
         with conn.cursor() as cursor:
             cursor.execute(
                 f"""
+<<<<<<< Updated upstream
                 SELECT u.id, u.username, u.display_name, u.avatar_url, u.bio,
                        u.campus_verified, p.id AS person_id
+=======
+                SELECT u.id, u.username, u.display_name, u.avatar_url, u.auth_sub, u.bio,
+                       u.campus_verified,
+                       (SELECT MIN(p.id) FROM people p WHERE p.user_id = u.id) AS person_id
+>>>>>>> Stashed changes
                 FROM users u
-                LEFT JOIN people p ON p.user_id = u.id
                 WHERE {' AND '.join(where)}
                 ORDER BY u.campus_verified DESC, u.username ASC
                 LIMIT %s
@@ -235,8 +245,9 @@ def update_profile(payload: dict[str, Any], user: dict[str, Any] = Depends(get_c
             cursor.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s", params)
             cursor.execute(
                 """
-                SELECT u.*, p.id AS person_id
-                FROM users u LEFT JOIN people p ON p.user_id = u.id
+                SELECT u.*,
+                       (SELECT MIN(p.id) FROM people p WHERE p.user_id = u.id) AS person_id
+                FROM users u
                 WHERE u.id = %s
                 """,
                 (user["id"],),
@@ -263,8 +274,9 @@ async def upload_avatar(
                 cursor.execute("UPDATE users SET avatar_url = %s WHERE id = %s", (new_url, user["id"]))
                 cursor.execute(
                     """
-                    SELECT u.*, p.id AS person_id
-                    FROM users u LEFT JOIN people p ON p.user_id = u.id
+                    SELECT u.*,
+                           (SELECT MIN(p.id) FROM people p WHERE p.user_id = u.id) AS person_id
+                    FROM users u
                     WHERE u.id = %s
                     """,
                     (user["id"],),
@@ -289,8 +301,9 @@ def remove_avatar(user: dict[str, Any] = Depends(get_current_user)):
             cursor.execute("UPDATE users SET avatar_url = NULL WHERE id = %s", (user["id"],))
             cursor.execute(
                 """
-                SELECT u.*, p.id AS person_id
-                FROM users u LEFT JOIN people p ON p.user_id = u.id
+                SELECT u.*,
+                       (SELECT MIN(p.id) FROM people p WHERE p.user_id = u.id) AS person_id
+                FROM users u
                 WHERE u.id = %s
                 """,
                 (user["id"],),
@@ -465,12 +478,6 @@ def bind_project_member(
                 raise HTTPException(status_code=404, detail="项目成员不存在")
             if user_id is not None:
                 _ensure_active_user(cursor, user_id)
-                cursor.execute(
-                    "SELECT id FROM people WHERE user_id = %s AND id <> %s LIMIT 1",
-                    (user_id, person_id),
-                )
-                if cursor.fetchone() is not None:
-                    raise HTTPException(status_code=409, detail="该账号已绑定其他人员档案")
             old_user_id = person.get("user_id")
             cursor.execute(
                 "UPDATE people SET user_id = %s, status = %s WHERE id = %s",

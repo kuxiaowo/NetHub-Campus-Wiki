@@ -410,7 +410,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         with get_db_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("PRAGMA user_version")
-                self.assertEqual(cursor.fetchone()["user_version"], 14)
+                self.assertEqual(cursor.fetchone()["user_version"], 15)
                 cursor.execute("PRAGMA table_info(conversation_members)")
                 member_columns = {column["name"] for column in cursor.fetchall()}
                 self.assertNotIn("request_status", member_columns)
@@ -593,6 +593,74 @@ class SocialMessagingFlowTest(unittest.TestCase):
         leader = project["memberList"][0]
         self.assertTrue(leader["registered"])
         self.assertEqual(leader["userId"], self.alice["id"])
+
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO projects
+                      (id, name, leader, members, category, year, description)
+                    VALUES
+                      (9001, '第二个绑定测试项目', 'Alice', 'Alice',
+                       '测试分类', 2026, '验证同一账号可跨项目绑定多个成员档案')
+                    """
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO people (display_name, source_key, status)
+                    VALUES ('Alice 的第二个成员档案', 'test:multi-binding:alice', 'provisional')
+                    """
+                )
+                second_person_id = cursor.lastrowid
+                cursor.execute(
+                    """
+                    INSERT INTO project_members
+                      (project_id, person_id, role, display_name_snapshot, sort_order)
+                    VALUES (9001, %s, 'leader', 'Alice 的第二个成员档案', 0)
+                    """,
+                    (second_person_id,),
+                )
+
+        second_binding = self.client.patch(
+            f"/api/admin/projects/9001/members/{second_person_id}/binding",
+            headers=self._headers(self.admin_token),
+            json={"userId": self.alice["id"]},
+        )
+        self.assertEqual(second_binding.status_code, 200, second_binding.text)
+        second_project = self.client.get("/api/projects/9001").json()["data"]
+        self.assertEqual(second_project["memberList"][0]["userId"], self.alice["id"])
+
+        same_project_person_id = project["memberList"][1]["personId"]
+        second_binding_in_same_project = self.client.patch(
+            f"/api/admin/projects/1/members/{same_project_person_id}/binding",
+            headers=self._headers(self.admin_token),
+            json={"userId": self.alice["id"]},
+        )
+        self.assertEqual(
+            second_binding_in_same_project.status_code,
+            200,
+            second_binding_in_same_project.text,
+        )
+        first_project = self.client.get("/api/projects/1").json()["data"]
+        self.assertEqual(
+            [item["userId"] for item in first_project["memberList"][:2]],
+            [self.alice["id"], self.alice["id"]],
+        )
+
+        visible_users = self.client.get(
+            "/api/users",
+            headers=self._headers(self.bob_token),
+        ).json()["data"]
+        self.assertEqual(
+            sum(user["id"] == self.alice["id"] for user in visible_users),
+            1,
+        )
+        profile = self.client.get(
+            f"/api/users/{self.alice['id']}",
+            headers=self._headers(self.bob_token),
+        ).json()["data"]
+        self.assertEqual({item["id"] for item in profile["projects"]}, {1, 9001})
+        self.assertEqual(len(profile["projects"]), 2)
 
     def test_04_unified_message_daily_limit_reply_read_recall_and_block(self) -> None:
         response = self.client.post(

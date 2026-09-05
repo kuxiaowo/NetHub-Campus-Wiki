@@ -294,10 +294,10 @@ def _session_record(token: str) -> dict[str, Any] | None:
                 """
                 SELECT s.id AS auth_session_id, s.auth_sub AS session_auth_sub,
                        s.sid AS auth_sid, s.idle_expires_at, s.absolute_expires_at,
-                       s.revoked_at, u.*, p.id AS person_id
+                       s.revoked_at, u.*,
+                       (SELECT MIN(p.id) FROM people p WHERE p.user_id = u.id) AS person_id
                 FROM auth_sessions s
                 JOIN users u ON u.id = s.user_id
-                LEFT JOIN people p ON p.user_id = u.id
                 WHERE s.token_hash = %s
                 LIMIT 1
                 """,
@@ -340,9 +340,9 @@ def get_user_by_id(user_id: int) -> dict[str, Any] | None:
         with conn.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT u.*, p.id AS person_id
+                SELECT u.*,
+                       (SELECT MIN(p.id) FROM people p WHERE p.user_id = u.id) AS person_id
                 FROM users u
-                LEFT JOIN people p ON p.user_id = u.id
                 WHERE u.id = %s
                 LIMIT 1
                 """,

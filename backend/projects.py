@@ -176,6 +176,10 @@ def project_update_publisher(
                 WHERE pm.project_id = %s
                   AND p.user_id = %s
                   AND p.status <> 'archived'
+                ORDER BY
+                  CASE pm.role WHEN 'leader' THEN 0 ELSE 1 END,
+                  pm.sort_order ASC,
+                  pm.person_id ASC
                 LIMIT 1
                 """,
                 (project_id, user["id"]),
