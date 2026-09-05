@@ -574,6 +574,10 @@ function initAuthNav() {
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4.5 21a7.5 7.5 0 0 1 15 0"></path></svg>
           <span>个人中心</span><span class="auth-menu-arrow" aria-hidden="true">›</span>
         </a>
+        <button class="auth-menu-item" type="button" data-account-center>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"></path></svg>
+          <span>前往账户中心</span><span class="auth-menu-arrow" aria-hidden="true">›</span>
+        </button>
         <button class="auth-menu-item auth-menu-logout" type="button" data-logout>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H5v14h5"></path><path d="M13 8l4 4-4 4"></path><path d="M8 12h9"></path></svg>
           <span>退出账号</span>
@@ -588,6 +592,7 @@ function initAuthNav() {
         </button>
       </div>
     `;
+    accountState.querySelector('[data-account-center]')?.addEventListener('click', openAccountSettings);
     accountState.querySelector('[data-toggle-username]')?.addEventListener('click', () => {
       usernameFormOpen = !usernameFormOpen;
       if (usernameFormOpen) {

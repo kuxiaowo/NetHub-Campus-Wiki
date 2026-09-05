@@ -94,6 +94,8 @@ class FrontendServerTest(unittest.TestCase):
         self.assertNotIn(b"campusWikiAuthToken", shared_script)
         self.assertNotIn(b"Authorization", shared_script)
         self.assertNotIn(b'id="createUserButton"', admin_page)
+        self.assertIn(b"data-account-center", shared_script)
+        self.assertIn("前往账户中心".encode("utf-8"), shared_script)
 
     def test_accounts_base_url_uses_oidc_issuer(self) -> None:
         with patch.dict(os.environ, {"OIDC_ISSUER": "https://login.example.test/"}):
