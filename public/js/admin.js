@@ -1677,12 +1677,9 @@ async function openProjectMemberBindingModal(project, member) {
   const result = await adminEndpoint('/admin/users?isActive=true');
   const users = result.data || [];
   adminState.users = users;
-  const availableUsers = users.filter(
-    (user) => !user.campusVerified || String(user.id) === String(member.userId || ''),
-  );
   const options = [
     { value: '', label: '不绑定账号' },
-    ...availableUsers.map((user) => ({
+    ...users.map((user) => ({
       value: user.id,
       label: `${user.displayName || user.username} (@${user.username})${user.role === 'admin' ? ' · 管理员' : ''}`,
     })),

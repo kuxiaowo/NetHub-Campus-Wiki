@@ -785,13 +785,13 @@ JSON 迁移覆盖 CAS 项目（含成员联系方式与动态）、普通资源�
 - `POST /api/admin/projects`：创建 CAS 项目。只接受 `name`、`category`、`year`、`assetDir`、`description`、`casCreativity`、`casActivity`、`casService`；`assetDir` 必须是已经存在的 `/CAS/` 子目录，新项目的成员、负责人、媒体和动态均为空。
 - `PATCH /api/admin/projects/{project_id}`：更新项目基本信息，或在创建后更新 `updates`；不接受只读的 `popularity`、`leader`、旧的 `members` 文本字段或项目级 `media`。负责人只能通过结构化成员接口确定。
 - `PATCH /api/admin/projects/{project_id}/members`：整体替换结构化成员列表。请求体为 `{"members":[{"personId":1,"name":"李明","role":"leader","contactType":"wechat","contactValue":"liming-cas"}]}`；新成员可省略 `personId`。
-- `PATCH /api/admin/projects/{project_id}/members/{person_id}/binding`：把该项目成员绑定到启用的站内用户，传 `{"userId":12}`；传 `{"userId":null}` 解除绑定。只有管理员可调用，且 `person_id` 必须属于指定项目。
+- `PATCH /api/admin/projects/{project_id}/members/{person_id}/binding`：把该项目成员绑定到启用的站内用户，传 `{"userId":12}`；传 `{"userId":null}` 解除绑定。只有管理员可调用，且 `person_id` 必须属于指定项目。同一账号可以绑定同一或不同项目中的多个成员档案；每个成员档案仍只能绑定一个账号。
 - `POST /api/admin/projects/{project_id}/updates`：创建动态。使用 `multipart/form-data`，字段为 `content`、JSON 数组文本 `images`、可重复的 `photos` 文件，以及必填的 `authorPersonId`。发布者可以是本项目任意成员，无需绑定站内账号；接口保存成员档案 ID、姓名与角色。
 - `PATCH /api/admin/projects/{project_id}/updates/{update_id}`：替换动态文字及保留的相对图片路径，并把新上传照片追加到该动态目录。
 - `DELETE /api/admin/projects/{project_id}/updates/{update_id}`：删除动态记录，并递归删除该动态专属上传目录中的实体文件。
 - `PATCH /api/admin/projects/{project_id}/updates/reorder`：按 `{"updateIds":["32位动态ID"]}` 重排，必须完整包含当前项目的全部动态 ID。
 
-项目刚创建时允许成员列表为空。保存成员时列表不能为空，负责人未知时可以全部先标为 `member`；确认后最多只能有一名 `leader`，后端会据此同步项目的负责人姓名摘要。联系方式可以整组留空；一旦填写，就必须同时提供 `contactType` 和 `contactValue`。成员账号只能在后台项目详情中绑定，一个账号最多绑定一个人员档案。
+项目刚创建时允许成员列表为空。保存成员时列表不能为空，负责人未知时可以全部先标为 `member`；确认后最多只能有一名 `leader`，后端会据此同步项目的负责人姓名摘要。联系方式可以整组留空；一旦填写，就必须同时提供 `contactType` 和 `contactValue`。成员账号只能在后台项目详情中绑定；同一账号可绑定任意多个人员档案。若同一账号绑定了一个项目中的多名成员，其自行发布动态时优先采用负责人身份，否则采用排序最靠前的成员身份。
 
 每个项目的文件集中在 `public/CAS/<项目>/`。图标按 `icon.webp`、`icon.png`、`icon.jpg`、`icon.jpeg`、`icon.avif`、`icon.gif` 的优先级解析。动态数据库结构为 `{"id":"32位稳定键","content":"完成第一次骑行","images":["activities/001.jpg"]}`；图片路径不得离开项目目录，也不允许外部 URL。新动态插入数组首位，后台管理和前台展示均以最新动态优先。上传照片会自动创建 `updates/<动态ID>/`，保留安全处理后的原文件名，重名时追加数字。照片支持多选，单张最大 5MB，支持 JPG、PNG、WebP、GIF 和 AVIF。每条动态可以只有文字、只有照片或同时包含二者。正式前台详情页不提供认领或绑定能力。
 
