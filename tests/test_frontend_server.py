@@ -91,6 +91,8 @@ class FrontendServerTest(unittest.TestCase):
         _, admin_page, _ = self.fetch("/admin.html")
         self.assertIn(b"credentials: 'include'", shared_script)
         self.assertIn(b"/auth/login?returnTo=", shared_script)
+        self.assertIn(b"window.open(loginUrl, '_blank', 'noopener,noreferrer')", shared_script)
+        self.assertIn(b"window.location.assign(loginUrl)", shared_script)
         self.assertNotIn(b"campusWikiAuthToken", shared_script)
         self.assertNotIn(b"Authorization", shared_script)
         self.assertNotIn(b'id="createUserButton"', admin_page)
