@@ -96,6 +96,10 @@ class FrontendServerTest(unittest.TestCase):
         self.assertNotIn(b'id="createUserButton"', admin_page)
         self.assertIn(b"data-account-center", shared_script)
         self.assertIn("前往账户中心".encode("utf-8"), shared_script)
+        self.assertIn(b"auth-menu-account-button", shared_script)
+        self.assertIn(b"authArea.addEventListener('click'", shared_script)
+        self.assertIn(b"closest('[data-open-auth]')", shared_script)
+        self.assertIn(b"pointer-events: none", (PUBLIC_DIR / "css" / "styles.css").read_bytes())
 
     def test_accounts_base_url_uses_oidc_issuer(self) -> None:
         with patch.dict(os.environ, {"OIDC_ISSUER": "https://login.example.test/"}):

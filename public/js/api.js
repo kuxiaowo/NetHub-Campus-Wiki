@@ -80,7 +80,7 @@ function userInitial(user) {
 function userAvatarImage(user) {
   const avatarUrl = user?.avatarUrl ? safeExternalUrl(user.avatarUrl) : null;
   return avatarUrl && avatarUrl !== '#'
-    ? `<img src="${escapeHtml(avatarUrl)}" alt="" />`
+    ? `<img src="${escapeHtml(avatarUrl)}" alt="" draggable="false" data-avatar-image />`
     : '';
 }
 
@@ -515,6 +515,14 @@ function initAuthNav() {
   let passwordFormOpen = false;
   let usernameFormOpen = false;
 
+  authArea.addEventListener('click', (event) => {
+    const trigger = event.target instanceof Element
+      ? event.target.closest('[data-open-auth]')
+      : null;
+    if (!trigger || !authArea.contains(trigger)) return;
+    openAuthModal('login', trigger);
+  });
+
   function renderUser(user) {
     currentUser = user;
     if (!user) {
@@ -522,7 +530,6 @@ function initAuthNav() {
         ${messageNavMarkup()}
         <button class="auth-avatar logged-out" type="button" data-open-auth aria-label="打开账号面板">登</button>
       `;
-      authArea.querySelector('[data-open-auth]').addEventListener('click', (event) => openAuthModal('login', event.currentTarget));
       refreshGlobalMessageBadge();
       return;
     }
@@ -534,7 +541,6 @@ function initAuthNav() {
         ${userAvatarImage(user)}
       </button>
     `;
-    authArea.querySelector('[data-open-auth]').addEventListener('click', (event) => openAuthModal('login', event.currentTarget));
     refreshGlobalMessageBadge();
     if (!globalMessageBadgeTimer) {
       globalMessageBadgeTimer = window.setInterval(refreshGlobalMessageBadge, 30000);
@@ -581,7 +587,7 @@ function initAuthNav() {
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4.5 21a7.5 7.5 0 0 1 15 0"></path></svg>
           <span>个人中心</span><span class="auth-menu-arrow" aria-hidden="true">›</span>
         </a>
-        <button class="auth-menu-item" type="button" data-account-center>
+        <button class="auth-menu-item auth-menu-account-button" type="button" data-account-center>
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"></path></svg>
           <span>前往账户中心</span><span class="auth-menu-arrow" aria-hidden="true">›</span>
         </button>
