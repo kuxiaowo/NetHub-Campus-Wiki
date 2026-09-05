@@ -134,13 +134,14 @@ async function refreshGlobalMessageBadge() {
   }
 }
 
-function loginUser() {
+function loginUser({ silent = false } = {}) {
   const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  window.location.assign(`${apiBaseUrl()}/auth/login?returnTo=${encodeURIComponent(returnTo)}`);
-}
-
-function registerUser() {
-  loginUser();
+  if (!silent) {
+    window.sessionStorage.removeItem('campus-wiki-sso-probe');
+    window.localStorage.removeItem('campus-wiki-sso-suppressed-until');
+  }
+  const prompt = silent ? '&prompt=none' : '';
+  window.location.assign(`${apiBaseUrl()}/auth/login?returnTo=${encodeURIComponent(returnTo)}${prompt}`);
 }
 
 function changeCurrentUserPassword() {
@@ -459,21 +460,13 @@ function authDialogTemplate() {
       <div class="auth-backdrop" data-auth-close></div>
       <section id="authPanel" class="auth-panel">
         <div id="authHead" class="auth-head">
-          <h2>账号</h2>
-          <p id="authHint">未登录：可浏览内容，登录后可参与更多校园互动。</p>
+          <h2>注册或登录</h2>
+          <p id="authHint">登录后可参与更多校园互动。</p>
         </div>
         <div id="authAccountState"></div>
-        <div class="auth-tabs" role="tablist" aria-label="账号操作">
-          <button id="authLoginTab" class="auth-tab active" type="button">登录</button>
-          <button id="authRegisterTab" class="auth-tab" type="button">注册</button>
-        </div>
         <form id="authLoginForm" class="auth-form">
-          <p>使用 NetHub Accounts 登录；若已有其他 NetHub 网站会话，无需再次输入密码。</p>
-          <button class="button auth-submit" type="submit">前往统一登录</button>
-        </form>
-        <form id="authRegisterForm" class="auth-form is-hidden">
-          <p>统一账号的注册由 NetHub Accounts 完成，Wiki 不再单独保存密码。</p>
-          <button class="button auth-submit" type="submit">前往统一注册/登录</button>
+          <p>本网站使用 NetHub 账号登录，请前往账号管理界面</p>
+          <button class="button auth-submit" type="submit">登录或注册 NetHub 账号后继续</button>
         </form>
         <form id="authPasswordForm" class="auth-form is-hidden">
           <p>密码由 NetHub Accounts 统一管理。</p>
@@ -505,17 +498,12 @@ function initAuthNav() {
   const modal = document.querySelector('#authModal');
   const authPanel = document.querySelector('#authPanel');
   const authHead = document.querySelector('#authHead');
-  const authTabs = document.querySelector('.auth-tabs');
   const loginForm = document.querySelector('#authLoginForm');
-  const registerForm = document.querySelector('#authRegisterForm');
   const passwordForm = document.querySelector('#authPasswordForm');
   const usernameForm = document.querySelector('#authUsernameForm');
   const hint = document.querySelector('#authHint');
   const accountState = document.querySelector('#authAccountState');
   const message = document.querySelector('#authMessage');
-  const loginTab = document.querySelector('#authLoginTab');
-  const registerTab = document.querySelector('#authRegisterTab');
-  let mode = 'login';
   let currentUser = getStoredUser();
   let passwordFormOpen = false;
   let usernameFormOpen = false;
@@ -550,29 +538,21 @@ function initAuthNav() {
     if (!currentUser) {
       authPanel.classList.remove('is-account-menu');
       authHead.classList.remove('is-hidden');
-      authTabs.classList.remove('is-hidden');
       message.classList.remove('is-hidden');
       accountState.innerHTML = '';
-      hint.textContent = '未登录：可浏览内容，登录后可参与更多校园互动。';
-      loginForm.classList.toggle('is-hidden', mode !== 'login');
-      registerForm.classList.toggle('is-hidden', mode !== 'register');
+      hint.textContent = '登录后可参与更多校园互动。';
+      loginForm.classList.remove('is-hidden');
       passwordForm.classList.add('is-hidden');
       usernameForm.classList.add('is-hidden');
-      loginTab.classList.remove('is-hidden');
-      registerTab.classList.remove('is-hidden');
       return;
     }
 
     authPanel.classList.add('is-account-menu');
     authHead.classList.add('is-hidden');
-    authTabs.classList.add('is-hidden');
     message.classList.toggle('is-hidden', !passwordFormOpen && !usernameFormOpen);
     loginForm.classList.add('is-hidden');
-    registerForm.classList.add('is-hidden');
     passwordForm.classList.toggle('is-hidden', !passwordFormOpen);
     usernameForm.classList.toggle('is-hidden', !usernameFormOpen);
-    loginTab.classList.add('is-hidden');
-    registerTab.classList.add('is-hidden');
     accountState.innerHTML = `
       <div class="auth-profile-summary">
         <span class="auth-profile-avatar" data-initial="${escapeHtml(userInitial(currentUser))}">
@@ -635,6 +615,10 @@ function initAuthNav() {
     accountState.querySelector('[data-logout]')?.addEventListener('click', async () => {
       await request('/auth/logout', { method: 'POST' }).catch(() => null);
       clearAuthSession();
+      window.localStorage.setItem(
+        'campus-wiki-sso-suppressed-until',
+        String(Date.now() + 10 * 60 * 1000),
+      );
       window.clearInterval(globalMessageBadgeTimer);
       globalMessageBadgeTimer = null;
       passwordFormOpen = false;
@@ -644,12 +628,8 @@ function initAuthNav() {
     });
   }
 
-  function setMode(nextMode) {
-    mode = nextMode;
-    const isRegister = mode === 'register';
+  function setMode() {
     renderAccountState();
-    loginTab.classList.toggle('active', !isRegister);
-    registerTab.classList.toggle('active', isRegister);
     message.textContent = '登录后可保存你的项目资料与校园互动状态。';
     message.classList.remove('error');
   }
@@ -682,15 +662,13 @@ function initAuthNav() {
       accountState.querySelector('.auth-menu-item')?.focus();
       return;
     }
-    const activeForm = mode === 'register' ? registerForm : loginForm;
-    activeForm.querySelector('button')?.focus();
+    loginForm.querySelector('button')?.focus();
   }
 
   function closeAuthModal() {
     modal.classList.remove('is-open');
     modal.setAttribute('aria-hidden', 'true');
     loginForm.reset();
-    registerForm.reset();
     passwordForm.reset();
     usernameForm.reset();
     passwordFormOpen = false;
@@ -699,8 +677,6 @@ function initAuthNav() {
     message.classList.remove('error');
   }
 
-  loginTab.addEventListener('click', () => setMode('login'));
-  registerTab.addEventListener('click', () => setMode('register'));
   document.querySelectorAll('[data-auth-close]').forEach((item) => item.addEventListener('click', closeAuthModal));
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && modal.classList.contains('is-open')) closeAuthModal();
@@ -712,11 +688,6 @@ function initAuthNav() {
   loginForm.addEventListener('submit', (event) => {
     event.preventDefault();
     loginUser();
-  });
-
-  registerForm.addEventListener('submit', (event) => {
-    event.preventDefault();
-    registerUser();
   });
 
   passwordForm.addEventListener('submit', (event) => {
@@ -751,7 +722,24 @@ function initAuthNav() {
   });
 
   renderUser(getStoredUser());
-  refreshCurrentUser().then(renderUser);
+  refreshCurrentUser().then((user) => {
+    renderUser(user);
+    if (user) {
+      window.sessionStorage.removeItem('campus-wiki-sso-probe');
+      window.localStorage.removeItem('campus-wiki-sso-suppressed-until');
+      return;
+    }
+    const alreadyProbed = window.sessionStorage.getItem('campus-wiki-sso-probe') === '1';
+    const suppressedUntil = Number(
+      window.localStorage.getItem('campus-wiki-sso-suppressed-until') || 0,
+    );
+    if (!alreadyProbed && Date.now() >= suppressedUntil) {
+      window.sessionStorage.setItem('campus-wiki-sso-probe', '1');
+      loginUser({ silent: true });
+      return;
+    }
+    openAuthModal('login');
+  });
 }
 
 const PROJECT_LOGO_FALLBACK_MAX_LENGTH = 8;

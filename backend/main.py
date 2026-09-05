@@ -58,6 +58,7 @@ from backend.oidc_client import (
     OIDC_STATE_COOKIE,
     OidcClientError,
     begin_login,
+    cancel_login,
     complete_login,
     validate_logout_token,
 )
@@ -316,11 +317,19 @@ def change_password(
 
 
 @app.get("/api/auth/login", tags=["auth"])
-def oidc_login(return_to: str | None = Query(default=None, alias="returnTo")):
+def oidc_login(
+    return_to: str | None = Query(default=None, alias="returnTo"),
+    prompt: str | None = Query(default=None),
+    screen_hint: str | None = Query(default=None, alias="screenHint"),
+):
     """Start Authorization Code + PKCE at NetHub Accounts."""
 
     try:
-        authorization_url, state = begin_login(return_to)
+        authorization_url, state = begin_login(
+            return_to,
+            prompt="none" if prompt == "none" else None,
+            screen_hint="signup" if screen_hint == "signup" else None,
+        )
     except OidcClientError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     response = RedirectResponse(authorization_url, status_code=302)
@@ -346,7 +355,13 @@ def oidc_callback(
     """Validate the provider response, provision a member and set a local session."""
 
     if error:
-        return HTMLResponse("账号中心拒绝了本次登录，请返回后重试。", status_code=400)
+        try:
+            return_to = cancel_login(state or "", request.cookies.get(OIDC_STATE_COOKIE, ""))
+        except OidcClientError as exc:
+            return HTMLResponse(f"登录未完成：{escape(str(exc))}", status_code=400)
+        response = RedirectResponse(return_to, status_code=303)
+        response.delete_cookie(OIDC_STATE_COOKIE, path="/api/auth")
+        return response
     if not code or not state:
         return HTMLResponse("登录回调缺少 code 或 state，请重新登录。", status_code=400)
     try:

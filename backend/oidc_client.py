@@ -126,7 +126,12 @@ def provider_jwks(*, force: bool = False) -> dict[str, Any]:
     return keys
 
 
-def begin_login(return_to: str | None) -> tuple[str, str]:
+def begin_login(
+    return_to: str | None,
+    *,
+    prompt: str | None = None,
+    screen_hint: str | None = None,
+) -> tuple[str, str]:
     metadata = discovery()
     state = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(32)
@@ -165,14 +170,26 @@ def begin_login(return_to: str | None) -> tuple[str, str]:
         scope="openid profile",
         redirect_uri=settings.oidc_redirect_uri,
     )
+    extra: dict[str, str] = {}
+    if prompt:
+        extra["prompt"] = prompt
+    if screen_hint:
+        extra["screen_hint"] = screen_hint
     authorization_url, _ = client.create_authorization_url(
         metadata["authorization_endpoint"],
         state=state,
         nonce=nonce,
         code_challenge=challenge,
         code_challenge_method="S256",
+        **extra,
     )
     return authorization_url, state
+
+
+def cancel_login(state: str, cookie_state: str) -> str:
+    """Consume a rejected authorization attempt and return its safe destination."""
+
+    return str(_consume_attempt(state, cookie_state)["return_to"])
 
 
 def _consume_attempt(state: str, cookie_state: str) -> dict[str, Any]:
