@@ -8,12 +8,64 @@ const API_BASE = window.CAMPUS_WIKI_CONFIG?.apiBaseUrl || '/api';
  * 这样前端服务和后端服务可以独立部署。
  */
 const AUTH_USER_KEY = 'campusWikiAuthUser';
+const AUTH_POPUP_QUERY_KEY = 'auth_popup';
+const AUTH_POPUP_CHANNEL_NAME = 'nethub-auth:campus-wiki';
+const AUTH_POPUP_STORAGE_KEY = 'campus-wiki-auth-popup-complete';
+let authPopupChannel = null;
+let authPopupReloadScheduled = false;
 const PROTECTED_FILE_EXTENSIONS = new Set([
   '.jpg', '.jpeg', '.png', '.webp', '.gif',
   '.pdf', '.zip', '.rar', '.7z',
   '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
 ]);
 const PROTECTED_FILE_DIRS = new Set(['photos', 'yearbook']);
+
+function setupAuthPopupSync() {
+  const url = new URL(window.location.href);
+  if (url.searchParams.get(AUTH_POPUP_QUERY_KEY) === '1') {
+    url.searchParams.delete(AUTH_POPUP_QUERY_KEY);
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    const completedAt = String(Date.now());
+    try {
+      window.localStorage.setItem(AUTH_POPUP_STORAGE_KEY, completedAt);
+    } catch (_error) {
+      // Storage can be unavailable in strict privacy modes.
+    }
+    if ('BroadcastChannel' in window) {
+      try {
+        const channel = new BroadcastChannel(AUTH_POPUP_CHANNEL_NAME);
+        channel.postMessage({ type: 'login-complete', completedAt });
+        channel.close();
+      } catch (_error) {
+        // The storage event above is the compatibility fallback.
+      }
+    }
+    window.setTimeout(() => window.close(), 50);
+    return true;
+  }
+
+  const reloadAfterLogin = () => {
+    if (authPopupReloadScheduled) return;
+    authPopupReloadScheduled = true;
+    window.location.reload();
+  };
+  if ('BroadcastChannel' in window) {
+    try {
+      authPopupChannel = new BroadcastChannel(AUTH_POPUP_CHANNEL_NAME);
+      authPopupChannel.addEventListener('message', (event) => {
+        if (event.data?.type === 'login-complete') reloadAfterLogin();
+      });
+    } catch (_error) {
+      authPopupChannel = null;
+    }
+  }
+  window.addEventListener('storage', (event) => {
+    if (event.key === AUTH_POPUP_STORAGE_KEY && event.newValue) reloadAfterLogin();
+  });
+  return false;
+}
+
+const authPopupCompletion = setupAuthPopupSync();
 
 async function request(path, options = {}) {
   const headers = new Headers(options.headers || {});
@@ -142,7 +194,9 @@ async function refreshGlobalMessageBadge() {
 }
 
 function loginUser({ silent = false } = {}) {
-  const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  const currentUrl = new URL(window.location.href);
+  if (!silent) currentUrl.searchParams.set(AUTH_POPUP_QUERY_KEY, '1');
+  const returnTo = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
   if (!silent) {
     window.sessionStorage.removeItem('campus-wiki-sso-probe');
     window.localStorage.removeItem('campus-wiki-sso-suppressed-until');
@@ -829,8 +883,10 @@ function projectCard(project) {
   `;
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initAuthNav);
-} else {
-  initAuthNav();
+if (!authPopupCompletion) {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initAuthNav);
+  } else {
+    initAuthNav();
+  }
 }
