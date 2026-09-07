@@ -94,6 +94,8 @@ class FrontendServerTest(unittest.TestCase):
         self.assertIn(b"window.location.assign(loginUrl)", shared_script)
         self.assertNotIn(b"BroadcastChannel", shared_script)
         self.assertNotIn(b"auth_popup", shared_script)
+        self.assertNotIn(b"authPopupCompletion", shared_script)
+        self.assertIn(b"document.addEventListener('DOMContentLoaded', initAuthNav)", shared_script)
         self.assertNotIn(b"campusWikiAuthToken", shared_script)
         self.assertNotIn(b"Authorization", shared_script)
         self.assertNotIn(b'id="createUserButton"', admin_page)
