@@ -2222,6 +2222,7 @@ body.modal-open { overflow: hidden; }
     overflow-x: auto;
     scrollbar-width: none;
   }
+  .navbar > .nav-links > a { flex: 0 0 auto; white-space: nowrap; }
   .navbar > .nav-links::-webkit-scrollbar { display: none; }
   .auth-user { text-align: left; }
   .page-grid, .library-layout { grid-template-columns: 1fr; padding-top: 20px; }

@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Codex笔记中心网页预览</title>
+  <desc id="desc">带有栏目导航、搜索框和笔记图集卡片的网页界面</desc>
+  <rect width="1600" height="900" fill="#f3f6fb"/>
+  <rect width="330" height="900" fill="#14213d"/>
+  <rect x="48" y="45" width="56" height="56" rx="15" fill="#3157d5"/>
+  <path d="M64 61h24v24H64z" fill="#fff" opacity=".95"/>
+  <text x="124" y="82" fill="#fff" font-family="Arial, sans-serif" font-size="34" font-weight="700">Codex</text>
+  <text x="48" y="158" fill="#8697bd" font-family="Arial, sans-serif" font-size="18" font-weight="700" letter-spacing="3">内容栏目</text>
+  <rect x="32" y="184" width="266" height="58" rx="12" fill="#3157d5"/>
+  <text x="58" y="222" fill="#fff" font-family="Arial, sans-serif" font-size="23">全部内容</text>
+  <g fill="#c7d1e8" font-family="Arial, sans-serif" font-size="22">
+    <text x="58" y="290">CS</text><text x="58" y="348">数学</text><text x="58" y="406">物理</text><text x="58" y="464">经济</text>
+  </g>
+  <rect x="384" y="44" width="1128" height="64" rx="18" fill="#fff" stroke="#dfe5ec" stroke-width="2"/>
+  <circle cx="422" cy="76" r="13" fill="none" stroke="#73809b" stroke-width="4"/>
+  <path d="m432 86 13 13" stroke="#73809b" stroke-width="4" stroke-linecap="round"/>
+  <text x="464" y="85" fill="#8791a6" font-family="Arial, sans-serif" font-size="22">搜索图集</text>
+  <text x="384" y="182" fill="#3157d5" font-family="Arial, sans-serif" font-size="18" font-weight="700" letter-spacing="4">IMAGE ARCHIVE</text>
+  <text x="384" y="242" fill="#14213d" font-family="Arial, sans-serif" font-size="44" font-weight="700">一个简单的笔记集合站。</text>
+  <text x="384" y="286" fill="#667085" font-family="Arial, sans-serif" font-size="22">按栏目收纳图片资料，从封面进入后即可顺序阅读完整长图。</text>
+  <text x="384" y="370" fill="#14213d" font-family="Arial, sans-serif" font-size="32" font-weight="700">最近图集</text>
+  <g>
+    <rect x="384" y="408" width="340" height="350" rx="20" fill="#fff" stroke="#dfe5ec" stroke-width="2"/>
+    <rect x="404" y="428" width="300" height="180" rx="14" fill="#d9e4ff"/>
+    <path d="M438 570l72-72 45 45 43-49 70 76z" fill="#7695eb"/><circle cx="622" cy="473" r="23" fill="#fff" opacity=".85"/>
+    <text x="408" y="652" fill="#3157d5" font-family="Arial, sans-serif" font-size="18" font-weight="700">CS</text>
+    <text x="408" y="694" fill="#14213d" font-family="Arial, sans-serif" font-size="24" font-weight="700">高二 CS 笔记</text>
+    <text x="408" y="730" fill="#667085" font-family="Arial, sans-serif" font-size="18">64 张图片</text>
+  </g>
+  <g>
+    <rect x="748" y="408" width="340" height="350" rx="20" fill="#fff" stroke="#dfe5ec" stroke-width="2"/>
+    <rect x="768" y="428" width="300" height="180" rx="14" fill="#e3ebfa"/>
+    <rect x="816" y="462" width="204" height="112" rx="8" fill="#fff"/><path d="M846 492h144M846 520h110M846 548h126" stroke="#91a6d9" stroke-width="9" stroke-linecap="round"/>
+    <text x="772" y="652" fill="#3157d5" font-family="Arial, sans-serif" font-size="18" font-weight="700">经济</text>
+    <text x="772" y="694" fill="#14213d" font-family="Arial, sans-serif" font-size="24" font-weight="700">高二经济笔记</text>
+    <text x="772" y="730" fill="#667085" font-family="Arial, sans-serif" font-size="18">10 张图片</text>
+  </g>
+  <g>
+    <rect x="1112" y="408" width="340" height="350" rx="20" fill="#fff" stroke="#dfe5ec" stroke-width="2"/>
+    <rect x="1132" y="428" width="300" height="180" rx="14" fill="#e8e4ff"/>
+    <circle cx="1282" cy="518" r="66" fill="#fff"/><path d="M1244 534c34-76 69-76 82 0" fill="none" stroke="#806bd9" stroke-width="14" stroke-linecap="round"/>
+    <text x="1136" y="652" fill="#3157d5" font-family="Arial, sans-serif" font-size="18" font-weight="700">物理</text>
+    <text x="1136" y="694" fill="#14213d" font-family="Arial, sans-serif" font-size="24" font-weight="700">高一物理笔记</text>
+    <text x="1136" y="730" fill="#667085" font-family="Arial, sans-serif" font-size="18">4 张图片</text>
+  </g>
+</svg>

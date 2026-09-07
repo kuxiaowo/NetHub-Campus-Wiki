@@ -286,6 +286,37 @@ class FrontendServerTest(unittest.TestCase):
         self.assertIn(b'src="/assets/about/todolist.webp"', home_page)
         self.assertIn(b'class="about-feature-image-link" href="https://todolist.nethub.wiki"', about_page)
 
+    def test_friend_links_page_uses_previews_and_safe_external_links(self) -> None:
+        status, links_page, content_type = self.fetch("/links.html")
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "text/html")
+        self.assertIn('aria-current="page">友情链接'.encode("utf-8"), links_page)
+
+        destinations = (
+            ("TodoList", "https://todolist.nethub.wiki/", "/assets/about/todolist.webp"),
+            ("TechX心情晴雨表", "https://sdgj.tech/", "/assets/about/mood-meter.webp"),
+            ("Codex笔记中心", "https://codex.nethub.wiki/", "/assets/about/codex-notes.svg"),
+            ("Compesistant", "https://compesistant.com/", "/assets/about/compesistant.png"),
+        )
+        for name, url, preview in destinations:
+            self.assertIn(name.encode("utf-8"), links_page)
+            self.assertEqual(links_page.count(f'href="{url}"'.encode()), 2)
+            self.assertIn(f'src="{preview}"'.encode(), links_page)
+
+        self.assertEqual(links_page.count(b'target="_blank" rel="noopener noreferrer"'), 8)
+        self.assertIn("Compesistant 小组".encode("utf-8"), links_page)
+        self.assertNotIn(b"https://auth.nethub.wiki", links_page)
+
+        status, codex_preview, content_type = self.fetch("/assets/about/codex-notes.svg")
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "image/svg+xml")
+        self.assertTrue(codex_preview.startswith(b'<svg xmlns="http://www.w3.org/2000/svg"'))
+
+        status, compesistant_preview, content_type = self.fetch("/assets/about/compesistant.png")
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "image/png")
+        self.assertTrue(compesistant_preview.startswith(b"\x89PNG\r\n\x1a\n"))
+
     def test_project_logo_fallback_is_shared_and_fills_the_middle_row(self) -> None:
         _, shared_script, _ = self.fetch("/js/api.js")
         _, detail_script, _ = self.fetch("/js/detail.js")
@@ -310,6 +341,7 @@ class FrontendServerTest(unittest.TestCase):
             "/resources.html",
             "/detail.html",
             "/about.html",
+            "/links.html",
             "/announcement.html",
             "/announcements.html",
             "/messages.html",
@@ -322,8 +354,12 @@ class FrontendServerTest(unittest.TestCase):
             self.assertEqual(content_type, "text/html")
             resource_index = body.find(b'href="/resources.html"')
             teacher_index = body.find(b'href="/resources.html?category=teacher"')
+            links_index = body.find(b'href="/links.html"')
+            about_index = body.find(b'href="/about.html"')
             self.assertGreaterEqual(resource_index, 0, path)
             self.assertGreater(teacher_index, resource_index, path)
+            self.assertGreater(links_index, teacher_index, path)
+            self.assertGreater(about_index, links_index, path)
             self.assertIn(b'class="nav-new-badge">new</span>', body, path)
 
         _, resource_page, _ = self.fetch("/resources.html")

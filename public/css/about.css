@@ -536,21 +536,6 @@
 }
 
 @media (max-width: 680px) {
-  .about-page .navbar > .nav-links {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 2px;
-    overflow: visible;
-  }
-
-  .about-page .nav-links a {
-    min-width: 0;
-    padding: 8px 3px;
-    font-size: 12px;
-    text-align: center;
-    white-space: nowrap;
-  }
-
   .about-hero {
     width: 100%;
     padding: 18px 14px 68px;
