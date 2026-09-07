@@ -51,6 +51,22 @@ function adminText(value) {
   return escapeHtml(value ?? '');
 }
 
+function adminUserCreatedTime(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '—';
+  // SQLite CURRENT_TIMESTAMP is UTC but does not include a timezone suffix.
+  const normalized = raw.replace(' ', 'T');
+  const timestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(normalized)
+    ? `${normalized}Z` : normalized;
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).format(date);
+}
+
 function adminNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -844,7 +860,7 @@ async function loadUsers() {
       { key: 'displayName', label: '姓名' },
       { key: 'role', label: '角色', render: (row) => adminText(roleLabel(row.role)) },
       { key: 'isActive', label: '状态', render: (row) => row.isActive ? '启用' : '禁用' },
-      { key: 'createdAt', label: '创建时间' },
+      { key: 'createdAt', label: 'Wiki 档案创建时间（北京时间）', render: (row) => adminText(adminUserCreatedTime(row.createdAt)) },
     ],
     adminState.users,
     (row) => `
