@@ -826,10 +826,8 @@ function projectCard(project) {
   `;
 }
 
-if (!authPopupCompletion) {
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initAuthNav);
-  } else {
-    initAuthNav();
-  }
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initAuthNav);
+} else {
+  initAuthNav();
 }
