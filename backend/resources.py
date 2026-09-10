@@ -68,7 +68,7 @@ def _photo_files(target: Path) -> list[Path]:
     return [
         item
         for item in sorted(target.iterdir(), key=_natural_sort_key)
-        if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS
+        if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
     ]
 
 
@@ -137,30 +137,36 @@ def _scan_photo_dir(
     if not target.exists() or not target.is_dir():
         return []
 
+    files = _photo_files(target)
     if count_only:
-        return [{} for _ in _photo_files(target)]
+        return [
+            {"type": "video" if item.suffix.lower() in VIDEO_EXTENSIONS else "image"}
+            for item in files
+        ]
     if cover_only:
-        files = _photo_files(target)
         if not files:
             return []
         return [_format_photo_file(files[0], 1)]
 
-    cached_photos = _get_cached_photo_dir(relative)
+    signature = [(str(item), item.stat().st_mtime_ns, item.stat().st_size) for item in files]
+    cached_photos = _get_cached_photo_dir(relative, signature)
     if cached_photos is not None:
         return cached_photos
 
     photos = []
-    for index, item in enumerate(_photo_files(target), start=1):
+    for index, item in enumerate(files, start=1):
         photos.append(_format_photo_file(item, index))
-    _set_cached_photo_dir(relative, photos)
+    _set_cached_photo_dir(relative, photos, signature)
     return photos
 
 
 def _format_photo_file(item: Path, index: int) -> dict[str, Any]:
     item_relative = item.relative_to(PUBLIC_DIR.resolve()).as_posix()
-    thumb_url = _ensure_thumbnail(item)
+    media_type = "video" if item.suffix.lower() in VIDEO_EXTENSIONS else "image"
+    thumb_url = _ensure_video_thumbnail(item) if media_type == "video" else _ensure_thumbnail(item)
     return {
         "id": index,
+        "type": media_type,
         "title": item.stem,
         "src": public_media_url(f"/{item_relative}") or f"/{item_relative}",
         "thumbSrc": thumb_url,
@@ -168,24 +174,25 @@ def _format_photo_file(item: Path, index: int) -> dict[str, Any]:
     }
 
 
-def _get_cached_photo_dir(relative: str) -> list[dict[str, Any]] | None:
+def _get_cached_photo_dir(relative: str, signature: list[tuple[str, int, int]]) -> list[dict[str, Any]] | None:
     cache_minutes = settings.photo_dir_cache_minutes
     if cache_minutes <= 0:
         return None
 
     cache_entry = _PHOTO_DIR_CACHE.get(relative)
-    if not cache_entry or cache_entry["expires_at"] <= time.monotonic():
+    if not cache_entry or cache_entry["expires_at"] <= time.monotonic() or cache_entry["signature"] != signature:
         return None
     return [photo.copy() for photo in cache_entry["photos"]]
 
 
-def _set_cached_photo_dir(relative: str, photos: list[dict[str, Any]]) -> None:
+def _set_cached_photo_dir(relative: str, photos: list[dict[str, Any]], signature: list[tuple[str, int, int]]) -> None:
     cache_minutes = settings.photo_dir_cache_minutes
     if cache_minutes <= 0:
         _PHOTO_DIR_CACHE.pop(relative, None)
         return
 
     _PHOTO_DIR_CACHE[relative] = {
+        "signature": signature,
         "expires_at": time.monotonic() + cache_minutes * 60,
         "photos": [photo.copy() for photo in photos],
     }
@@ -195,7 +202,7 @@ def _ensure_thumbnail(source: Path) -> str | None:
     """Create a WebP thumbnail beside the source image when possible."""
 
     thumb_dir = source.parent / THUMB_DIR_NAME
-    thumb_path = thumb_dir / f"{source.stem}.webp"
+    thumb_path = thumb_dir / f"{source.name}.image.webp"
     try:
         from PIL import Image, ImageOps, UnidentifiedImageError
     except ImportError:
@@ -226,7 +233,7 @@ def _ensure_video_thumbnail(source: Path) -> str | None:
     """Extract the first video frame with FFmpeg and cache it as a WebP thumbnail."""
 
     thumb_dir = source.parent / THUMB_DIR_NAME
-    thumb_path = thumb_dir / f"{source.stem}.video.webp"
+    thumb_path = thumb_dir / f"{source.name}.video.webp"
     try:
         from PIL import Image, UnidentifiedImageError
     except ImportError:
@@ -285,16 +292,24 @@ def _ensure_video_thumbnail(source: Path) -> str | None:
 def format_photo_activity(row: dict[str, Any], legacy_photos: list[dict[str, Any]]) -> dict[str, Any]:
     """Return the public activity card shape with directory-derived cover data."""
 
-    scanned_photos = _scan_photo_dir(row.get("photo_dir"), cover_only=True)
-    default_cover_images = scanned_photos or legacy_photos[:1]
     custom_cover = str(row.get("cover_image") or "").strip()
+    scanned_photos = [] if custom_cover else _scan_photo_dir(row.get("photo_dir"), cover_only=True)
+    default_cover_images = scanned_photos or legacy_photos[:1]
     cover_src = custom_cover or (default_cover_images[0]["src"] if default_cover_images else None)
+    cover_type = (
+        default_cover_images[0].get("type", "image")
+        if not custom_cover and default_cover_images else "image"
+    )
+    if cover_type == "video":
+        cover_src = default_cover_images[0].get("thumbSrc")
     cover_thumb_src = (
         image_thumbnail_url(custom_cover)
         if custom_cover
         else (default_cover_images[0].get("thumbSrc") if default_cover_images else None)
     )
-    directory_photo_count = len(_scan_photo_dir(row.get("photo_dir"), count_only=True)) if row.get("photo_dir") else 0
+    directory_items = _scan_photo_dir(row.get("photo_dir"), count_only=True)
+    video_count = sum(item["type"] == "video" for item in directory_items)
+    photo_count = len(directory_items) - video_count if directory_items else row["photo_count"]
     return {
         "id": row["id"],
         "activity": row["activity"],
@@ -307,7 +322,10 @@ def format_photo_activity(row: dict[str, Any], legacy_photos: list[dict[str, Any
         "coverImage": public_media_url(custom_cover),
         "coverSrc": public_media_url(cover_src),
         "coverThumbSrc": public_media_url(cover_thumb_src),
-        "photoCount": directory_photo_count or row["photo_count"],
+        "coverType": cover_type,
+        "photoCount": photo_count,
+        "videoCount": video_count,
+        "mediaCount": photo_count + video_count,
         "createdAt": row.get("created_at"),
     }
 
@@ -597,7 +615,7 @@ def list_photo_activities(
         result.sort(
             key=lambda item: (
                 item["sortOrder"],
-                -item["photoCount"] if sort == "photoCount" else -item["downloads"],
+                -item["mediaCount"] if sort == "photoCount" else -item["downloads"],
                 -(item["createdAt"].timestamp() if item["createdAt"] else 0),
             )
         )
@@ -654,6 +672,7 @@ def get_activity_photo_detail(
             {
                 "id": row["id"],
                 "title": row["title"],
+                "type": "image",
                 "src": public_media_url(row["image_url"]) or row["image_url"],
                 "thumbSrc": None,
                 "sortOrder": row["sort_order"],

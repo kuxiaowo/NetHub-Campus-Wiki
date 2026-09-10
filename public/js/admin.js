@@ -2029,7 +2029,7 @@ async function deleteResource(id) {
 }
 
 async function loadActivities() {
-  adminEls.activitiesTable.innerHTML = '<div class="empty">正在加载活动照片...</div>';
+  adminEls.activitiesTable.innerHTML = '<div class="empty">正在加载照片和视频...</div>';
   const query = buildQuery({
     search: adminEls.resourceSearch.value.trim(),
     year: adminState.resourceYear,
@@ -2043,21 +2043,14 @@ async function loadActivities() {
   await renderAdminPhotos(result.data);
 }
 
-function activityPhotoCount(activity) {
-  if (Array.isArray(activity.images)) return activity.images.length;
-  return adminNumber(activity.photoCount, 0);
-}
-
 function activityCoverImage(activity) {
-  if (Array.isArray(activity.images) && activity.images[0]) {
-    return activity.images[0].thumbSrc || activity.images[0].src || '';
-  }
   return activity.coverThumbSrc || activity.coverSrc || '';
 }
 
 async function loadAdminActivityPhotos(activity) {
   if (Array.isArray(activity.images)) return activity.images;
   const result = await adminEndpoint(`/photo-activities/${activity.id}/photos?track=false`);
+  Object.assign(activity, result.activity);
   activity.images = result.data;
   return activity.images;
 }
@@ -2067,11 +2060,10 @@ function renderAdminActivityList(activities) {
     adminEls.activityList.innerHTML = '<div class="empty">暂无活动</div>';
     return;
   }
-  const totalPhotoCount = activities.reduce((sum, activity) => sum + activityPhotoCount(activity), 0);
   adminEls.activityList.innerHTML = [
     `<button class="category-button ${adminState.selectedActivity === null ? 'active' : ''}" type="button" data-admin-activity-id="">
       全部活动
-      <span class="activity-count">${adminText(totalPhotoCount)} 张</span>
+      <span class="activity-count">${ResourceUI.activityTotalText(activities)}</span>
     </button>`,
     ...activities.map((activity) => `
       <button
@@ -2083,7 +2075,7 @@ function renderAdminActivityList(activities) {
         draggable="true"
       >
         ${adminText(activity.activity)}
-        <span class="activity-count">${adminText(activityPhotoCount(activity))} 张</span>
+        <span class="activity-count">${ResourceUI.mediaCountText(activity)}</span>
       </button>
     `),
   ].join('');
@@ -2109,10 +2101,9 @@ function openAdminPhotoModal(index) {
   const src = safeExternalUrl(item.src);
   adminState.currentModalIndex = index;
   adminState.currentModalPhoto = { ...item, src };
-  adminEls.photoModalTitle.textContent = item.title || '照片详情';
+  adminEls.photoModalTitle.textContent = item.title || '照片 / 视频详情';
   adminEls.photoModalMeta.textContent = [...[item.activity, item.year].filter(Boolean), `${index + 1}/${adminState.activePhotoItems.length}`].join(' · ');
-  adminEls.photoModalImage.src = src;
-  adminEls.photoModalImage.alt = item.title || '';
+  ResourceUI.showModalMedia(adminEls.photoModalImage, item);
   adminEls.photoModal.classList.add('is-open');
   adminEls.photoModal.setAttribute('aria-hidden', 'false');
 }
@@ -2126,7 +2117,7 @@ function shiftAdminPhotoModal(direction) {
 function closeAdminPhotoModal() {
   adminEls.photoModal.classList.remove('is-open');
   adminEls.photoModal.setAttribute('aria-hidden', 'true');
-  adminEls.photoModalImage.src = '';
+  ResourceUI.clearModalMedia(adminEls.photoModalImage);
   adminState.currentModalPhoto = null;
   adminState.currentModalIndex = -1;
 }
@@ -2138,7 +2129,7 @@ function downloadAdminModalPhoto() {
 
   const link = document.createElement('a');
   link.href = authenticatedPublicFileUrl(item.src) || item.src;
-  link.download = `${item.activity || 'photo'}-${item.title || 'image'}.jpg`;
+  link.download = localFileNameFromUrl(item.src, 'media');
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -2147,11 +2138,10 @@ function downloadAdminModalPhoto() {
 async function renderAdminPhotos(activities) {
   renderAdminActivityList(activities);
   if (adminState.selectedActivity === null) {
-    const totalPhotoCount = activities.reduce((sum, activity) => sum + activityPhotoCount(activity), 0);
     adminEls.activitiesTable.classList.remove('photo-groups');
     adminEls.activitiesTable.classList.add('photo-activity-cards');
     adminEls.photoTitle.textContent = '全部活动';
-    adminEls.photoMeta.textContent = `${activities.length} 个活动 · ${totalPhotoCount} 张照片`;
+    adminEls.photoMeta.textContent = `${activities.length} 个活动 · ${ResourceUI.activityTotalText(activities)}`;
     adminEls.editCurrentActivityButton.classList.add('is-hidden');
     adminEls.downloadActivity.classList.add('is-hidden');
     adminState.activePhotoItems = [];
@@ -2177,9 +2167,9 @@ async function renderAdminPhotos(activities) {
 
   adminState.currentActivity = current;
   adminEls.photoTitle.textContent = current.activity;
-  adminEls.photoMeta.textContent = `${current.description} · ${current.year} · ${activityPhotoCount(current)} 张照片 · 热度 ${current.hot} · 下载 ${current.downloads || 0}`;
+  adminEls.photoMeta.textContent = `${current.description} · ${current.year} · ${ResourceUI.mediaCountText(current)} · 热度 ${current.hot} · 下载 ${current.downloads || 0}`;
   adminEls.downloadActivity.disabled = true;
-  adminEls.activitiesTable.innerHTML = '<div class="empty">正在加载活动照片...</div>';
+  adminEls.activitiesTable.innerHTML = '<div class="empty">正在加载照片和视频...</div>';
   let photos = [];
   try {
     photos = await loadAdminActivityPhotos(current);
@@ -2189,7 +2179,7 @@ async function renderAdminPhotos(activities) {
     return;
   }
   if (adminState.selectedActivity !== current.id) return;
-  adminEls.photoMeta.textContent = `${current.description} · ${current.year} · ${photos.length} 张照片 · 热度 ${current.hot} · 下载 ${current.downloads || 0}`;
+  adminEls.photoMeta.textContent = `${current.description} · ${current.year} · ${ResourceUI.mediaCountText(photos)} · 热度 ${current.hot} · 下载 ${current.downloads || 0}`;
   adminState.activePhotoItems = photos.map((item, index) => ({
     ...item,
     activity: current.activity,
@@ -2199,7 +2189,7 @@ async function renderAdminPhotos(activities) {
   adminEls.downloadActivity.disabled = adminState.activePhotoItems.length === 0;
   adminEls.activitiesTable.innerHTML = adminState.activePhotoItems.length
     ? adminState.activePhotoItems.map(photoButton).join('')
-    : '<div class="empty">这个活动还没有照片。</div>';
+    : '<div class="empty">这个活动还没有照片或视频。</div>';
 }
 
 function activityFields(activity = {}, options = {}) {
@@ -2218,8 +2208,8 @@ function activityFields(activity = {}, options = {}) {
     ...(options.includeCategory ? [categoryField] : []),
     { name: 'downloads', label: '下载数', value: activity.downloads || 0, type: 'number' },
     { name: 'sortOrder', label: 'sortOrder', value: activity.sortOrder || 0, type: 'number' },
-    { name: 'photoDir', label: '照片目录', value: activity.photoDir || '', browse: 'folder' },
-    { name: 'coverImage', label: '封面地址（选填，默认目录第一张）', value: activity.coverImage || '', browse: 'file' },
+    { name: 'photoDir', label: '照片 / 视频目录', value: activity.photoDir || '', browse: 'folder' },
+    { name: 'coverImage', label: '封面地址（选填，默认目录第一项）', value: activity.coverImage || '', browse: 'file' },
   ];
 }
 
@@ -2382,7 +2372,7 @@ function bindAdminEvents() {
   adminEls.downloadActivity.addEventListener('click', async () => {
     if (!requireAuthForDownload()) return;
     if (!adminState.currentActivity || !adminState.activePhotoItems.length) {
-      window.alert('当前活动没有可下载的照片。');
+      window.alert('当前活动没有可下载的内容。');
       return;
     }
 
@@ -2393,7 +2383,7 @@ function bindAdminEvents() {
       const result = await downloadFilesToSelectedDirectory(
         adminState.activePhotoItems.map((item, index) => ({
           url: authenticatedPublicFileUrl(item.src) || item.src,
-          filename: localFileNameFromUrl(item.src, `photo-${String(index + 1).padStart(4, '0')}.jpg`),
+          filename: localFileNameFromUrl(item.src, `media-${String(index + 1).padStart(4, '0')}`),
         })),
         {
           folderName: `${activity.year}-${activity.activity}`,
@@ -2401,25 +2391,25 @@ function bindAdminEvents() {
           onProgress(progress) {
             const action = progress.deliveryMode === 'default-directory' ? '提交下载' : '下载中';
             adminEls.downloadActivity.textContent = `${action} ${progress.completed}/${progress.total}`;
-            adminEls.photoMeta.textContent = `${action} ${progress.completed}/${progress.total} 张照片${progress.failed.length ? ` · 失败 ${progress.failed.length}` : ''}`;
+            adminEls.photoMeta.textContent = `${action} ${progress.completed}/${progress.total} 个文件${progress.failed.length ? ` · 失败 ${progress.failed.length}` : ''}`;
           },
         },
       );
       if (result.deliveryMode === 'default-directory') {
-        window.alert(`已向浏览器提交 ${result.succeeded} 张照片，请在默认下载目录中查看。若下载数量不完整，请检查浏览器是否已允许多个文件下载。`);
+        window.alert(`已向浏览器提交 ${result.succeeded} 个文件，请在默认下载目录中查看。若下载数量不完整，请检查浏览器是否已允许多个文件下载。`);
       } else if (result.failed.length) {
-        window.alert(`已保存 ${result.succeeded}/${result.total} 张照片到“${result.folderName}”，${result.failed.length} 张下载失败。`);
+        window.alert(`已保存 ${result.succeeded}/${result.total} 个文件到“${result.folderName}”，${result.failed.length} 个文件下载失败。`);
       } else {
-        window.alert(`已将 ${result.succeeded} 张照片保存到“${result.folderName}”。`);
+        window.alert(`已将 ${result.succeeded} 个文件保存到“${result.folderName}”。`);
       }
     } catch (error) {
-      if (error?.name !== 'AbortError') window.alert(error?.message || '下载照片失败。');
+      if (error?.name !== 'AbortError') window.alert(error?.message || '下载内容失败。');
     } finally {
       adminEls.downloadActivity.disabled = false;
       adminEls.downloadActivity.textContent = originalLabel;
       const current = adminState.currentActivity;
       if (current?.id === activity.id) {
-        adminEls.photoMeta.textContent = `${current.description} · ${current.year} · ${adminState.activePhotoItems.length} 张照片 · 热度 ${current.hot} · 下载 ${current.downloads || 0}`;
+        adminEls.photoMeta.textContent = `${current.description} · ${current.year} · ${ResourceUI.mediaCountText(adminState.activePhotoItems)} · 热度 ${current.hot} · 下载 ${current.downloads || 0}`;
       }
     }
   });
@@ -2663,6 +2653,7 @@ function bindAdminEvents() {
     if (event.key === 'Escape') {
       closeAdminPhotoModal();
     }
+    if (event.target.closest('video')) return;
     if (event.key === 'ArrowLeft') {
       event.preventDefault();
       shiftAdminPhotoModal(-1);

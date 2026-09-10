@@ -9,7 +9,7 @@
   <meta name="twitter:card" content="summary_large_image" />
   <title>资源中心</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=3" />
-  <link rel="stylesheet" href="/css/styles.css?v=friend-links1" />
+  <link rel="stylesheet" href="/css/styles.css?v=activity-accounts-20260910" />
 </head>
 <body>
   <header class="site-header">
@@ -100,7 +100,7 @@
             <h1 id="photoTitle">活动照片</h1>
             <span id="photoMeta">正在加载活动...</span>
           </div>
-          <button id="downloadActivity" class="button secondary" type="button">下载全部照片</button>
+          <button id="downloadActivity" class="button secondary" type="button">下载全部内容</button>
         </div>
         <div id="photoGrid" class="photo-grid" aria-live="polite"></div>
       </div>
@@ -126,12 +126,12 @@
     </section>
   </main>
 
-  <div id="photoModal" class="photo-modal" aria-hidden="true" role="dialog" aria-label="照片详情">
+  <div id="photoModal" class="photo-modal" aria-hidden="true" role="dialog" aria-label="照片 / 视频详情">
     <div class="photo-modal-backdrop" data-close-modal></div>
     <section class="photo-modal-panel">
       <div class="photo-modal-head">
         <div>
-          <h2 id="modalTitle">照片详情</h2>
+          <h2 id="modalTitle">照片 / 视频详情</h2>
           <p id="modalMeta"></p>
         </div>
         <div class="modal-actions">
@@ -140,9 +140,11 @@
         </div>
       </div>
       <div class="photo-modal-stage">
-        <button id="modalPrev" class="photo-modal-nav prev" type="button" aria-label="上一张">‹</button>
+        <button id="modalPrev" class="photo-modal-nav prev" type="button" aria-label="上一个">‹</button>
         <img id="modalImage" src="" alt="" />
-        <button id="modalNext" class="photo-modal-nav next" type="button" aria-label="下一张">›</button>
+        <video class="activity-modal-video" controls playsinline preload="metadata" hidden></video>
+        <p class="media-playback-error" role="status" hidden>无法播放此视频，请使用下载按钮获取原文件。</p>
+        <button id="modalNext" class="photo-modal-nav next" type="button" aria-label="下一个">›</button>
       </div>
     </section>
   </div>
@@ -166,9 +168,9 @@
     </div>
   </footer>
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=avatar-menu2"></script>
+  <script src="/js/api.js?v=activity-accounts-20260910"></script>
   <script src="/js/comments.js?v=nethub-comments2"></script>
-  <script src="/js/resource-ui.js?v=shared-resource-ui1"></script>
-  <script src="/js/resources.js?v=photo-folder-download1"></script>
+  <script src="/js/resource-ui.js?v=activity-media1"></script>
+  <script src="/js/resources.js?v=activity-media1"></script>
 </body>
 </html>

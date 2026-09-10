@@ -260,11 +260,12 @@ class YearbookDetailResponse(BaseModel):
 
 
 class PhotoItem(BaseModel):
-    """单张活动照片。"""
+    """单个活动图片或视频。"""
 
     id: int
     title: str
     src: str
+    type: Literal["image", "video"]
     thumbSrc: str | None = None
     sortOrder: int
 
@@ -284,6 +285,9 @@ class PhotoActivity(BaseModel):
     coverSrc: str | None = None
     coverThumbSrc: str | None = None
     photoCount: int
+    videoCount: int
+    mediaCount: int
+    coverType: Literal["image", "video"]
     createdAt: datetime | None = None
 
 
@@ -302,5 +306,5 @@ class PhotoActivityDetailResponse(BaseModel):
 class PhotoActivityPhotosResponse(BaseModel):
     """单个活动照片响应。"""
 
-    data: list[PhotoItem] = Field(description="指定活动下的照片集合。")
+    data: list[PhotoItem] = Field(description="指定活动下按序混排的图片和视频集合。")
     activity: PhotoActivity | None = Field(default=None, description="更新热度后的活动摘要。")
