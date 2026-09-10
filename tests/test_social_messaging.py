@@ -410,7 +410,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         with get_db_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("PRAGMA user_version")
-                self.assertEqual(cursor.fetchone()["user_version"], 13)
+                self.assertEqual(cursor.fetchone()["user_version"], 15)
                 cursor.execute("PRAGMA table_info(conversation_members)")
                 member_columns = {column["name"] for column in cursor.fetchall()}
                 self.assertNotIn("request_status", member_columns)
@@ -593,6 +593,74 @@ class SocialMessagingFlowTest(unittest.TestCase):
         leader = project["memberList"][0]
         self.assertTrue(leader["registered"])
         self.assertEqual(leader["userId"], self.alice["id"])
+
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO projects
+                      (id, name, leader, members, category, year, description)
+                    VALUES
+                      (9001, '第二个绑定测试项目', 'Alice', 'Alice',
+                       '测试分类', 2026, '验证同一账号可跨项目绑定多个成员档案')
+                    """
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO people (display_name, source_key, status)
+                    VALUES ('Alice 的第二个成员档案', 'test:multi-binding:alice', 'provisional')
+                    """
+                )
+                second_person_id = cursor.lastrowid
+                cursor.execute(
+                    """
+                    INSERT INTO project_members
+                      (project_id, person_id, role, display_name_snapshot, sort_order)
+                    VALUES (9001, %s, 'leader', 'Alice 的第二个成员档案', 0)
+                    """,
+                    (second_person_id,),
+                )
+
+        second_binding = self.client.patch(
+            f"/api/admin/projects/9001/members/{second_person_id}/binding",
+            headers=self._headers(self.admin_token),
+            json={"userId": self.alice["id"]},
+        )
+        self.assertEqual(second_binding.status_code, 200, second_binding.text)
+        second_project = self.client.get("/api/projects/9001").json()["data"]
+        self.assertEqual(second_project["memberList"][0]["userId"], self.alice["id"])
+
+        same_project_person_id = project["memberList"][1]["personId"]
+        second_binding_in_same_project = self.client.patch(
+            f"/api/admin/projects/1/members/{same_project_person_id}/binding",
+            headers=self._headers(self.admin_token),
+            json={"userId": self.alice["id"]},
+        )
+        self.assertEqual(
+            second_binding_in_same_project.status_code,
+            200,
+            second_binding_in_same_project.text,
+        )
+        first_project = self.client.get("/api/projects/1").json()["data"]
+        self.assertEqual(
+            [item["userId"] for item in first_project["memberList"][:2]],
+            [self.alice["id"], self.alice["id"]],
+        )
+
+        visible_users = self.client.get(
+            "/api/users",
+            headers=self._headers(self.bob_token),
+        ).json()["data"]
+        self.assertEqual(
+            sum(user["id"] == self.alice["id"] for user in visible_users),
+            1,
+        )
+        profile = self.client.get(
+            f"/api/users/{self.alice['id']}",
+            headers=self._headers(self.bob_token),
+        ).json()["data"]
+        self.assertEqual({item["id"] for item in profile["projects"]}, {1, 9001})
+        self.assertEqual(len(profile["projects"]), 2)
 
     def test_04_unified_message_daily_limit_reply_read_recall_and_block(self) -> None:
         response = self.client.post(
@@ -1782,61 +1850,18 @@ class SocialMessagingFlowTest(unittest.TestCase):
         )
         self.assertEqual(rejected.status_code, 422)
 
-    def test_12_avatar_upload_replacement_and_removal(self) -> None:
-        user = self._register("avatar_user", "Avatar User")
+    def test_12_local_avatar_write_endpoints_are_gone(self) -> None:
+        self._register("avatar_user", "Avatar User")
         token = self._login("avatar_user", "password123")
-        with tempfile.TemporaryDirectory() as temp_dir:
-            avatar_root = Path(temp_dir) / "avatars"
-            with patch("backend.avatars.AVATAR_ROOT", avatar_root):
-                image_buffer = io.BytesIO()
-                Image.new("RGB", (800, 400), "orange").save(image_buffer, format="PNG")
-                uploaded = self.client.post(
-                    "/api/users/me/avatar",
-                    headers=self._headers(token),
-                    files={"avatar": ("wide.png", image_buffer.getvalue(), "image/png")},
-                )
-                self.assertEqual(uploaded.status_code, 200, uploaded.text)
-                first_url = uploaded.json()["avatarUrl"]
-                first_path = avatar_root / first_url.removeprefix("/uploads/avatars/")
-                self.assertTrue(first_path.is_file())
-                with Image.open(first_path) as stored:
-                    self.assertEqual(stored.format, "WEBP")
-                    self.assertEqual(stored.size, (512, 512))
-
-                replacement_buffer = io.BytesIO()
-                Image.new("RGB", (300, 900), "purple").save(replacement_buffer, format="JPEG")
-                replaced = self.client.post(
-                    "/api/users/me/avatar",
-                    headers=self._headers(token),
-                    files={"avatar": ("tall.jpg", replacement_buffer.getvalue(), "image/jpeg")},
-                )
-                self.assertEqual(replaced.status_code, 200, replaced.text)
-                self.assertNotEqual(replaced.json()["avatarUrl"], first_url)
-                self.assertFalse(first_path.exists())
-
-                invalid = self.client.post(
-                    "/api/users/me/avatar",
-                    headers=self._headers(token),
-                    files={"avatar": ("fake.png", b"not-an-image", "image/png")},
-                )
-                self.assertEqual(invalid.status_code, 422)
-
-                oversized = self.client.post(
-                    "/api/users/me/avatar",
-                    headers=self._headers(token),
-                    files={"avatar": ("large.png", b"x" * (5 * 1024 * 1024 + 1), "image/png")},
-                )
-                self.assertEqual(oversized.status_code, 413)
-
-                removed = self.client.delete(
-                    "/api/users/me/avatar",
-                    headers=self._headers(token),
-                )
-                self.assertEqual(removed.status_code, 200, removed.text)
-                self.assertIsNone(removed.json()["avatarUrl"])
-                self.assertEqual(list(avatar_root.rglob("*.webp")), [])
-
-        self.assertEqual(user["id"], uploaded.json()["id"])
+        uploaded = self.client.post(
+            "/api/users/me/avatar",
+            headers=self._headers(token),
+            files={"avatar": ("avatar.png", b"legacy", "image/png")},
+        )
+        self.assertEqual(uploaded.status_code, 410, uploaded.text)
+        self.assertIn("NetHub Accounts", uploaded.json()["detail"])
+        removed = self.client.delete("/api/users/me/avatar", headers=self._headers(token))
+        self.assertEqual(removed.status_code, 410, removed.text)
 
     def test_13_admin_user_deletion_anonymizes_history(self) -> None:
         doomed = self._register("delete_me_user", "Delete Me")
@@ -1898,7 +1923,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         self.assertEqual(deleted.status_code, 200, deleted.text)
         self.assertEqual(
             self.client.get("/api/auth/me", headers=self._headers(doomed_token)).status_code,
-            403,
+            401,
         )
         users = self.client.get(
             "/api/admin/users",

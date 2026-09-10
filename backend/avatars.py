@@ -33,6 +33,12 @@ def _managed_avatar_path(url: str | None) -> Path | None:
     return target if root in target.parents else None
 
 
+def managed_avatar_path(url: str | None) -> Path | None:
+    """Resolve a legacy user avatar only when it is inside the managed avatar root."""
+
+    return _managed_avatar_path(url)
+
+
 def delete_managed_avatar(url: str | None) -> None:
     target = _managed_avatar_path(url)
     if target is None or not target.is_file():

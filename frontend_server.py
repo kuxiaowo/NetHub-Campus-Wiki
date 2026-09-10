@@ -39,6 +39,12 @@ def frontend_api_base_url(request_host: str | None = None) -> str:
     return f"http://{hostname}:{api_port}/api"
 
 
+def accounts_base_url() -> str:
+    """Return the public Accounts URL used by account-management links."""
+
+    return os.getenv("OIDC_ISSUER", "https://auth.nethub.wiki").strip().rstrip("/")
+
+
 def is_protected_static_path(path: str) -> bool:
     clean_path = unquote(urlsplit(path).path).replace("\\", "/").lstrip("/")
     suffix = Path(clean_path).suffix.lower()
@@ -89,6 +95,13 @@ class FrontendHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(PUBLIC_DIR), **kwargs)
 
+    def guess_type(self, path):
+        """Keep modern image MIME types stable across OS registry settings."""
+
+        if Path(path).suffix.casefold() == ".webp":
+            return "image/webp"
+        return super().guess_type(path)
+
     def do_GET(self):  # noqa: N802 - inherited method name from stdlib.
         # 访问服务根路径时直接打开首页。
         if self.path == "/":
@@ -96,6 +109,7 @@ class FrontendHandler(SimpleHTTPRequestHandler):
         if self.path.split("?", 1)[0] == "/js/config.js":
             config = {
                 "apiBaseUrl": frontend_api_base_url(self.headers.get("Host")),
+                "accountsBaseUrl": accounts_base_url(),
             }
             body = f"window.CAMPUS_WIKI_CONFIG = {json.dumps(config, ensure_ascii=False)};\n"
             encoded_body = body.encode("utf-8")

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>管理后台</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=3" />
-  <link rel="stylesheet" href="/css/styles.css?v=activity-media1" />
+  <link rel="stylesheet" href="/css/styles.css?v=activity-accounts-20260910" />
 </head>
 <body>
   <main class="admin-shell">
@@ -24,7 +24,7 @@
         <button class="admin-nav-item" type="button" data-admin-view="projects" aria-pressed="false">CAS 项目管理</button>
         <button class="admin-nav-item" type="button" data-admin-view="resources" aria-pressed="false">资源管理</button>
         <button class="admin-nav-item" type="button" data-admin-view="community" aria-pressed="false">公告与留言</button>
-        <button class="admin-nav-item" type="button" data-admin-view="security" aria-pressed="false">访问限制</button>
+        <button class="admin-nav-item" type="button" data-admin-view="security" aria-pressed="false" hidden>旧认证限制</button>
       </nav>
       <a class="button secondary admin-home-link" href="/index.html">返回前台</a>
     </aside>
@@ -49,9 +49,8 @@
           <div class="admin-section-head">
             <div>
               <h2>用户管理</h2>
-              <p>查看用户列表，创建账号，调整角色和启用状态。</p>
+              <p>这里只显示访问过 Wiki 的本地成员。账号注册与密码由 NetHub Accounts 管理。档案创建时间是 Wiki 本地记录的建立时间，并非统一账号注册时间。</p>
             </div>
-            <button id="createUserButton" class="button compact" type="button">新建用户</button>
           </div>
           <div class="admin-toolbar">
             <input id="userSearch" class="input" type="search" placeholder="搜索昵称或姓名" />
@@ -318,7 +317,7 @@
           </section>
         </section>
 
-        <section class="admin-view" data-admin-panel="security">
+        <section class="admin-view" data-admin-panel="security" hidden>
           <div class="admin-section-head">
             <div>
               <h2>访问限制</h2>
@@ -452,8 +451,8 @@
   </div>
 
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=activity-media1"></script>
-  <script src="/js/resource-ui.js?v=activity-media1"></script>
-  <script src="/js/admin.js?v=activity-media1"></script>
+  <script src="/js/api.js?v=activity-accounts-20260910"></script>
+  <script src="/js/resource-ui.js?v=activity-accounts-20260910"></script>
+  <script src="/js/admin.js?v=activity-accounts-20260910"></script>
 </body>
 </html>

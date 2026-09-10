@@ -52,17 +52,13 @@ class LinuxInitScriptTest(unittest.TestCase):
         self.assertIn('if [[ "$mode" == "all" ]]; then', script)
         self.assertIn('Wants=$API_UNIT', script)
 
-    def test_backend_and_combined_modes_keep_admin_arguments(self) -> None:
+    def test_backend_requires_accounts_client_secret_and_has_no_local_admin_bootstrap(self) -> None:
         script = COMMON_INIT_SCRIPT.read_text(encoding="utf-8")
 
-        self.assertIn(
-            '[[ "$mode" != "frontend" ]] || die "前端初始化不支持 --admin"',
-            script,
-        )
-        self.assertIn(
-            'python -m backend.bootstrap_admin "${admin_args[@]}"',
-            script,
-        )
+        self.assertIn('oidc_client_secret="$(read_env OIDC_CLIENT_SECRET)"', script)
+        self.assertIn("OIDC_CLIENT_SECRET 未配置或过短", script)
+        self.assertNotIn("backend.bootstrap_admin", script)
+        self.assertNotIn("--admin USERNAME", script)
 
     def test_systemd_path_directives_do_not_quote_absolute_paths(self) -> None:
         script = COMMON_INIT_SCRIPT.read_text(encoding="utf-8")

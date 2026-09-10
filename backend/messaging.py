@@ -139,6 +139,7 @@ def _message_dict(row: dict[str, Any]) -> dict[str, Any]:
             display_name_key="sender_display_name",
             avatar_url_key="sender_avatar_url",
             deleted_at_key="sender_deleted_at",
+            auth_sub_key="sender_auth_sub",
         ),
         "type": row["message_type"],
         "body": "" if recalled else row.get("body", ""),
@@ -157,6 +158,7 @@ def _fetch_message(cursor: Any, message_id: int) -> dict[str, Any]:
           u.username AS sender_username,
           u.display_name AS sender_display_name,
           u.avatar_url AS sender_avatar_url,
+          u.auth_sub AS sender_auth_sub,
           u.deleted_at AS sender_deleted_at,
           p.name AS project_name,
           p.icon AS project_icon,
@@ -264,6 +266,7 @@ def list_conversations(
                   other.username AS other_username,
                   other.display_name AS other_display_name,
                   other.avatar_url AS other_avatar_url,
+                  other.auth_sub AS other_auth_sub,
                   other.campus_verified AS other_campus_verified,
                   other.deleted_at AS other_deleted_at,
                   lm.id AS last_message_id,
@@ -312,6 +315,7 @@ def list_conversations(
                     display_name_key="other_display_name",
                     avatar_url_key="other_avatar_url",
                     deleted_at_key="other_deleted_at",
+                    auth_sub_key="other_auth_sub",
                     campus_verified_key="other_campus_verified",
                 ),
                 "lastMessage": (
@@ -377,6 +381,7 @@ def list_messages(
                   u.username AS sender_username,
                   u.display_name AS sender_display_name,
                   u.avatar_url AS sender_avatar_url,
+                  u.auth_sub AS sender_auth_sub,
                   u.deleted_at AS sender_deleted_at,
                   p.name AS project_name,
                   p.icon AS project_icon,
@@ -795,6 +800,7 @@ def _admin_context_message(row: dict[str, Any], reported_message_id: int) -> dic
             display_name_key="sender_display_name",
             avatar_url_key="sender_avatar_url",
             deleted_at_key="sender_deleted_at",
+            auth_sub_key="sender_auth_sub",
         ),
         "project": (
             {"id": row["project_id"], "name": row.get("project_name")}
@@ -816,6 +822,7 @@ def admin_message_report_context(
                u.username AS sender_username,
                u.display_name AS sender_display_name,
                u.avatar_url AS sender_avatar_url,
+               u.auth_sub AS sender_auth_sub,
                u.deleted_at AS sender_deleted_at,
                p.name AS project_name
         FROM messages m

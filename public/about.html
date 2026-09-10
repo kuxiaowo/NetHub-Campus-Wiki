@@ -6,8 +6,8 @@
   <meta name="description" content="认识 NetHub：由学生发起，为校园制作实用的网站和数字工具。" />
   <title>关于我们 - NetHub Campus Wiki</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=3" />
-  <link rel="stylesheet" href="/css/styles.css?v=project-logo1" />
-  <link rel="stylesheet" href="/css/about.css?v=7" />
+  <link rel="stylesheet" href="/css/styles.css?v=friend-links1" />
+  <link rel="stylesheet" href="/css/about.css?v=8" />
 </head>
 <body class="about-page">
   <header class="site-header">
@@ -24,6 +24,7 @@
         <a href="/projects.html">CAS 项目库</a>
         <a href="/resources.html">资源中心</a>
         <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到<span class="nav-new-badge">new</span></a>
+        <a href="/links.html">友情链接</a>
         <a class="active" href="/about.html" aria-current="page">关于我们</a>
       </div>
     </nav>
@@ -134,23 +135,8 @@
           <p class="about-kicker">NetHub · Campus Wiki</p>
           <h2 id="contactTitle">需要技术支持？<br />来找我们聊聊。</h2>
         </div>
-        <div class="about-contact-list">
-          <a class="about-member-card" data-account-member="Steve">
-            <span class="about-member-avatar" aria-hidden="true">S</span>
-            <div><strong data-member-name>Steve 庞正心</strong><small data-member-contact>微信：kuxiaowodehao</small></div>
-          </a>
-          <a class="about-member-card" data-account-member="Kipper">
-            <span class="about-member-avatar" aria-hidden="true">K</span>
-            <div><strong data-member-name>Kipper 田思源</strong><small data-member-contact>微信：kipper_the_great</small></div>
-          </a>
-          <a class="about-member-card" data-account-member="Nimo">
-            <span class="about-member-avatar" aria-hidden="true">N</span>
-            <div><strong data-member-name>Nimo 李亦涵</strong><small data-member-contact>微信：L_YH4380</small></div>
-          </a>
-          <a class="about-member-card" data-account-member="Brandon">
-            <span class="about-member-avatar" aria-hidden="true">B</span>
-            <div><strong data-member-name>Brandon 李柏鸿</strong><small data-member-contact>微信：Brandon-0614</small></div>
-          </a>
+        <div id="aboutMembers" class="about-contact-members" aria-live="polite">
+          <div class="empty">正在加载成员信息…</div>
         </div>
       </div>
     </section>
@@ -181,7 +167,8 @@
     </div>
   </footer>
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=nethub-social3"></script>
-  <script src="/js/about.js?v=3"></script>
+  <script src="/js/api.js?v=avatar-menu2"></script>
+  <script src="/js/members.js?v=1"></script>
+  <script src="/js/about.js?v=4"></script>
 </body>
 </html>

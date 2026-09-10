@@ -395,81 +395,18 @@
   font-size: clamp(30px, 3.5vw, 40px);
 }
 
-.about-contact-list {
+.about-contact-members {
+  min-width: 0;
+}
+
+.about-contact-members .member-panel {
+  position: static;
+  background: rgba(255, 255, 255, .9);
+}
+
+.about-contact-members .member-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.about-member-card {
-  min-width: 0;
-  padding: 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  border: 1px solid rgba(255, 255, 255, .8);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, .86);
-  box-shadow: 0 10px 28px rgba(18, 64, 123, .12);
-  color: inherit;
-  text-decoration: none;
-  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
-}
-
-.about-member-card[href]::after {
-  content: "↗";
-  margin-left: auto;
-  color: #2368bd;
-  font-size: 13px;
-  font-weight: 900;
-}
-
-.about-member-card[href]:hover {
-  transform: translateY(-2px);
-  border-color: rgba(43, 111, 202, .35);
-  box-shadow: 0 14px 32px rgba(18, 64, 123, .18);
-}
-
-.about-member-card[href]:focus-visible {
-  outline: 3px solid rgba(36, 107, 203, .28);
-  outline-offset: 3px;
-}
-
-.about-member-avatar {
-  width: 38px;
-  height: 38px;
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: #e4effd;
-  color: #1857a7;
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.about-member-card:first-child .about-member-avatar {
-  background: #1f64bd;
-  color: #fff;
-}
-
-.about-contact-list div {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-
-.about-contact-list strong {
-  color: #102849;
-  font-size: 13px;
-}
-
-.about-contact-list small {
-  overflow: hidden;
-  color: #708198;
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .about-final {
@@ -536,21 +473,6 @@
 }
 
 @media (max-width: 680px) {
-  .about-page .navbar > .nav-links {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 2px;
-    overflow: visible;
-  }
-
-  .about-page .nav-links a {
-    min-width: 0;
-    padding: 8px 3px;
-    font-size: 12px;
-    text-align: center;
-    white-space: nowrap;
-  }
-
   .about-hero {
     width: 100%;
     padding: 18px 14px 68px;
@@ -599,7 +521,7 @@
   }
 
   .about-more-grid,
-  .about-contact-list {
+  .about-contact-members .member-list {
     grid-template-columns: 1fr;
   }
 

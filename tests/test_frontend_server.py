@@ -11,7 +11,12 @@ from urllib.request import Request, urlopen
 
 os.environ["FRONTEND_API_BASE_URL"] = "http://127.0.0.1:33100/api"
 
-from frontend_server import FrontendHandler, PUBLIC_DIR, frontend_api_base_url  # noqa: E402
+from frontend_server import (  # noqa: E402
+    FrontendHandler,
+    PUBLIC_DIR,
+    accounts_base_url,
+    frontend_api_base_url,
+)
 from http.server import ThreadingHTTPServer  # noqa: E402
 
 
@@ -79,6 +84,31 @@ class FrontendServerTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(content_type, "application/javascript")
         self.assertIn(b"http://127.0.0.1:33100/api", body)
+        self.assertIn(b"https://auth.nethub.wiki", body)
+
+    def test_oidc_frontend_does_not_expose_session_credentials(self) -> None:
+        _, shared_script, _ = self.fetch("/js/api.js")
+        _, admin_page, _ = self.fetch("/admin.html")
+        self.assertIn(b"credentials: 'include'", shared_script)
+        self.assertIn(b"/auth/login?returnTo=", shared_script)
+        self.assertIn(b"window.location.assign(loginUrl)", shared_script)
+        self.assertNotIn(b"BroadcastChannel", shared_script)
+        self.assertNotIn(b"auth_popup", shared_script)
+        self.assertNotIn(b"authPopupCompletion", shared_script)
+        self.assertIn(b"document.addEventListener('DOMContentLoaded', initAuthNav)", shared_script)
+        self.assertNotIn(b"campusWikiAuthToken", shared_script)
+        self.assertNotIn(b"Authorization", shared_script)
+        self.assertNotIn(b'id="createUserButton"', admin_page)
+        self.assertIn(b"data-account-center", shared_script)
+        self.assertIn("前往账户中心".encode("utf-8"), shared_script)
+        self.assertIn(b"auth-menu-account-button", shared_script)
+        self.assertIn(b"authArea.addEventListener('click'", shared_script)
+        self.assertIn(b"closest('[data-open-auth]')", shared_script)
+        self.assertIn(b"pointer-events: none", (PUBLIC_DIR / "css" / "styles.css").read_bytes())
+
+    def test_accounts_base_url_uses_oidc_issuer(self) -> None:
+        with patch.dict(os.environ, {"OIDC_ISSUER": "https://login.example.test/"}):
+            self.assertEqual(accounts_base_url(), "https://login.example.test")
 
     def test_default_api_config_follows_request_hostname(self) -> None:
         with patch.dict(os.environ, {"FRONTEND_API_BASE_URL": "", "API_PORT": "3100"}):
@@ -219,16 +249,17 @@ class FrontendServerTest(unittest.TestCase):
         _, about_page, _ = self.fetch("/about.html")
         _, about_script, about_script_type = self.fetch("/js/about.js")
         self.assertNotIn("选择一位成员，通过微信联系。".encode("utf-8"), about_page)
-        self.assertEqual(about_page.count(b"data-account-member="), 4)
-        self.assertEqual(about_page.count(b"data-member-name"), 4)
-        self.assertEqual(about_page.count(b"data-member-contact"), 4)
-        self.assertEqual(about_page.count("微信：".encode("utf-8")), 4)
-        for member_name in ("Steve 庞正心", "Kipper 田思源", "Nimo 李亦涵", "Brandon 李柏鸿"):
-            self.assertIn(member_name.encode("utf-8"), about_page)
+        self.assertIn(b'id="aboutMembers"', about_page)
+        self.assertNotIn(b"data-account-member=", about_page)
+        self.assertIn(b'/js/members.js?v=1', about_page)
+        self.assertIn(b'/js/members.js?v=1', detail_page)
         self.assertIn(about_script_type, {"application/javascript", "text/javascript"})
         self.assertIn(b"/projects?search=NetHub", about_script)
-        self.assertIn(b"/user.html?id=", about_script)
-        self.assertIn(b"member.contactValue", about_script)
+        self.assertIn(b"projectMembers.render(result.data)", about_script)
+        _, member_script, member_script_type = self.fetch("/js/members.js")
+        self.assertIn(member_script_type, {"application/javascript", "text/javascript"})
+        self.assertIn(b"/user.html?id=", member_script)
+        self.assertIn(b"member.contactValue", member_script)
         self.assertNotIn(b"data-bind-project-member", about_page)
         self.assertIn("产品 03 · 联合项目".encode("utf-8"), about_page)
         self.assertIn("NetHub 小组与".encode("utf-8"), about_page)
@@ -258,6 +289,37 @@ class FrontendServerTest(unittest.TestCase):
         self.assertIn(b'src="/assets/about/todolist.webp"', home_page)
         self.assertIn(b'class="about-feature-image-link" href="https://todolist.nethub.wiki"', about_page)
 
+    def test_friend_links_page_uses_previews_and_safe_external_links(self) -> None:
+        status, links_page, content_type = self.fetch("/links.html")
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "text/html")
+        self.assertIn('aria-current="page">友情链接'.encode("utf-8"), links_page)
+
+        destinations = (
+            ("TodoList", "https://todolist.nethub.wiki/", "/assets/about/todolist.webp"),
+            ("TechX心情晴雨表", "https://sdgj.tech/", "/assets/about/mood-meter.webp"),
+            ("Codex笔记中心", "https://codex.nethub.wiki/", "/assets/about/codex-notes.svg"),
+            ("Compesistant", "https://compesistant.com/", "/assets/about/compesistant.png"),
+        )
+        for name, url, preview in destinations:
+            self.assertIn(name.encode("utf-8"), links_page)
+            self.assertEqual(links_page.count(f'href="{url}"'.encode()), 2)
+            self.assertIn(f'src="{preview}"'.encode(), links_page)
+
+        self.assertEqual(links_page.count(b'target="_blank" rel="noopener noreferrer"'), 8)
+        self.assertIn("Compesistant 小组".encode("utf-8"), links_page)
+        self.assertNotIn(b"https://auth.nethub.wiki", links_page)
+
+        status, codex_preview, content_type = self.fetch("/assets/about/codex-notes.svg")
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "image/svg+xml")
+        self.assertTrue(codex_preview.startswith(b'<svg xmlns="http://www.w3.org/2000/svg"'))
+
+        status, compesistant_preview, content_type = self.fetch("/assets/about/compesistant.png")
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "image/png")
+        self.assertTrue(compesistant_preview.startswith(b"\x89PNG\r\n\x1a\n"))
+
     def test_project_logo_fallback_is_shared_and_fills_the_middle_row(self) -> None:
         _, shared_script, _ = self.fetch("/js/api.js")
         _, detail_script, _ = self.fetch("/js/detail.js")
@@ -282,6 +344,7 @@ class FrontendServerTest(unittest.TestCase):
             "/resources.html",
             "/detail.html",
             "/about.html",
+            "/links.html",
             "/announcement.html",
             "/announcements.html",
             "/messages.html",
@@ -294,8 +357,12 @@ class FrontendServerTest(unittest.TestCase):
             self.assertEqual(content_type, "text/html")
             resource_index = body.find(b'href="/resources.html"')
             teacher_index = body.find(b'href="/resources.html?category=teacher"')
+            links_index = body.find(b'href="/links.html"')
+            about_index = body.find(b'href="/about.html"')
             self.assertGreaterEqual(resource_index, 0, path)
             self.assertGreater(teacher_index, resource_index, path)
+            self.assertGreater(links_index, teacher_index, path)
+            self.assertGreater(about_index, links_index, path)
             self.assertIn(b'class="nav-new-badge">new</span>', body, path)
 
         _, resource_page, _ = self.fetch("/resources.html")
@@ -408,10 +475,11 @@ class FrontendServerTest(unittest.TestCase):
         _, comments_script, _ = self.fetch("/js/comments.js")
         _, messages_script, _ = self.fetch("/js/messages.js")
 
-        self.assertIn(b'id="profileAvatarInput"', profile_page)
-        self.assertIn(b'id="profileAvatarUpload"', profile_page)
+        self.assertNotIn(b'id="profileAvatarInput"', profile_page)
+        self.assertNotIn(b'id="profileAvatarUpload"', profile_page)
         self.assertNotIn("头像地址".encode("utf-8"), profile_page)
-        self.assertIn(b"/users/me/avatar", profile_script)
+        self.assertNotIn(b"/users/me/avatar", profile_script)
+        self.assertIn(b"https://auth.nethub.wiki/account", profile_page)
         self.assertIn(b"data-delete-user", admin_script)
         self.assertIn(b"data-delete-announcement", admin_script)
         self.assertNotIn(b"{ value: 'draft'", admin_script)

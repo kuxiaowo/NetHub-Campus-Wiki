@@ -21,7 +21,8 @@
 - 页面 HTML 只保留结构，业务逻辑放在 `public/js/`。
 - 公共 API 请求和通用渲染工具放在 `public/js/api.js`。
 - 所有接口返回的数据进入 `innerHTML` 前必须经过 `escapeHtml`。
-- API 地址通过 `.env` 中的 `FRONTEND_API_BASE_URL` 配置，`public/js/api.js` 只读取运行时注入的 `window.CAMPUS_WIKI_CONFIG`。
+- API 与 Accounts 地址通过 `.env` 配置，`public/js/api.js` 只读取运行时注入的 `window.CAMPUS_WIKI_CONFIG`。
+- 会话凭据只能保存在 HttpOnly Cookie；禁止写入 localStorage、拼入 URL 或暴露给 JavaScript。
 - CSS 按页面区域分区组织，避免为单个页面随意新增零散样式。
 
 ## 命名规范
@@ -38,6 +39,7 @@
 - 后台写接口仍然使用参数绑定 SQL，不允许拼接用户输入。
 - `users.password_hash` 不允许返回给前端。
 - 管理员用户编辑只允许通过用户管理接口修改姓名、角色和启用状态，不暴露或编辑 `password_hash`。
+- 中央 `sub` 只用于账号关联，不替代业务表使用的本地用户 ID；网站角色不得从 Accounts 管理员身份推导。
 - 上传接口必须校验扩展名、限制文件大小；普通文件统一使用随机文件名保存到 `public/uploads/`。
 - 文件管理接口必须把所有传入路径解析到仓库 `public/` 内，拒绝 `..` 和以 `/` 开头的绝对路径。
 - 上传文件和编辑内容必须职责分离：文件管理负责上传，资源和照片编辑只保存 URL 引用。

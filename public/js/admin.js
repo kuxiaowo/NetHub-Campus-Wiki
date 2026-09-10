@@ -51,6 +51,22 @@ function adminText(value) {
   return escapeHtml(value ?? '');
 }
 
+function adminUserCreatedTime(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '—';
+  // SQLite CURRENT_TIMESTAMP is UTC but does not include a timezone suffix.
+  const normalized = raw.replace(' ', 'T');
+  const timestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(normalized)
+    ? `${normalized}Z` : normalized;
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).format(date);
+}
+
 function adminNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -844,7 +860,7 @@ async function loadUsers() {
       { key: 'displayName', label: '姓名' },
       { key: 'role', label: '角色', render: (row) => adminText(roleLabel(row.role)) },
       { key: 'isActive', label: '状态', render: (row) => row.isActive ? '启用' : '禁用' },
-      { key: 'createdAt', label: '创建时间' },
+      { key: 'createdAt', label: 'Wiki 档案创建时间（北京时间）', render: (row) => adminText(adminUserCreatedTime(row.createdAt)) },
     ],
     adminState.users,
     (row) => `
@@ -1677,12 +1693,9 @@ async function openProjectMemberBindingModal(project, member) {
   const result = await adminEndpoint('/admin/users?isActive=true');
   const users = result.data || [];
   adminState.users = users;
-  const availableUsers = users.filter(
-    (user) => !user.campusVerified || String(user.id) === String(member.userId || ''),
-  );
   const options = [
     { value: '', label: '不绑定账号' },
-    ...availableUsers.map((user) => ({
+    ...users.map((user) => ({
       value: user.id,
       label: `${user.displayName || user.username} (@${user.username})${user.role === 'admin' ? ' · 管理员' : ''}`,
     })),
@@ -2256,7 +2269,8 @@ function bindAdminEvents() {
   document.querySelectorAll('[data-file-picker-close]').forEach((item) => {
     item.addEventListener('click', closeFilePicker);
   });
-  adminEls.adminLogout.addEventListener('click', () => {
+  adminEls.adminLogout.addEventListener('click', async () => {
+    await request('/auth/logout', { method: 'POST' }).catch(() => null);
     clearAuthSession();
     window.location.href = '/index.html';
   });
@@ -2289,7 +2303,7 @@ function bindAdminEvents() {
     setFileActionMessage(`已选择：${folderName}（${files.length} 个文件）`);
   });
 
-  adminEls.createUserButton.addEventListener('click', () => openUserModal({ isActive: true, role: 'user' }));
+  adminEls.createUserButton?.addEventListener('click', () => openUserModal({ isActive: true, role: 'user' }));
   adminEls.refreshUsers.addEventListener('click', loadUsers);
   adminEls.userSearch.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') loadUsers();

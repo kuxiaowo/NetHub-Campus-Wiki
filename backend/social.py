@@ -7,7 +7,8 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
-from backend.auth import format_user, get_current_user
+from backend.auth import central_avatar_url, format_user, get_current_user
+from backend.config import settings
 from backend.avatars import delete_managed_avatar, store_avatar
 from backend.database import get_db_connection
 from backend.media import public_media_url
@@ -50,11 +51,10 @@ def _public_profile(user_id: int, viewer_id: int | None = None) -> dict[str, Any
                 """
                 SELECT
                   u.*,
-                  p.id AS person_id,
+                  (SELECT MIN(p.id) FROM people p WHERE p.user_id = u.id) AS person_id,
                   (SELECT COUNT(*) FROM user_follows f WHERE f.following_id = u.id) AS follower_count,
                   (SELECT COUNT(*) FROM user_follows f WHERE f.follower_id = u.id) AS following_count
                 FROM users u
-                LEFT JOIN people p ON p.user_id = u.id
                 WHERE u.id = %s AND u.is_active = 1
                 LIMIT 1
                 """,
@@ -112,11 +112,17 @@ def _public_profile(user_id: int, viewer_id: int | None = None) -> dict[str, Any
 
             cursor.execute(
                 """
-                SELECT p.id, p.name, p.year, pm.role
+                SELECT p.id, p.name, p.year,
+                       CASE
+                         WHEN MAX(CASE WHEN pm.role = 'leader' THEN 1 ELSE 0 END) = 1
+                         THEN 'leader'
+                         ELSE 'member'
+                       END AS role
                 FROM project_members pm
                 JOIN projects p ON p.id = pm.project_id
                 JOIN people person ON person.id = pm.person_id
                 WHERE person.user_id = %s
+                GROUP BY p.id, p.name, p.year
                 ORDER BY p.year DESC, p.id DESC
                 """,
                 (user_id,),
@@ -135,7 +141,7 @@ def _public_profile(user_id: int, viewer_id: int | None = None) -> dict[str, Any
         "id": row["id"],
         "username": row["username"],
         "displayName": row.get("display_name"),
-        "avatarUrl": public_media_url(row.get("avatar_url")),
+        "avatarUrl": central_avatar_url(row.get("auth_sub")) or public_media_url(row.get("avatar_url")),
         "bio": row.get("bio") or "",
         "campusVerified": bool(row.get("campus_verified")),
         "linkedPersonId": row.get("person_id"),
@@ -164,10 +170,10 @@ def list_users(
         with conn.cursor() as cursor:
             cursor.execute(
                 f"""
-                SELECT u.id, u.username, u.display_name, u.avatar_url, u.bio,
-                       u.campus_verified, p.id AS person_id
+                SELECT u.id, u.username, u.display_name, u.avatar_url, u.auth_sub, u.bio,
+                       u.campus_verified,
+                       (SELECT MIN(p.id) FROM people p WHERE p.user_id = u.id) AS person_id
                 FROM users u
-                LEFT JOIN people p ON p.user_id = u.id
                 WHERE {' AND '.join(where)}
                 ORDER BY u.campus_verified DESC, u.username ASC
                 LIMIT %s
@@ -181,7 +187,7 @@ def list_users(
                 "id": row["id"],
                 "username": row["username"],
                 "displayName": row.get("display_name"),
-                "avatarUrl": public_media_url(row.get("avatar_url")),
+                "avatarUrl": central_avatar_url(row.get("auth_sub")) or public_media_url(row.get("avatar_url")),
                 "bio": row.get("bio") or "",
                 "campusVerified": bool(row.get("campus_verified")),
                 "linkedPersonId": row.get("person_id"),
@@ -198,7 +204,7 @@ def user_profile(user_id: int, user: dict[str, Any] = Depends(get_current_user))
 
 @router.patch("/users/me/profile")
 def update_profile(payload: dict[str, Any], user: dict[str, Any] = Depends(get_current_user)):
-    allowed = {"displayName", "avatarUrl", "bio", "messagingPermission"}
+    allowed = {"displayName", "bio", "messagingPermission"}
     unknown = sorted(set(payload) - allowed)
     if unknown:
         raise HTTPException(status_code=422, detail=f"字段不允许编辑：{', '.join(unknown)}")
@@ -211,9 +217,6 @@ def update_profile(payload: dict[str, Any], user: dict[str, Any] = Depends(get_c
             raise HTTPException(status_code=422, detail="姓名长度不能超过 80 位")
         updates.append("display_name = %s")
         params.append(display_name)
-    if "avatarUrl" in payload:
-        updates.append("avatar_url = %s")
-        params.append(_clean_optional_url(payload.get("avatarUrl")))
     if "bio" in payload:
         bio = str(payload.get("bio") or "").strip()
         if len(bio) > 300:
@@ -235,8 +238,9 @@ def update_profile(payload: dict[str, Any], user: dict[str, Any] = Depends(get_c
             cursor.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s", params)
             cursor.execute(
                 """
-                SELECT u.*, p.id AS person_id
-                FROM users u LEFT JOIN people p ON p.user_id = u.id
+                SELECT u.*,
+                       (SELECT MIN(p.id) FROM people p WHERE p.user_id = u.id) AS person_id
+                FROM users u
                 WHERE u.id = %s
                 """,
                 (user["id"],),
@@ -250,6 +254,11 @@ async def upload_avatar(
     avatar: UploadFile = File(...),
     user: dict[str, Any] = Depends(get_current_user),
 ):
+    raise HTTPException(
+        status_code=410,
+        detail=f"头像已迁移至 NetHub Accounts：{settings.oidc_issuer}/account",
+    )
+    # Legacy implementation retained temporarily for rollback.
     new_url = await store_avatar(user["id"], avatar)
     old_url: str | None = None
     try:
@@ -263,8 +272,9 @@ async def upload_avatar(
                 cursor.execute("UPDATE users SET avatar_url = %s WHERE id = %s", (new_url, user["id"]))
                 cursor.execute(
                     """
-                    SELECT u.*, p.id AS person_id
-                    FROM users u LEFT JOIN people p ON p.user_id = u.id
+                    SELECT u.*,
+                           (SELECT MIN(p.id) FROM people p WHERE p.user_id = u.id) AS person_id
+                    FROM users u
                     WHERE u.id = %s
                     """,
                     (user["id"],),
@@ -279,6 +289,11 @@ async def upload_avatar(
 
 @router.delete("/users/me/avatar")
 def remove_avatar(user: dict[str, Any] = Depends(get_current_user)):
+    raise HTTPException(
+        status_code=410,
+        detail=f"头像已迁移至 NetHub Accounts：{settings.oidc_issuer}/account",
+    )
+    # Legacy implementation retained temporarily for rollback.
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("SELECT avatar_url FROM users WHERE id = %s LIMIT 1", (user["id"],))
@@ -289,8 +304,9 @@ def remove_avatar(user: dict[str, Any] = Depends(get_current_user)):
             cursor.execute("UPDATE users SET avatar_url = NULL WHERE id = %s", (user["id"],))
             cursor.execute(
                 """
-                SELECT u.*, p.id AS person_id
-                FROM users u LEFT JOIN people p ON p.user_id = u.id
+                SELECT u.*,
+                       (SELECT MIN(p.id) FROM people p WHERE p.user_id = u.id) AS person_id
+                FROM users u
                 WHERE u.id = %s
                 """,
                 (user["id"],),
@@ -384,7 +400,8 @@ def person_detail(person_id: int):
             cursor.execute(
                 """
                 SELECT p.*, u.username, u.display_name AS user_display_name,
-                       u.avatar_url AS user_avatar_url, u.is_active
+                       u.avatar_url AS user_avatar_url, u.auth_sub AS user_auth_sub,
+                       u.is_active
                 FROM people p
                 LEFT JOIN users u ON u.id = p.user_id
                 WHERE p.id = %s AND p.status <> 'archived'
@@ -411,7 +428,8 @@ def person_detail(person_id: int):
         "data": {
             "id": row["id"],
             "displayName": row["display_name"],
-            "avatarUrl": public_media_url(row.get("user_avatar_url") or row.get("avatar_url")),
+            "avatarUrl": central_avatar_url(row.get("user_auth_sub"))
+            or public_media_url(row.get("user_avatar_url") or row.get("avatar_url")),
             "status": row["status"],
             "registered": linked,
             "user": (
@@ -465,12 +483,6 @@ def bind_project_member(
                 raise HTTPException(status_code=404, detail="项目成员不存在")
             if user_id is not None:
                 _ensure_active_user(cursor, user_id)
-                cursor.execute(
-                    "SELECT id FROM people WHERE user_id = %s AND id <> %s LIMIT 1",
-                    (user_id, person_id),
-                )
-                if cursor.fetchone() is not None:
-                    raise HTTPException(status_code=409, detail="该账号已绑定其他人员档案")
             old_user_id = person.get("user_id")
             cursor.execute(
                 "UPDATE people SET user_id = %s, status = %s WHERE id = %s",
