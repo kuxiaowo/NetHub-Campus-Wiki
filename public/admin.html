@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>管理后台</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=3" />
-  <link rel="stylesheet" href="/css/styles.css?v=member-binding-combobox1" />
+  <link rel="stylesheet" href="/css/styles.css?v=activity-media1" />
 </head>
 <body>
   <main class="admin-shell">
@@ -284,7 +284,7 @@
                   </div>
                   <div class="admin-detail-actions">
                     <button id="editCurrentActivityButton" class="button compact is-hidden" type="button">编辑</button>
-                    <button id="downloadActivity" class="button secondary" type="button">下载全部照片</button>
+                    <button id="downloadActivity" class="button secondary" type="button">下载全部内容</button>
                   </div>
                 </div>
                 <div id="activitiesTable" class="photo-grid" aria-live="polite"></div>
@@ -428,12 +428,12 @@
     </section>
   </div>
 
-  <div id="adminPhotoModal" class="photo-modal" aria-hidden="true" role="dialog" aria-label="照片详情">
+  <div id="adminPhotoModal" class="photo-modal" aria-hidden="true" role="dialog" aria-label="照片 / 视频详情">
     <div class="photo-modal-backdrop" data-admin-photo-modal-close></div>
     <section class="photo-modal-panel">
       <div class="photo-modal-head">
         <div>
-          <h2 id="adminModalPhotoTitle">照片详情</h2>
+          <h2 id="adminModalPhotoTitle">照片 / 视频详情</h2>
           <p id="adminModalPhotoMeta"></p>
         </div>
         <div class="modal-actions">
@@ -442,16 +442,18 @@
         </div>
       </div>
       <div class="photo-modal-stage">
-        <button id="adminModalPhotoPrev" class="photo-modal-nav prev" type="button" aria-label="上一张">‹</button>
+        <button id="adminModalPhotoPrev" class="photo-modal-nav prev" type="button" aria-label="上一个">‹</button>
         <img id="adminModalPhotoImage" src="" alt="" />
-        <button id="adminModalPhotoNext" class="photo-modal-nav next" type="button" aria-label="下一张">›</button>
+          <video class="activity-modal-video" controls playsinline preload="metadata" hidden></video>
+          <p class="media-playback-error" role="status" hidden>无法播放此视频，请使用下载按钮获取原文件。</p>
+        <button id="adminModalPhotoNext" class="photo-modal-nav next" type="button" aria-label="下一个">›</button>
       </div>
     </section>
   </div>
 
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=photo-folder-download1"></script>
-  <script src="/js/resource-ui.js?v=shared-resource-ui1"></script>
-  <script src="/js/admin.js?v=resource-form-switch2"></script>
+  <script src="/js/api.js?v=activity-media1"></script>
+  <script src="/js/resource-ui.js?v=activity-media1"></script>
+  <script src="/js/admin.js?v=activity-media1"></script>
 </body>
 </html>

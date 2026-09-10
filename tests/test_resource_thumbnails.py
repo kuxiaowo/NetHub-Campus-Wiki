@@ -33,10 +33,10 @@ class ResourceThumbnailTest(unittest.TestCase):
                 thumbnail_url = resources.teacher_video_cover_url("/teacher/lesson.mp4")
                 cached_url = resources.teacher_video_cover_url("/teacher/lesson.mp4")
 
-            self.assertEqual(thumbnail_url, "/teacher/.thumbs/lesson.video.webp")
+            self.assertEqual(thumbnail_url, "/teacher/.thumbs/lesson.mp4.video.webp")
             self.assertEqual(cached_url, thumbnail_url)
             run.assert_called_once()
-            thumbnail = public_dir / "teacher" / ".thumbs" / "lesson.video.webp"
+            thumbnail = public_dir / "teacher" / ".thumbs" / "lesson.mp4.video.webp"
             self.assertTrue(thumbnail.is_file())
             with Image.open(thumbnail) as image:
                 self.assertEqual(image.format, "WEBP")
@@ -85,11 +85,11 @@ class ResourceThumbnailTest(unittest.TestCase):
         with patch.object(
             resources,
             "teacher_video_cover_url",
-            return_value="/teacher/.thumbs/lesson.video.webp",
+            return_value="/teacher/.thumbs/lesson.mp4.video.webp",
         ) as generated_cover:
             resource = resources.format_resource(row)
 
-        self.assertEqual(resource["image"], "/teacher/.thumbs/lesson.video.webp")
+        self.assertEqual(resource["image"], "/teacher/.thumbs/lesson.mp4.video.webp")
         generated_cover.assert_called_once_with("/teacher/lesson.mp4")
 
     def test_activity_cover_uses_first_filename_and_its_thumbnail(self) -> None:
@@ -118,7 +118,7 @@ class ResourceThumbnailTest(unittest.TestCase):
                 activity = resources.format_photo_activity(row, [])
 
             self.assertEqual(activity["coverSrc"], "/Photos/activity/2.jpg")
-            self.assertEqual(activity["coverThumbSrc"], "/Photos/activity/.thumbs/2.webp")
+            self.assertEqual(activity["coverThumbSrc"], "/Photos/activity/.thumbs/2.jpg.image.webp")
             self.assertEqual(activity["photoCount"], 2)
             self.assertNotIn("archiveUrl", activity)
 
@@ -152,7 +152,7 @@ class ResourceThumbnailTest(unittest.TestCase):
 
             self.assertEqual(activity["coverImage"], "/covers/activity.jpg")
             self.assertEqual(activity["coverSrc"], "/covers/activity.jpg")
-            self.assertEqual(activity["coverThumbSrc"], "/covers/.thumbs/activity.webp")
+            self.assertEqual(activity["coverThumbSrc"], "/covers/.thumbs/activity.jpg.image.webp")
 
     def test_yearbook_custom_cover_precedes_first_page(self) -> None:
         from backend import resources

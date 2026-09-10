@@ -259,6 +259,7 @@ def _format_photo_item(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": row["id"],
         "activityId": row["activity_id"],
+        "type": "image",
         "title": row["title"],
         "src": row["image_url"],
         "sortOrder": row["sort_order"],

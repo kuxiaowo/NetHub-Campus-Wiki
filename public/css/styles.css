@@ -3150,3 +3150,40 @@ a.message-activity-item:hover { background: #f8fbff; }
   .comment-login-tip { align-items: flex-start; flex-direction: column; }
   .comment-replies { margin-left: 20px; padding: 12px; }
 }
+
+/* Activity images and videos share one grid and preview stage. */
+.photo-item, .resource-thumb { position: relative; }
+.photo-item.is-video { cursor: pointer; }
+.photo-item > .resource-thumb-placeholder {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  background: #f0f4ff;
+}
+.media-play-marker {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding-left: 3px;
+  border-radius: 50%;
+  background: rgba(23, 32, 51, 0.72);
+  color: #fff;
+  font-size: 20px;
+  pointer-events: none;
+}
+.activity-modal-video {
+  display: block;
+  width: 100%;
+  max-height: calc(100dvh - 180px);
+  min-height: 200px;
+  object-fit: contain;
+  background: #172033;
+}
+.photo-modal-stage [hidden] { display: none; }
+.media-playback-error { padding: 12px 64px; margin: 0; color: var(--text); }

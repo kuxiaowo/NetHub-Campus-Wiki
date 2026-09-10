@@ -369,7 +369,7 @@ function triggerBrowserDownload(file) {
 
 async function downloadFilesToDefaultDirectory(preparedFiles, options = {}) {
   const confirmed = window.confirm(
-    '当前浏览器或访问方式不支持选择下载文件夹，只能将照片批量下载到浏览器的默认下载目录。\n\n'
+    '当前浏览器或访问方式不支持选择下载文件夹，只能将文件批量下载到浏览器的默认下载目录。\n\n'
     + '浏览器可能会询问是否允许多个文件下载；请选择“允许”。是否继续？',
   );
   if (!confirmed) throw new DOMException('用户取消批量下载', 'AbortError');

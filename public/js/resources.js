@@ -169,7 +169,7 @@ function trackPhotoActivityDownload(activityId) {
 function updateCurrentActivityDownloads(activity) {
   if (!activity || !currentActivity || currentActivity.id !== activity.id) return;
   currentActivity = { ...currentActivity, ...activity };
-  photoMeta.textContent = `${currentActivity.year} · ${activePhotoItems.length || currentActivity.photoCount} 张照片 · 热度 ${currentActivity.hot} · 下载 ${currentActivity.downloads || 0}`;
+  photoMeta.textContent = `${currentActivity.year} · ${ResourceUI.mediaCountText(currentActivity)} · 热度 ${currentActivity.hot} · 下载 ${currentActivity.downloads || 0}`;
 }
 
 function updateCurrentYearbookDownloads(resource) {
@@ -288,9 +288,8 @@ function renderPhotos(activities) {
   if (selectedActivityId === null) {
     photoGrid.classList.remove('photo-groups');
     photoGrid.classList.add('photo-activity-cards');
-    const totalPhotoCount = activities.reduce((sum, activity) => sum + activity.photoCount, 0);
     photoTitle.textContent = '全部活动';
-    photoMeta.textContent = `${activities.length} 个活动 · ${totalPhotoCount} 张照片`;
+    photoMeta.textContent = `${activities.length} 个活动 · ${ResourceUI.activityTotalText(activities)}`;
     downloadActivity.classList.add('is-hidden');
     activePhotoItems = [];
     currentActivity = null;
@@ -324,10 +323,10 @@ function renderPhotos(activities) {
 
   currentActivity = current;
   photoTitle.textContent = current.activity;
-  photoMeta.textContent = `${current.year} · ${current.photoCount} 张照片 · 热度 ${current.hot} · 下载 ${current.downloads || 0}`;
+  photoMeta.textContent = `${current.year} · ${ResourceUI.mediaCountText(current)} · 热度 ${current.hot} · 下载 ${current.downloads || 0}`;
   downloadActivity.disabled = true;
   activePhotoItems = [];
-  photoGrid.innerHTML = '<div class="empty">正在加载活动照片...</div>';
+  photoGrid.innerHTML = '<div class="empty">正在加载照片和视频...</div>';
   loadActivityPhotos(current).catch((error) => {
     photoGrid.innerHTML = `<div class="empty error">${escapeHtml(error.message)}</div>`;
   });
@@ -351,17 +350,17 @@ async function loadActivityPhotos(activity) {
     downloadMetricId: activity.id,
   }));
   downloadActivity.disabled = activePhotoItems.length === 0;
-  photoMeta.textContent = `${activity.year} · ${activePhotoItems.length} 张照片 · 热度 ${activity.hot} · 下载 ${activity.downloads || 0}`;
+  photoMeta.textContent = `${activity.year} · ${ResourceUI.mediaCountText(activePhotoItems)} · 热度 ${activity.hot} · 下载 ${activity.downloads || 0}`;
   photoGrid.innerHTML = activePhotoItems.length
     ? activePhotoItems.map(photoButton).join('')
-    : '<div class="empty">这个活动还没有照片。</div>';
+    : '<div class="empty">这个活动还没有照片或视频。</div>';
   photoGrid.querySelectorAll('[data-photo-index]').forEach((button) => {
     button.addEventListener('click', () => openPhotoModal(Number(button.dataset.photoIndex)));
   });
 }
 
 async function loadPhotoActivities() {
-  photoGrid.innerHTML = '<div class="empty">正在加载活动照片...</div>';
+  photoGrid.innerHTML = '<div class="empty">正在加载照片和视频...</div>';
 
   const params = photoActivityParams();
   const result = await request(`/photo-activities?${params.toString()}`);
@@ -469,8 +468,7 @@ function openPhotoModal(index) {
   currentModalPhoto = { ...item, src };
   modalTitle.textContent = item.title;
   modalMeta.textContent = `${item.activity} · ${item.year} · ${index + 1}/${activePhotoItems.length}`;
-  modalImage.src = src;
-  modalImage.alt = item.title;
+  ResourceUI.showModalMedia(modalImage, item);
   photoModal.classList.add('is-open');
   photoModal.setAttribute('aria-hidden', 'false');
 }
@@ -484,7 +482,7 @@ function shiftPhotoModal(direction) {
 function closePhotoModal() {
   photoModal.classList.remove('is-open');
   photoModal.setAttribute('aria-hidden', 'true');
-  modalImage.src = '';
+  ResourceUI.clearModalMedia(modalImage);
   currentModalPhoto = null;
   currentModalIndex = -1;
 }
@@ -511,16 +509,17 @@ async function downloadModalPhoto() {
   if (!currentModalPhoto) return;
   if (!requireAuthForDownload()) return;
 
-  const filename = `${currentModalPhoto.activity}-${currentModalPhoto.title}.jpg`;
-  if (currentModalPhoto.downloadMetric === 'photoActivity') {
-    const activity = await trackPhotoActivityDownload(currentModalPhoto.downloadMetricId);
+  const item = currentModalPhoto;
+  const filename = localFileNameFromUrl(item.src, 'media');
+  if (item.downloadMetric === 'photoActivity') {
+    const activity = await trackPhotoActivityDownload(item.downloadMetricId);
     updateCurrentActivityDownloads(activity);
   }
-  if (currentModalPhoto.downloadMetric === 'resource') {
-    const resource = await trackResourceDownload(currentModalPhoto.downloadMetricId);
+  if (item.downloadMetric === 'resource') {
+    const resource = await trackResourceDownload(item.downloadMetricId);
     updateCurrentYearbookDownloads(resource);
   }
-  const downloadUrl = authenticatedPublicFileUrl(currentModalPhoto.src) || currentModalPhoto.src;
+  const downloadUrl = authenticatedPublicFileUrl(item.src) || item.src;
   downloadBlob(downloadUrl, filename).catch(() => {
     const link = document.createElement('a');
     link.href = downloadUrl;
@@ -536,7 +535,7 @@ async function downloadCurrentActivityPhotos() {
   if (!currentActivity) return;
   if (!requireAuthForDownload()) return;
   if (!activePhotoItems.length) {
-    window.alert('当前活动没有可下载的照片。');
+    window.alert('当前活动没有可下载的内容。');
     return;
   }
 
@@ -547,7 +546,7 @@ async function downloadCurrentActivityPhotos() {
     const result = await downloadFilesToSelectedDirectory(
       activePhotoItems.map((item, index) => ({
         url: authenticatedPublicFileUrl(item.src) || item.src,
-        filename: localFileNameFromUrl(item.src, `photo-${String(index + 1).padStart(4, '0')}.jpg`),
+        filename: localFileNameFromUrl(item.src, `media-${String(index + 1).padStart(4, '0')}`),
       })),
       {
         folderName: `${activity.year}-${activity.activity}`,
@@ -555,7 +554,7 @@ async function downloadCurrentActivityPhotos() {
         onProgress(progress) {
           const action = progress.deliveryMode === 'default-directory' ? '提交下载' : '下载中';
           downloadActivity.textContent = `${action} ${progress.completed}/${progress.total}`;
-          photoMeta.textContent = `${action} ${progress.completed}/${progress.total} 张照片${progress.failed.length ? ` · 失败 ${progress.failed.length}` : ''}`;
+          photoMeta.textContent = `${action} ${progress.completed}/${progress.total} 个文件${progress.failed.length ? ` · 失败 ${progress.failed.length}` : ''}`;
         },
       },
     );
@@ -564,14 +563,14 @@ async function downloadCurrentActivityPhotos() {
       updateCurrentActivityDownloads(updated);
     }
     if (result.deliveryMode === 'default-directory') {
-      window.alert(`已向浏览器提交 ${result.succeeded} 张照片，请在默认下载目录中查看。若下载数量不完整，请检查浏览器是否已允许多个文件下载。`);
+      window.alert(`已向浏览器提交 ${result.succeeded} 个文件，请在默认下载目录中查看。若下载数量不完整，请检查浏览器是否已允许多个文件下载。`);
     } else if (result.failed.length) {
-      window.alert(`已保存 ${result.succeeded}/${result.total} 张照片到“${result.folderName}”，${result.failed.length} 张下载失败。`);
+      window.alert(`已保存 ${result.succeeded}/${result.total} 个文件到“${result.folderName}”，${result.failed.length} 个文件下载失败。`);
     } else {
-      window.alert(`已将 ${result.succeeded} 张照片保存到“${result.folderName}”。`);
+      window.alert(`已将 ${result.succeeded} 个文件保存到“${result.folderName}”。`);
     }
   } catch (error) {
-    if (error?.name !== 'AbortError') window.alert(error?.message || '下载照片失败。');
+    if (error?.name !== 'AbortError') window.alert(error?.message || '下载内容失败。');
   } finally {
     downloadActivity.disabled = false;
     downloadActivity.textContent = originalLabel;
@@ -658,6 +657,7 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
     closePhotoModal();
   }
+  if (event.target.closest('video')) return;
   if (event.key === 'ArrowLeft') {
     event.preventDefault();
     shiftPhotoModal(-1);

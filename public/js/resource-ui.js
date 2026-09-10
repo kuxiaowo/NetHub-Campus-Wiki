@@ -11,7 +11,7 @@
     { value: 'hot', label: '最热' },
     { value: 'new', label: '最新' },
     { value: 'download', label: '下载最多' },
-    { value: 'photoCount', label: '照片最多' },
+    { value: 'photoCount', label: '内容最多' },
     { value: 'old', label: '最早' },
   ]);
 
@@ -46,9 +46,11 @@
       : '<span class="resource-thumb-placeholder" aria-hidden="true"></span>';
   }
 
-  function cardContent(title, year, image) {
+  const playMarker = '<span class="media-play-marker" aria-hidden="true">▶</span>';
+
+  function cardContent(title, year, image, isVideo = false) {
     return `
-      <span class="resource-thumb">${thumbnailMarkup(image)}</span>
+      <span class="resource-thumb">${thumbnailMarkup(image)}${isVideo ? playMarker : ''}</span>
       <span class="resource-body">
         <h2>${escapeHtml(title)}</h2>
         <span class="resource-year">${escapeHtml(year)}</span>
@@ -90,7 +92,7 @@
 
   function activityCard(activity, options = {}) {
     const image = options.image || activity.coverThumbSrc || activity.coverSrc || '';
-    const content = cardContent(activity.activity, activity.year, image);
+    const content = cardContent(activity.activity, activity.year, image, activity.coverType === 'video');
     const dataAttribute = options.dataAttribute || 'data-resource-activity-id';
     if (!/^[a-z0-9-]+$/i.test(dataAttribute)) throw new Error('非法的活动卡片属性');
     if (!options.managed) {
@@ -113,12 +115,67 @@
   function photoItem(item, options = {}) {
     const dataAttribute = options.dataAttribute || 'data-photo-index';
     if (!/^[a-z0-9-]+$/i.test(dataAttribute)) throw new Error('非法的照片属性');
-    const image = safeExternalUrl(item.thumbSrc || item.src);
+    const isVideo = item.type === 'video';
+    const image = isVideo ? item.thumbSrc : (item.thumbSrc || item.src);
     return `
-      <button class="photo-item" type="button" ${dataAttribute}="${escapeHtml(item.index)}" aria-label="查看 ${escapeHtml(item.title)}">
-        <img src="${escapeHtml(image)}" alt="${escapeHtml(item.title)}" loading="lazy" decoding="async">
+      <button class="photo-item${isVideo ? ' is-video' : ''}" type="button" ${dataAttribute}="${escapeHtml(item.index)}" aria-label="查看${isVideo ? '视频' : '照片'} ${escapeHtml(item.title)}">
+        ${thumbnailMarkup(image)}
+        ${isVideo ? playMarker : ''}
       </button>
     `;
+  }
+
+  function mediaCounts(value) {
+    if (Array.isArray(value)) {
+      const videoCount = value.filter((item) => item.type === 'video').length;
+      return { photoCount: value.length - videoCount, videoCount };
+    }
+    return { photoCount: value.photoCount, videoCount: value.videoCount };
+  }
+
+  function mediaCountText(value) {
+    const counts = mediaCounts(value);
+    return `${counts.photoCount} 张照片 · ${counts.videoCount} 个视频`;
+  }
+
+  function activityTotalText(activities) {
+    return mediaCountText(activities.reduce((total, activity) => ({
+      photoCount: total.photoCount + activity.photoCount,
+      videoCount: total.videoCount + activity.videoCount,
+    }), { photoCount: 0, videoCount: 0 }));
+  }
+
+  function clearModalMedia(image) {
+    const stage = image.closest('.photo-modal-stage');
+    const video = stage.querySelector('video');
+    video.onerror = null;
+    if (video.hasAttribute('src')) {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    }
+    video.removeAttribute('poster');
+    video.hidden = true;
+    stage.querySelector('.media-playback-error').hidden = true;
+    image.removeAttribute('src');
+    image.hidden = true;
+  }
+
+  function showModalMedia(image, item) {
+    clearModalMedia(image);
+    if (item.type !== 'video') {
+      image.src = safeExternalUrl(item.src);
+      image.alt = item.title || '';
+      image.hidden = false;
+      return;
+    }
+    const stage = image.closest('.photo-modal-stage');
+    const video = stage.querySelector('video');
+    video.setAttribute('aria-label', item.title || '活动视频');
+    video.onerror = () => { stage.querySelector('.media-playback-error').hidden = false; };
+    if (item.thumbSrc) video.poster = safeExternalUrl(item.thumbSrc);
+    video.src = safeExternalUrl(item.src);
+    video.hidden = false;
   }
 
   global.ResourceUI = Object.freeze({
@@ -127,5 +184,9 @@
     resourceCard,
     sortCombinedResources,
     sortOptions,
+    mediaCountText,
+    activityTotalText,
+    showModalMedia,
+    clearModalMedia,
   });
 }(window));

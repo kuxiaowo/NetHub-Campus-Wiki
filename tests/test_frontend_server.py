@@ -340,7 +340,6 @@ class FrontendServerTest(unittest.TestCase):
             self.assertNotIn(hidden_field, shared_ui)
         for hidden_field in (
             b"activity.description",
-            b"activity.photoCount",
             b"activity.downloads",
         ):
             self.assertNotIn(hidden_field, shared_ui)
@@ -368,15 +367,15 @@ class FrontendServerTest(unittest.TestCase):
         self.assertIn(b"downloadFilesToDefaultDirectory", shared_script)
         self.assertIn(b"showDirectoryPicker", shared_script)
         self.assertIn(b"response.body.pipeTo", shared_script)
-        self.assertIn("只能将照片批量下载到浏览器的默认下载目录".encode("utf-8"), shared_script)
+        self.assertIn("只能将文件批量下载到浏览器的默认下载目录".encode("utf-8"), shared_script)
         self.assertIn("是否允许多个文件下载".encode("utf-8"), shared_script)
         self.assertIn(b"deliveryMode: 'default-directory'", shared_script)
         self.assertIn(b"downloadCurrentActivityPhotos", resource_script)
         self.assertNotIn(b"downloadCurrentActivityArchive", resource_script)
         self.assertNotIn(b"archiveUrl", resource_script)
         self.assertNotIn(b"archiveUrl", admin_script)
-        self.assertIn("下载全部照片".encode("utf-8"), resource_page)
-        self.assertIn("下载全部照片".encode("utf-8"), admin_page)
+        self.assertIn("下载全部内容".encode("utf-8"), resource_page)
+        self.assertIn("下载全部内容".encode("utf-8"), admin_page)
         self.assertIn("封面地址（选填）".encode("utf-8"), admin_script)
         self.assertIn("简介（选填）".encode("utf-8"), admin_script)
         self.assertIn("活动简介（选填）".encode("utf-8"), admin_script)

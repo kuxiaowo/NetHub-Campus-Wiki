@@ -229,7 +229,9 @@ Yearbook 资源使用 `resources.resource_url` 指向 `public/` 下的一个目�
 
 资源统计会由前台行为自动维护：点击卡片进入资源详情（包括“老师驾到”视频详情）、打开 Yearbook 阅读器或进入某个活动照片详情都会增加对应热度；所有新资源和新活动的热度固定从 0 开始，后台不提供人工填写入口。热度使用通用节流逻辑，窗口由 `RESOURCE_HOT_THROTTLE_SECONDS` 控制（默认 5 秒）。已登录用户点击普通资源链接、Yearbook PDF、Yearbook 单页图片、活动照片整包或活动单张照片下载会增加下载数，下载数不节流；未登录用户会被前端提示登录，不会增加下载数；后台预览和后台下载不计入统计。
 
-活动照片前台接口分为活动列表和单活动照片列表：`/api/photo-activities` 只返回活动摘要、第一张照片的封面和照片数量，进入某个活动后再请求 `/api/photo-activities/{activity_id}/photos` 获取照片。照片目录扫描使用后端进程内缓存，`PHOTO_DIR_CACHE_MINUTES` 控制缓存有效期，单位是分钟；设置为 `0` 可关闭缓存。缩略图尺寸、WebP 质量、编码 method 和视频截帧超时均由 `.env` 的 `THUMBNAIL_*` / `VIDEO_THUMBNAIL_TIMEOUT_SECONDS` 控制，并保存为源文件旁的 `.thumbs/`；源文件更新后会自动重建。本地老师视频使用 FFmpeg 提取第一帧，未安装 FFmpeg 或使用外部视频 URL 时不自动生成。前端静态服务支持单段 HTTP Range 请求并返回 `206 Partial Content`，使浏览器可以按需加载和跳转视频；本地 MP4 建议使用 FFmpeg `-movflags +faststart` 将 `moov` 索引放在媒体数据之前。
+活动照片前台接口分为活动列表和单活动照片列表：`/api/photo-activities` 只返回活动摘要、第一项媒体的封面及照片、视频和媒体总数，进入某个活动后再请求 `/api/photo-activities/{activity_id}/photos` 获取混排的照片和视频（条目的 `type` 为 `image` 或 `video`）。目录只扫描直接子文件，图片和视频按文件名自然排序。目录扫描使用后端进程内缓存，`PHOTO_DIR_CACHE_MINUTES` 控制缓存有效期，单位是分钟；设置为 `0` 可关闭缓存。缩略图尺寸、WebP 质量、编码 method 和视频截帧超时均由 `.env` 的 `THUMBNAIL_*` / `VIDEO_THUMBNAIL_TIMEOUT_SECONDS` 控制，并保存为源文件旁的 `.thumbs/`；缩略图以完整源文件名加 `.image.webp` / `.video.webp` 命名，源文件更新后会自动重建，目录文件增删或修改会使扫描缓存失效。活动视频和本地老师视频使用 FFmpeg 提取第一帧，未安装 FFmpeg 或使用外部视频 URL 时不自动生成。前端静态服务支持单段 HTTP Range 请求并返回 `206 Partial Content`，使浏览器可以按需加载和跳转视频；本地 MP4 建议使用 FFmpeg `-movflags +faststart` 将 `moov` 索引放在媒体数据之前。
+
+活动照片支持 `.mp4`、`.mov`、`.mkv`、`.webm`、`.avi`、`.m4v` 视频。服务进程的 PATH 必须能找到 FFmpeg（可运行 `ffmpeg -version` 检查），否则视频显示播放占位图，无法自动截帧。进入活动后才生成完整媒体列表的缩略图；视频在与照片相同的弹窗中手动播放，直接使用原文件，不转码，浏览器无法解码时可下载原文件。单项与批量下载保留原文件扩展名。分类仍为“活动照片”，`photoCount` 为图片数，`videoCount` 为视频数，`mediaCount` 为总数；数量排序参数仍为 `photoCount`，按媒体总数排序。
 
 ## 代码规范
 
