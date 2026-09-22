@@ -66,6 +66,24 @@ class Settings:
     api_host: str = os.getenv("API_HOST", "0.0.0.0").strip()
     api_port: int = _env_int("API_PORT", _DEFAULT_API_PORT, minimum=1)
     api_reload: bool = _env_bool("API_RELOAD", False)
+    app_environment: str = os.getenv("APP_ENV", "development").strip().casefold()
+    media_storage_backend: str = os.getenv("MEDIA_STORAGE_BACKEND", "local").strip().casefold()
+    r2_media_gateway_url: str = os.getenv(
+        "R2_MEDIA_GATEWAY_URL", "https://wiki-media.nethub.wiki"
+    ).strip().rstrip("/")
+    r2_media_hmac_secret: str = os.getenv("R2_MEDIA_HMAC_SECRET", "").strip()
+    r2_request_timeout_seconds: float = _env_float(
+        "R2_REQUEST_TIMEOUT_SECONDS", 30, minimum=1
+    )
+    r2_direct_upload_max_bytes: int = (
+        min(_env_int("R2_DIRECT_UPLOAD_MAX_MB", 20, minimum=1), 25) * MEBIBYTE
+    )
+    r2_multipart_part_bytes: int = (
+        min(_env_int("R2_MULTIPART_PART_MB", 8, minimum=5), 25) * MEBIBYTE
+    )
+    r2_download_url_seconds: int = _env_int(
+        "R2_DOWNLOAD_URL_SECONDS", 90, minimum=1
+    )
     public_media_base_url: str = os.getenv("PUBLIC_MEDIA_BASE_URL", "").strip().rstrip("/")
     database_path: str = os.getenv("DATABASE_PATH", "data/campus_wiki.db")
     database_connect_timeout_seconds: float = _env_float(
@@ -99,7 +117,6 @@ class Settings:
     # signs or accepts the former application JWT.
     auth_secret_key: str = os.getenv("AUTH_SECRET_KEY", "").strip()
     auth_token_expire_minutes: int = _env_int("AUTH_TOKEN_EXPIRE_MINUTES", 120, minimum=1)
-    photo_dir_cache_minutes: int = _env_int("PHOTO_DIR_CACHE_MINUTES", 5)
     upload_max_bytes: int = _env_int("UPLOAD_MAX_MB", 50, minimum=1) * MEBIBYTE
     project_photo_max_bytes: int = (
         min(_env_int("PROJECT_PHOTO_MAX_MB", 5, minimum=1), 5) * MEBIBYTE
@@ -166,6 +183,27 @@ def validate_runtime_settings() -> None:
         raise RuntimeError("API_HOST 不能为空")
     if not 1 <= settings.api_port <= 65535:
         raise RuntimeError("API_PORT 必须在 1-65535 之间")
+    if settings.app_environment not in {"production", "development", "test"}:
+        raise RuntimeError("APP_ENV 必须是 production、development 或 test")
+    if settings.media_storage_backend not in {"r2", "local"}:
+        raise RuntimeError("MEDIA_STORAGE_BACKEND 必须是 r2 或 local")
+    if settings.media_storage_backend == "local" and settings.app_environment == "production":
+        raise RuntimeError("生产环境禁止使用本地媒体存储；请配置 MEDIA_STORAGE_BACKEND=r2")
+    if settings.media_storage_backend == "r2":
+        gateway = urlsplit(settings.r2_media_gateway_url)
+        if (
+            gateway.scheme != "https"
+            or not gateway.netloc
+            or gateway.username
+            or gateway.password
+            or gateway.query
+            or gateway.fragment
+        ):
+            raise RuntimeError("R2_MEDIA_GATEWAY_URL 必须是无查询参数的 HTTPS URL")
+        if len(settings.r2_media_hmac_secret.encode("utf-8")) < 32:
+            raise RuntimeError("R2_MEDIA_HMAC_SECRET 至少需要 32 字节")
+        if settings.r2_download_url_seconds > 120:
+            raise RuntimeError("R2_DOWNLOAD_URL_SECONDS 不能超过 Worker 的 120 秒上限")
     if not 1 <= settings.thumbnail_webp_quality <= 100:
         raise RuntimeError("THUMBNAIL_WEBP_QUALITY 必须在 1-100 之间")
     if not 0 <= settings.thumbnail_webp_method <= 6:

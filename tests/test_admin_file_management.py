@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import os
+import io
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+from PIL import Image
 
 _DATABASE_TEMP_DIR = tempfile.TemporaryDirectory()
 os.environ["DATABASE_PATH"] = str(Path(_DATABASE_TEMP_DIR.name) / "campus_wiki_test.db")
@@ -82,6 +85,9 @@ class AdminFileManagementTest(unittest.TestCase):
         self.assertFalse((self.public_dir / "escape").exists())
 
     def test_upload_folder_preserves_names_and_structure(self) -> None:
+        image = io.BytesIO()
+        Image.new("RGB", (2, 2), "blue").save(image, "JPEG")
+        image_bytes = image.getvalue()
         response = self.client.post(
             "/api/admin/files/folder-upload",
             data={
@@ -89,15 +95,15 @@ class AdminFileManagementTest(unittest.TestCase):
                 "relativePaths": ["夏令营/封面.jpg", "夏令营/资料/行程.pdf"],
             },
             files=[
-                ("files", ("封面.jpg", b"image-bytes", "image/jpeg")),
+                ("files", ("封面.jpg", image_bytes, "image/jpeg")),
                 ("files", ("行程.pdf", b"pdf-bytes", "application/pdf")),
             ],
         )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["folderUrl"], "/uploads/夏令营/")
         self.assertEqual(response.json()["fileCount"], 2)
-        self.assertEqual(response.json()["size"], len(b"image-bytes") + len(b"pdf-bytes"))
-        self.assertEqual((self.public_dir / "uploads" / "夏令营" / "封面.jpg").read_bytes(), b"image-bytes")
+        self.assertEqual(response.json()["size"], len(image_bytes) + len(b"pdf-bytes"))
+        self.assertEqual((self.public_dir / "uploads" / "夏令营" / "封面.jpg").read_bytes(), image_bytes)
         self.assertEqual(
             (self.public_dir / "uploads" / "夏令营" / "资料" / "行程.pdf").read_bytes(),
             b"pdf-bytes",

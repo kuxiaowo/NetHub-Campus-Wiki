@@ -8,13 +8,25 @@ import io
 import re
 import shutil
 import subprocess
-import time
-from pathlib import Path
+import tempfile
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 from backend.config import settings
 from backend.database import get_db_connection
 from backend.media import local_public_path, public_media_url
+from backend.media_storage import (
+    IMAGE_SUFFIXES,
+    VIDEO_SUFFIXES,
+    LocalMediaStorage,
+    MediaStorageError,
+    decode_page_cursor,
+    encode_page_cursor,
+    get_media_storage,
+    logical_path_from_key,
+    normalize_logical_path,
+    thumbnail_key_for_path,
+)
 from backend.resource_types import resource_type_options
 from backend.view_tracking import can_track_view, mark_view_tracked
 
@@ -23,8 +35,8 @@ PhotoSort = Literal["hot", "new", "old", "photoCount", "download"]
 ResourceMetric = Literal["hot", "downloads"]
 BASE_DIR = Path(__file__).resolve().parents[1]
 PUBLIC_DIR = BASE_DIR / "public"
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
-VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
+IMAGE_EXTENSIONS = IMAGE_SUFFIXES
+VIDEO_EXTENSIONS = VIDEO_SUFFIXES
 YEARBOOK_PDF_EXTENSION = ".pdf"
 WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:/")
 THUMB_DIR_NAME = ".thumbs"
@@ -32,7 +44,6 @@ THUMB_MAX_SIZE = (settings.thumbnail_max_width, settings.thumbnail_max_height)
 THUMB_WEBP_QUALITY = settings.thumbnail_webp_quality
 THUMB_WEBP_METHOD = settings.thumbnail_webp_method
 VIDEO_THUMBNAIL_TIMEOUT_SECONDS = settings.video_thumbnail_timeout_seconds
-_PHOTO_DIR_CACHE: dict[str, dict[str, Any]] = {}
 
 
 class YearbookResourceError(Exception):
@@ -87,6 +98,18 @@ def _public_file_url(item: Path) -> str:
 def yearbook_cover_url(resource_url: str | None) -> str | None:
     """Return a thumbnail for the first image page in a public yearbook directory."""
 
+    storage = get_media_storage()
+    if not isinstance(storage, LocalMediaStorage):
+        try:
+            logical_dir = normalize_logical_path(resource_url, allow_directory=True)
+            page = storage.list_directory(logical_dir, limit=1, images=True)
+            if page.objects:
+                logical = logical_path_from_key(page.objects[0].key)
+                return storage.public_url(thumbnail_key_for_path(logical))
+        except MediaStorageError:
+            return None
+        return None
+
     resolved = _public_url_to_path(resource_url)
     if resolved is None:
         return None
@@ -101,6 +124,13 @@ def yearbook_cover_url(resource_url: str | None) -> str | None:
 
 def image_thumbnail_url(image_url: str | None) -> str | None:
     """Return a generated thumbnail when an image URL points inside ``public/``."""
+
+    storage = get_media_storage()
+    if not isinstance(storage, LocalMediaStorage):
+        relative = local_public_path(image_url)
+        if relative and PurePosixPath(relative).suffix.casefold() in IMAGE_EXTENSIONS:
+            return storage.public_url(thumbnail_key_for_path(relative))
+        return None
 
     resolved = _public_url_to_path(image_url)
     if resolved is None:
@@ -148,16 +178,7 @@ def _scan_photo_dir(
             return []
         return [_format_photo_file(files[0], 1)]
 
-    signature = [(str(item), item.stat().st_mtime_ns, item.stat().st_size) for item in files]
-    cached_photos = _get_cached_photo_dir(relative, signature)
-    if cached_photos is not None:
-        return cached_photos
-
-    photos = []
-    for index, item in enumerate(files, start=1):
-        photos.append(_format_photo_file(item, index))
-    _set_cached_photo_dir(relative, photos, signature)
-    return photos
+    return [_format_photo_file(item, index) for index, item in enumerate(files, start=1)]
 
 
 def _format_photo_file(item: Path, index: int) -> dict[str, Any]:
@@ -174,32 +195,30 @@ def _format_photo_file(item: Path, index: int) -> dict[str, Any]:
     }
 
 
-def _get_cached_photo_dir(relative: str, signature: list[tuple[str, int, int]]) -> list[dict[str, Any]] | None:
-    cache_minutes = settings.photo_dir_cache_minutes
-    if cache_minutes <= 0:
-        return None
-
-    cache_entry = _PHOTO_DIR_CACHE.get(relative)
-    if not cache_entry or cache_entry["expires_at"] <= time.monotonic() or cache_entry["signature"] != signature:
-        return None
-    return [photo.copy() for photo in cache_entry["photos"]]
-
-
-def _set_cached_photo_dir(relative: str, photos: list[dict[str, Any]], signature: list[tuple[str, int, int]]) -> None:
-    cache_minutes = settings.photo_dir_cache_minutes
-    if cache_minutes <= 0:
-        _PHOTO_DIR_CACHE.pop(relative, None)
-        return
-
-    _PHOTO_DIR_CACHE[relative] = {
-        "signature": signature,
-        "expires_at": time.monotonic() + cache_minutes * 60,
-        "photos": [photo.copy() for photo in photos],
+def _format_stored_photo(item: Any, index: int) -> dict[str, Any]:
+    logical = logical_path_from_key(item.key)
+    media_type = "video" if PurePosixPath(logical).suffix.casefold() in VIDEO_EXTENSIONS else "image"
+    storage = get_media_storage()
+    return {
+        "id": index,
+        "type": media_type,
+        "title": PurePosixPath(logical).stem,
+        "src": storage.public_url(logical),
+        "thumbSrc": storage.public_url(thumbnail_key_for_path(logical, video=media_type == "video")),
+        "sortOrder": index,
     }
 
 
 def _ensure_thumbnail(source: Path) -> str | None:
     """Create a WebP thumbnail beside the source image when possible."""
+
+    try:
+        logical = source.relative_to(PUBLIC_DIR.resolve()).as_posix()
+        storage = get_media_storage()
+    except (ValueError, MediaStorageError):
+        return None
+    if not isinstance(storage, LocalMediaStorage):
+        return storage.public_url(thumbnail_key_for_path(logical))
 
     thumb_dir = source.parent / THUMB_DIR_NAME
     thumb_path = thumb_dir / f"{source.name}.image.webp"
@@ -231,6 +250,19 @@ def _ensure_thumbnail(source: Path) -> str | None:
 
 def _ensure_video_thumbnail(source: Path) -> str | None:
     """Extract the first video frame with FFmpeg and cache it as a WebP thumbnail."""
+
+    try:
+        logical = source.relative_to(PUBLIC_DIR.resolve()).as_posix()
+        storage = get_media_storage()
+    except (ValueError, MediaStorageError):
+        return None
+    cloud_thumb = thumbnail_key_for_path(logical, video=True)
+    if not isinstance(storage, LocalMediaStorage):
+        try:
+            if storage.head(cloud_thumb):
+                return storage.public_url(cloud_thumb)
+        except MediaStorageError:
+            return None
 
     thumb_dir = source.parent / THUMB_DIR_NAME
     thumb_path = thumb_dir / f"{source.name}.video.webp"
@@ -268,19 +300,32 @@ def _ensure_video_thumbnail(source: Path) -> str | None:
             capture_output=True,
             timeout=VIDEO_THUMBNAIL_TIMEOUT_SECONDS,
         )
-        thumb_dir.mkdir(exist_ok=True)
+        if isinstance(storage, LocalMediaStorage):
+            thumb_dir.mkdir(exist_ok=True)
+            output_path = thumb_path
+        else:
+            temporary = tempfile.NamedTemporaryFile(suffix=".webp", delete=False)
+            temporary.close()
+            output_path = Path(temporary.name)
         with Image.open(io.BytesIO(result.stdout)) as image:
             image.thumbnail(THUMB_MAX_SIZE)
             if image.mode not in {"RGB", "RGBA"}:
                 image = image.convert("RGB")
             image.save(
-                thumb_path,
+                output_path,
                 "WEBP",
                 quality=THUMB_WEBP_QUALITY,
                 method=THUMB_WEBP_METHOD,
             )
-        return _public_file_url(thumb_path)
+        if isinstance(storage, LocalMediaStorage):
+            return _public_file_url(thumb_path)
+        try:
+            storage.put_file(cloud_thumb, output_path, content_type="image/webp")
+            return storage.public_url(cloud_thumb)
+        finally:
+            output_path.unlink(missing_ok=True)
     except (
+        MediaStorageError,
         OSError,
         subprocess.CalledProcessError,
         subprocess.TimeoutExpired,
@@ -293,7 +338,23 @@ def format_photo_activity(row: dict[str, Any], legacy_photos: list[dict[str, Any
     """Return the public activity card shape with directory-derived cover data."""
 
     custom_cover = str(row.get("cover_image") or "").strip()
-    scanned_photos = [] if custom_cover else _scan_photo_dir(row.get("photo_dir"), cover_only=True)
+    scanned_photos: list[dict[str, Any]] = []
+    storage = get_media_storage()
+    if not custom_cover:
+        if isinstance(storage, LocalMediaStorage):
+            scanned_photos = _scan_photo_dir(row.get("photo_dir"), cover_only=True)
+        else:
+            try:
+                logical_dir = normalize_logical_path(row.get("photo_dir"), allow_directory=True)
+                page = storage.list_directory(logical_dir, limit=10, images=True)
+                first_image = next(
+                    (item for item in page.objects if PurePosixPath(item.key).suffix.casefold() in IMAGE_EXTENSIONS),
+                    None,
+                )
+                if first_image:
+                    scanned_photos = [_format_stored_photo(first_image, 1)]
+            except MediaStorageError:
+                scanned_photos = []
     default_cover_images = scanned_photos or legacy_photos[:1]
     cover_src = custom_cover or (default_cover_images[0]["src"] if default_cover_images else None)
     cover_type = (
@@ -307,9 +368,12 @@ def format_photo_activity(row: dict[str, Any], legacy_photos: list[dict[str, Any
         if custom_cover
         else (default_cover_images[0].get("thumbSrc") if default_cover_images else None)
     )
-    directory_items = _scan_photo_dir(row.get("photo_dir"), count_only=True)
-    video_count = sum(item["type"] == "video" for item in directory_items)
-    photo_count = len(directory_items) - video_count if directory_items else row["photo_count"]
+    local_items = _scan_photo_dir(row.get("photo_dir"), count_only=True)
+    video_count = sum(item["type"] == "video" for item in local_items)
+    if isinstance(storage, LocalMediaStorage):
+        photo_count = len(local_items) - video_count if local_items else row["photo_count"]
+    else:
+        photo_count = max(int(row.get("photo_count") or 0), len(scanned_photos))
     return {
         "id": row["id"],
         "activity": row["activity"],
@@ -436,41 +500,66 @@ def get_yearbook_detail(
     if row["category"] != "yearbook":
         raise YearbookResourceError("资源不是 Yearbook", status_code=404)
 
-    resolved = _public_url_to_path(row.get("resource_url"))
-    if resolved is None:
-        raise YearbookResourceError("Yearbook 资源 URL 必须是 public 下的目录")
+    storage = get_media_storage()
+    if isinstance(storage, LocalMediaStorage):
+        resolved = _public_url_to_path(row.get("resource_url"))
+        if resolved is None:
+            raise YearbookResourceError("Yearbook 资源 URL 必须是 public 下的目录")
+        target, _ = resolved
+        if not target.exists() or not target.is_dir():
+            raise YearbookResourceError("Yearbook 资源目录不存在")
+        page_files = [
+            item for item in sorted(target.iterdir(), key=_natural_sort_key)
+            if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS
+        ]
+        pdf_files = [
+            item for item in sorted(target.iterdir(), key=_natural_sort_key)
+            if item.is_file() and item.suffix.lower() == YEARBOOK_PDF_EXTENSION
+        ]
+        pages = [
+            {"index": index, "title": item.stem, "src": _public_file_url(item), "thumbSrc": _ensure_thumbnail(item)}
+            for index, item in enumerate(page_files, start=1)
+        ]
+        pdf_url = _public_file_url(pdf_files[0]) if pdf_files else None
+    else:
+        try:
+            logical_dir = normalize_logical_path(row.get("resource_url"), allow_directory=True)
+            page_objects = []
+            cursor = None
+            while True:
+                page = storage.list_directory(logical_dir, cursor=cursor, limit=100, images=True)
+                page_objects.extend(
+                    item for item in page.objects
+                    if PurePosixPath(item.key).suffix.casefold() in IMAGE_EXTENSIONS
+                )
+                if not page.has_more:
+                    break
+                cursor = page.next_cursor
+            pdf_page = storage.list_directory(logical_dir, limit=100, images=False)
+        except MediaStorageError as exc:
+            raise YearbookResourceError(str(exc), status_code=exc.status_code) from exc
+        pages = []
+        for index, item in enumerate(page_objects, start=1):
+            logical = logical_path_from_key(item.key)
+            pages.append({
+                "index": index,
+                "title": PurePosixPath(logical).stem,
+                "src": storage.public_url(logical),
+                "thumbSrc": storage.public_url(thumbnail_key_for_path(logical)),
+            })
+        pdf_objects = [
+            item for item in pdf_page.objects
+            if PurePosixPath(item.key).suffix.casefold() == YEARBOOK_PDF_EXTENSION
+        ]
+        pdf_url = f"/{logical_path_from_key(pdf_objects[0].key)}" if pdf_objects else None
 
-    target, _ = resolved
-    if not target.exists() or not target.is_dir():
-        raise YearbookResourceError("Yearbook 资源目录不存在")
-
-    page_files = [
-        item
-        for item in sorted(target.iterdir(), key=_natural_sort_key)
-        if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS
-    ]
-    if not page_files:
+    if not pages:
         raise YearbookResourceError("Yearbook 资源目录中没有图片页面")
-
-    pdf_files = [
-        item
-        for item in sorted(target.iterdir(), key=_natural_sort_key)
-        if item.is_file() and item.suffix.lower() == YEARBOOK_PDF_EXTENSION
-    ]
-    pages = [
-        {
-            "index": index,
-            "title": item.stem,
-            "src": _public_file_url(item),
-            "thumbSrc": _ensure_thumbnail(item),
-        }
-        for index, item in enumerate(page_files, start=1)
-    ]
 
     return {
         "resource": format_resource(row),
         "pages": pages,
-        "pdfUrl": _public_file_url(pdf_files[0]) if pdf_files else None,
+        "pdfUrl": pdf_url,
     }
 
 
@@ -627,8 +716,14 @@ def get_activity_photo_detail(
     *,
     track_view: bool = False,
     viewer_user_id: int | None = None,
+    cursor: str | None = None,
+    limit: int = 50,
 ) -> dict[str, Any] | None:
-    """Return one activity with photos, optionally counting a public view."""
+    """Return one bounded activity-media page and an opaque continuation cursor."""
+
+    if not 1 <= limit <= 100:
+        raise MediaStorageError("分页大小必须在 1-100 之间", status_code=422, code="invalid_limit")
+    state = decode_page_cursor(cursor)
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
@@ -653,37 +748,101 @@ def get_activity_photo_detail(
             if activity is None:
                 return None
 
-            cursor.execute(
-                """
-                SELECT id, title, image_url, sort_order
-                FROM photo_items
-                WHERE activity_id = %s
-                ORDER BY sort_order ASC, id ASC
-                """,
-                (activity_id,),
-            )
-            photo_rows = cursor.fetchall()
+    photos: list[dict[str, Any]] = []
+    next_cursor: str | None = None
+    logical_dir = normalize_logical_path(activity.get("photo_dir"), allow_directory=True) if activity.get("photo_dir") else ""
+    storage = get_media_storage()
 
-    scanned_photos = _scan_photo_dir(activity.get("photo_dir"))
-    if scanned_photos:
-        photos = scanned_photos
-    else:
+    if logical_dir and isinstance(storage, LocalMediaStorage):
+        resolved = _public_url_to_path(logical_dir)
+        files = _photo_files(resolved[0]) if resolved and resolved[0].is_dir() else []
+        offset = int(state.get("offset") or 0)
+        selected = files[offset:offset + limit]
+        photos = [_format_photo_file(item, offset + index) for index, item in enumerate(selected, start=1)]
+        next_offset = offset + len(selected)
+        if next_offset < len(files):
+            next_cursor = encode_page_cursor({"offset": next_offset})
+    elif logical_dir:
+        seen = int(state.get("seen") or 0)
+        stage = str(state.get("stage") or "images")
+        worker_cursor = state.get("workerCursor")
+        if worker_cursor is not None and not isinstance(worker_cursor, str):
+            raise MediaStorageError("分页游标无效", status_code=422, code="invalid_cursor")
+
+        if stage == "images":
+            page = storage.list_directory(logical_dir, cursor=worker_cursor, limit=limit, images=True)
+            image_objects = [
+                item for item in page.objects
+                if PurePosixPath(item.key).suffix.casefold() in IMAGE_EXTENSIONS
+            ]
+            photos.extend(
+                _format_stored_photo(item, seen + index)
+                for index, item in enumerate(image_objects, start=1)
+            )
+            seen += len(image_objects)
+            if page.has_more:
+                next_cursor = encode_page_cursor({
+                    "stage": "images", "workerCursor": page.next_cursor, "seen": seen,
+                })
+            else:
+                stage = "videos"
+
+        if stage == "videos" and next_cursor is None:
+            resolved = _public_url_to_path(logical_dir)
+            videos = [
+                item for item in _photo_files(resolved[0])
+                if item.suffix.casefold() in VIDEO_EXTENSIONS
+            ] if resolved and resolved[0].is_dir() else []
+            video_offset = int(state.get("videoOffset") or 0) if str(state.get("stage") or "images") == "videos" else 0
+            remaining = limit - len(photos)
+            selected_videos = videos[video_offset:video_offset + remaining]
+            photos.extend(
+                _format_photo_file(item, seen + video_offset + index)
+                for index, item in enumerate(selected_videos, start=1)
+            )
+            video_offset += len(selected_videos)
+            if video_offset < len(videos):
+                next_cursor = encode_page_cursor({
+                    "stage": "videos", "videoOffset": video_offset, "seen": seen,
+                })
+
+    if not logical_dir or (not photos and cursor is None and next_cursor is None):
+        offset = int(state.get("legacyOffset") or 0)
+        with get_db_connection() as conn:
+            with conn.cursor() as db_cursor:
+                db_cursor.execute(
+                    """
+                    SELECT id, title, image_url, sort_order
+                    FROM photo_items
+                    WHERE activity_id = %s
+                    ORDER BY sort_order ASC, id ASC
+                    LIMIT %s OFFSET %s
+                    """,
+                    (activity_id, limit + 1, offset),
+                )
+                photo_rows = db_cursor.fetchall()
+        has_more = len(photo_rows) > limit
+        photo_rows = photo_rows[:limit]
         photos = [
             {
-                "id": row["id"],
-                "title": row["title"],
-                "type": "image",
+                "id": row["id"], "title": row["title"], "type": "image",
                 "src": public_media_url(row["image_url"]) or row["image_url"],
-                "thumbSrc": None,
-                "sortOrder": row["sort_order"],
+                "thumbSrc": image_thumbnail_url(row["image_url"]), "sortOrder": row["sort_order"],
             }
             for row in photo_rows
         ]
-    return {"activity": format_photo_activity(activity, photos), "photos": photos}
+        if has_more:
+            next_cursor = encode_page_cursor({"legacyOffset": offset + len(photo_rows)})
+
+    return {
+        "activity": format_photo_activity(activity, photos),
+        "photos": photos,
+        "nextCursor": next_cursor,
+        "hasMore": next_cursor is not None,
+    }
 
 
-def list_activity_photos(activity_id: int) -> list[dict[str, Any]] | None:
-    """Return photos for one activity, using the per-directory cache when configured."""
+def list_activity_photos(activity_id: int, *, cursor: str | None = None, limit: int = 50) -> dict[str, Any] | None:
+    """Return a bounded media page for compatibility with internal callers."""
 
-    detail = get_activity_photo_detail(activity_id)
-    return detail["photos"] if detail else None
+    return get_activity_photo_detail(activity_id, cursor=cursor, limit=limit)

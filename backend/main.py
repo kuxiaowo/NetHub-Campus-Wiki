@@ -63,6 +63,7 @@ from backend.oidc_client import (
     validate_logout_token,
 )
 from backend.media import PUBLIC_MEDIA_EXTENSIONS
+from backend.media_storage import MediaStorageError, get_media_storage, is_video_path
 from backend.projects import decorate_project_for_viewer, get_project, list_meta, list_projects
 from backend.resources import (
     YearbookResourceError,
@@ -205,6 +206,14 @@ def _get_file_request_user(request: Request) -> dict:
 def public_media_file(file_path: str):
     """Serve public images and video directly from the backend host."""
 
+    if settings.media_storage_backend == "r2" and not is_video_path(file_path):
+        try:
+            cloud_url = get_media_storage().public_url(file_path)
+        except MediaStorageError as exc:
+            raise HTTPException(status_code=404, detail="媒体文件不存在") from exc
+        if cloud_url:
+            return RedirectResponse(cloud_url, status_code=307, headers={"Cache-Control": "public, max-age=300"})
+
     target = _resolve_public_file(file_path)
     if target.suffix.casefold() not in PUBLIC_MEDIA_EXTENSIONS:
         raise HTTPException(status_code=404, detail="媒体文件不存在")
@@ -225,6 +234,13 @@ def protected_public_file(file_path: str, request: Request):
     """Serve files from public/ only to logged-in users."""
 
     _get_file_request_user(request)
+    if settings.media_storage_backend == "r2" and not is_video_path(file_path):
+        try:
+            signed_url = get_media_storage().download_url(file_path)
+        except MediaStorageError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        return RedirectResponse(signed_url, status_code=307, headers={"Cache-Control": "private, no-store"})
+
     target = _resolve_public_file(file_path)
     media_type, _ = mimetypes.guess_type(target.name)
     return FileResponse(
@@ -551,18 +567,30 @@ def photo_activity_download(activity_id: int, user: dict = Depends(get_current_u
 def photo_activity_photos(
     activity_id: int,
     track: bool = Query(default=True, description="是否计入前台浏览热度。"),
+    cursor: str | None = Query(default=None, max_length=4096, description="上一页返回的不透明游标。"),
+    limit: int = Query(default=50, ge=1, le=100, description="每页媒体数量。"),
     user: dict | None = Depends(get_optional_current_user),
 ):
     """返回单个活动下的照片。"""
 
-    detail = get_activity_photo_detail(
-        activity_id,
-        track_view=track,
-        viewer_user_id=user["id"] if user else None,
-    )
+    try:
+        detail = get_activity_photo_detail(
+            activity_id,
+            track_view=track and cursor is None,
+            viewer_user_id=user["id"] if user else None,
+            cursor=cursor,
+            limit=limit,
+        )
+    except MediaStorageError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     if detail is None:
         raise HTTPException(status_code=404, detail="活动不存在")
-    return {"data": detail["photos"], "activity": detail["activity"]}
+    return {
+        "data": detail["photos"],
+        "activity": detail["activity"],
+        "nextCursor": detail["nextCursor"],
+        "hasMore": detail["hasMore"],
+    }
 
 
 if __name__ == "__main__":

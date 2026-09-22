@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import re
 import secrets
-import shutil
+import tempfile
 from datetime import datetime, timezone
 from sqlite3 import IntegrityError
 from pathlib import Path, PurePosixPath
@@ -18,6 +18,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse
 from PIL import Image, UnidentifiedImageError
+from starlette.concurrency import run_in_threadpool
 from backend.config import settings
 from backend.auth import (
     create_user,
@@ -50,7 +51,6 @@ from backend.projects import (
 from backend.project_assets import (
     IMAGE_SUFFIXES as PROJECT_IMAGE_SUFFIXES,
     ProjectAssetError,
-    asset_dir_path,
     new_update_id,
     normalize_asset_dir,
     normalize_project_updates,
@@ -66,6 +66,19 @@ from backend.resources import (
     format_photo_activity,
     format_resource,
     yearbook_cover_url,
+)
+from backend.media_storage import (
+    IMAGE_SUFFIXES,
+    LocalMediaStorage,
+    MediaConflictError,
+    MediaStorageError,
+    build_image_thumbnail,
+    decode_page_cursor,
+    encode_page_cursor,
+    get_media_storage,
+    logical_path_from_key,
+    normalize_logical_path,
+    thumbnail_key_for_path,
 )
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -87,7 +100,6 @@ ALLOWED_UPLOAD_EXTENSIONS = {
     "xls",
     "xlsx",
     "zip",
-    "rar",
 }
 
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
@@ -220,6 +232,55 @@ def _format_file_item(path: Path, root: Path) -> dict[str, Any]:
         "size": None if is_dir else stat.st_size,
         "updatedAt": stat.st_mtime,
     }
+
+
+def _admin_storage():
+    storage = get_media_storage()
+    return LocalMediaStorage(PUBLIC_DIR) if isinstance(storage, LocalMediaStorage) else storage
+
+
+async def _spool_upload(upload: UploadFile, maximum: int) -> tuple[Path, int]:
+    suffix = Path(upload.filename or "").suffix.lower()
+    handle = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    path = Path(handle.name)
+    size = 0
+    try:
+        with handle:
+            while chunk := await upload.read(1024 * 1024):
+                size += len(chunk)
+                if size > maximum:
+                    raise HTTPException(status_code=413, detail=f"文件不能超过 {maximum // (1024 * 1024)}MB")
+                handle.write(chunk)
+        if not size:
+            raise HTTPException(status_code=422, detail="文件不能为空")
+        return path, size
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+
+
+def _put_media_with_thumbnail(logical_path: str, source: Path, content_type: str | None) -> None:
+    storage = _admin_storage()
+    if storage.head(logical_path):
+        raise MediaConflictError()
+    storage.put_file(logical_path, source, content_type=content_type)
+    if source.suffix.casefold() not in IMAGE_SUFFIXES:
+        return
+    thumbnail_handle = tempfile.NamedTemporaryFile(suffix=".webp", delete=False)
+    thumbnail_handle.close()
+    thumbnail = Path(thumbnail_handle.name)
+    try:
+        build_image_thumbnail(source, thumbnail)
+        storage.put_file(thumbnail_key_for_path(logical_path), thumbnail, content_type="image/webp")
+    except Exception:
+        storage.delete(logical_path)
+        raise
+    finally:
+        thumbnail.unlink(missing_ok=True)
+
+
+def _storage_http_error(error: MediaStorageError) -> HTTPException:
+    return HTTPException(status_code=error.status_code, detail=str(error))
 
 
 def _normalize_int(value: Any, field_name: str) -> int:
@@ -359,28 +420,41 @@ def _project_update_images_form(value: str, asset_dir: str) -> list[str]:
     return images
 
 
-def _cleanup_project_photo_files(paths: list[Path]) -> None:
-    parents = {path.parent for path in paths}
-    for path in paths:
-        path.unlink(missing_ok=True)
-    for parent in sorted(parents, key=lambda item: len(item.parts), reverse=True):
+def _cleanup_project_photo_files(paths: list[str]) -> None:
+    storage = _admin_storage()
+    local_parents: set[Path] = set()
+    for logical in paths:
+        thumbnail = thumbnail_key_for_path(logical)
+        if isinstance(storage, LocalMediaStorage):
+            for candidate in (logical, thumbnail):
+                target = storage.root.joinpath(*PurePosixPath(candidate).parts)
+                local_parents.update((target.parent, target.parent.parent))
         try:
-            parent.rmdir()
-            parent.parent.rmdir()
-        except OSError:
+            storage.delete(logical)
+            storage.delete(thumbnail)
+        except (MediaStorageError, OSError):
             pass
+    if isinstance(storage, LocalMediaStorage):
+        for parent in sorted(local_parents, key=lambda item: len(item.parts), reverse=True):
+            if parent == storage.root or storage.root not in parent.parents:
+                continue
+            try:
+                parent.rmdir()
+            except OSError:
+                pass
 
 
-def _available_project_photo_path(directory: Path, filename: str) -> Path:
+def _available_project_photo_path(directory: str, filename: str) -> str:
     safe_name = _safe_upload_filename(filename)
     suffix = Path(safe_name).suffix.lower()
     if suffix not in PROJECT_IMAGE_SUFFIXES:
         raise HTTPException(status_code=422, detail="动态照片格式不支持")
     stem = Path(safe_name).stem.strip() or "photo"
-    candidate = directory / f"{stem}{suffix}"
+    storage = _admin_storage()
+    candidate = f"{directory.rstrip('/')}/{stem}{suffix}"
     sequence = 2
-    while candidate.exists():
-        candidate = directory / f"{stem}-{sequence}{suffix}"
+    while storage.head(candidate):
+        candidate = f"{directory.rstrip('/')}/{stem}-{sequence}{suffix}"
         sequence += 1
     return candidate
 
@@ -389,31 +463,29 @@ async def _store_project_update_photos(
     uploads: list[UploadFile],
     asset_dir: str,
     update_id: str,
-) -> tuple[list[str], list[Path]]:
+) -> tuple[list[str], list[str]]:
     if not uploads:
         return [], []
-    root = asset_dir_path(asset_dir, require_exists=True)
-    target_dir = root / "updates" / update_id
-    target_dir.mkdir(parents=True, exist_ok=True)
-    created: list[Path] = []
+    normalized_root = normalize_asset_dir(asset_dir, require_exists=True).strip("/")
+    target_dir = f"{normalized_root}/updates/{update_id}"
+    created: list[str] = []
     relative_paths: list[str] = []
     try:
         for upload in uploads:
             target = _available_project_photo_path(target_dir, upload.filename or "")
-            size = 0
-            with target.open("xb") as output:
-                created.append(target)
-                while chunk := await upload.read(1024 * 1024):
-                    size += len(chunk)
-                    if size > MAX_PROJECT_PHOTO_BYTES:
-                        raise HTTPException(status_code=413, detail="单张动态照片不能超过 5MB")
-                    output.write(chunk)
+            temporary, _ = await _spool_upload(upload, MAX_PROJECT_PHOTO_BYTES)
             try:
-                with Image.open(target) as image:
+                with Image.open(temporary) as image:
                     image.verify()
             except (OSError, UnidentifiedImageError) as error:
+                temporary.unlink(missing_ok=True)
                 raise HTTPException(status_code=422, detail=f"不是有效图片：{upload.filename}") from error
-            relative_paths.append(target.relative_to(root).as_posix())
+            try:
+                await run_in_threadpool(_put_media_with_thumbnail, target, temporary, upload.content_type)
+            finally:
+                temporary.unlink(missing_ok=True)
+            created.append(target)
+            relative_paths.append(PurePosixPath(target).relative_to(normalized_root).as_posix())
     except Exception:
         _cleanup_project_photo_files(created)
         raise
@@ -971,17 +1043,18 @@ async def admin_update_project_update(
 def _delete_managed_project_update_files(asset_dir: str, update_id: str) -> None:
     """Delete files uploaded into this update's managed directory only."""
 
-    root = asset_dir_path(asset_dir, require_exists=True)
-    updates_root = root / "updates"
-    target = updates_root / update_id
-    if target.is_symlink() or target.is_file():
-        target.unlink(missing_ok=True)
-    elif target.is_dir():
-        shutil.rmtree(target)
-    try:
-        updates_root.rmdir()
-    except OSError:
-        pass
+    logical_dir = f"{normalize_asset_dir(asset_dir, require_exists=True).strip('/')}/updates/{update_id}"
+    storage = _admin_storage()
+    cursor = None
+    managed_files: list[str] = []
+    while True:
+        page = storage.list_directory(logical_dir, cursor=cursor, limit=100, images=True)
+        for item in page.objects:
+            managed_files.append(logical_path_from_key(item.key))
+        if not page.has_more:
+            break
+        cursor = page.next_cursor
+    _cleanup_project_photo_files(managed_files)
 
 
 def delete_project_update_record(
@@ -1038,8 +1111,8 @@ def delete_project_update_record(
 
     try:
         _delete_managed_project_update_files(asset_dir, clean_update_id)
-    except OSError as error:
-        raise HTTPException(status_code=500, detail="动态记录已删除，但本地照片清理失败") from error
+    except (OSError, MediaStorageError) as error:
+        raise HTTPException(status_code=500, detail="动态记录已删除，但媒体照片清理失败") from error
     return _fetch_project(project_id)
 
 
@@ -1711,23 +1784,21 @@ async def admin_upload_file(
     if suffix not in ALLOWED_UPLOAD_EXTENSIONS:
         raise HTTPException(status_code=422, detail="文件类型不允许")
 
-    target_dir, relative_dir = _resolve_public_path(target_path)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    if not target_dir.is_dir():
-        raise HTTPException(status_code=422, detail="上传目标必须是目录")
-
     target_name = f"{secrets.token_urlsafe(18)}.{suffix}"
-    target_file = target_dir / target_name
-    size = 0
-    with target_file.open("wb") as output:
-        while chunk := await file.read(1024 * 1024):
-            size += len(chunk)
-            if size > MAX_UPLOAD_BYTES:
-                target_file.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="文件不能超过 50MB")
-            output.write(chunk)
-
-    file_relative = target_file.relative_to(PUBLIC_DIR.resolve()).as_posix()
+    relative_dir = _public_relative_path(target_path)
+    file_relative = f"{relative_dir}/{target_name}" if relative_dir else target_name
+    temporary, size = await _spool_upload(file, MAX_UPLOAD_BYTES)
+    try:
+        await run_in_threadpool(
+            _put_media_with_thumbnail,
+            file_relative,
+            temporary,
+            file.content_type,
+        )
+    except MediaStorageError as error:
+        raise _storage_http_error(error) from error
+    finally:
+        temporary.unlink(missing_ok=True)
     return {
         "url": _file_url(file_relative),
         "filename": target_name,
@@ -1741,6 +1812,34 @@ def admin_create_folder(
     payload: dict[str, Any],
     _: dict[str, Any] = Depends(require_admin_user),
 ):
+    storage = _admin_storage()
+    if not isinstance(storage, LocalMediaStorage):
+        parent = _public_relative_path(payload.get("parentPath"))
+        folder_name = _validate_public_entry_name(payload.get("name"), "文件夹名称", trim=True)
+        logical = f"{parent}/{folder_name}" if parent else folder_name
+        normalize_logical_path(logical, allow_directory=True)
+        try:
+            if storage.list_directory(logical, limit=1).objects:
+                raise HTTPException(status_code=409, detail="同名文件或文件夹已存在")
+            marker = (
+                f"yearbook-pages/{logical.removeprefix('yearbook/').strip('/')}/.folder.webp"
+                if logical == "yearbook" or logical.startswith("yearbook/")
+                else f"{logical}/.folder.txt"
+            )
+            handle = tempfile.NamedTemporaryFile(delete=False)
+            handle.close()
+            marker_source = Path(handle.name)
+            try:
+                storage.put_file(marker, marker_source, content_type=("image/webp" if marker.endswith(".webp") else "text/plain"))
+            finally:
+                marker_source.unlink(missing_ok=True)
+        except MediaStorageError as error:
+            raise _storage_http_error(error) from error
+        return {
+            "ok": True,
+            "data": {"name": folder_name, "path": logical, "url": _file_url(logical, True), "type": "folder", "size": None, "updatedAt": None},
+        }
+
     parent_dir, _ = _resolve_public_path(payload.get("parentPath"))
     if not parent_dir.exists():
         raise HTTPException(status_code=404, detail="目标目录不存在")
@@ -1789,45 +1888,54 @@ async def admin_upload_folder(
         raise HTTPException(status_code=422, detail="一次只能上传一个文件夹")
     root_name = root_names.pop()
 
-    target_dir, relative_dir = _resolve_public_path(target_path)
-    if not target_dir.exists():
-        raise HTTPException(status_code=404, detail="上传目标目录不存在")
-    if not target_dir.is_dir():
-        raise HTTPException(status_code=422, detail="上传目标必须是目录")
-
-    uploaded_root = target_dir / root_name
-    if uploaded_root.exists():
-        raise HTTPException(status_code=409, detail=f"同名文件夹已存在：{root_name}")
-
+    relative_dir = _public_relative_path(target_path)
+    storage = _admin_storage()
+    if isinstance(storage, LocalMediaStorage):
+        target_dir, _ = _resolve_public_path(target_path)
+        if not target_dir.exists():
+            raise HTTPException(status_code=404, detail="上传目标目录不存在")
+        if not target_dir.is_dir():
+            raise HTTPException(status_code=422, detail="上传目标必须是目录")
+        if (target_dir / root_name).exists():
+            raise HTTPException(status_code=409, detail=f"同名文件夹已存在：{root_name}")
+    else:
+        uploaded_root = "/".join(filter(None, (relative_dir, root_name)))
+        try:
+            if storage.list_directory(uploaded_root, limit=1).objects:
+                raise HTTPException(status_code=409, detail=f"同名文件夹已存在：{root_name}")
+        except MediaStorageError as error:
+            raise _storage_http_error(error) from error
+    pending: list[tuple[str, Path, str | None, int]] = []
+    created: list[str] = []
     total_size = 0
-    created_root = False
     try:
-        uploaded_root.mkdir()
-        created_root = True
         for upload, relative_path in zip(files, normalized_paths):
-            target_file = target_dir.joinpath(*relative_path.parts)
-            target_file.parent.mkdir(parents=True, exist_ok=True)
-            file_size = 0
-            with target_file.open("xb") as output:
-                while chunk := await upload.read(1024 * 1024):
-                    file_size += len(chunk)
-                    if file_size > MAX_UPLOAD_BYTES:
-                        raise HTTPException(
-                            status_code=413,
-                            detail=f"单个文件不能超过 50MB：{relative_path.as_posix()}",
-                        )
-                    output.write(chunk)
+            logical = "/".join(filter(None, (relative_dir, relative_path.as_posix())))
+            temporary, file_size = await _spool_upload(upload, MAX_UPLOAD_BYTES)
+            pending.append((logical, temporary, upload.content_type, file_size))
             total_size += file_size
-    except FileExistsError as error:
-        if created_root:
-            shutil.rmtree(uploaded_root, ignore_errors=True)
-        raise HTTPException(status_code=409, detail="文件夹内包含重名路径") from error
+        for logical, _, _, _ in pending:
+            if await run_in_threadpool(storage.head, logical):
+                raise HTTPException(status_code=409, detail=f"同名文件已存在：{logical}")
+        for logical, temporary, content_type, _ in pending:
+            await run_in_threadpool(_put_media_with_thumbnail, logical, temporary, content_type)
+            created.append(logical)
+    except MediaStorageError as error:
+        for logical in reversed(created):
+            try:
+                await run_in_threadpool(storage.delete, logical)
+                if PurePosixPath(logical).suffix.casefold() in IMAGE_SUFFIXES:
+                    await run_in_threadpool(storage.delete, thumbnail_key_for_path(logical))
+            except MediaStorageError:
+                pass
+        raise _storage_http_error(error) from error
     except Exception:
-        if created_root:
-            shutil.rmtree(uploaded_root, ignore_errors=True)
         raise
+    finally:
+        for _, temporary, _, _ in pending:
+            temporary.unlink(missing_ok=True)
 
-    uploaded_relative = uploaded_root.relative_to(PUBLIC_DIR.resolve()).as_posix()
+    uploaded_relative = "/".join(filter(None, (relative_dir, root_name)))
     return {
         "ok": True,
         "folderPath": uploaded_relative,
@@ -1841,8 +1949,88 @@ async def admin_upload_folder(
 @router.get("/files/tree")
 def admin_file_tree(
     path: str | None = Query(default=""),
+    cursor: str | None = Query(default=None, max_length=4096),
+    limit: int = Query(default=100, ge=1, le=100),
     _: dict[str, Any] = Depends(require_admin_user),
 ):
+    storage = _admin_storage()
+    relative = _public_relative_path(path)
+    if not isinstance(storage, LocalMediaStorage):
+        if not relative:
+            roots = ["Photos", "CAS", "yearbook", "uploads", "documents", "teacher on stage"]
+            return {
+                "path": "", "url": "/", "nextCursor": None, "hasMore": False,
+                "data": [
+                    {"name": name, "path": name, "url": _file_url(name, True), "type": "folder", "size": None, "updatedAt": None}
+                    for name in roots
+                ],
+            }
+        try:
+            if relative == "yearbook" or relative.startswith("yearbook/"):
+                state = decode_page_cursor(cursor)
+                stage = str(state.get("stage") or "images")
+                worker_cursor = state.get("workerCursor")
+                page = storage.list_directory(
+                    relative,
+                    cursor=worker_cursor,
+                    limit=limit,
+                    images=stage == "images",
+                )
+                next_cursor = None
+                if page.has_more:
+                    next_cursor = encode_page_cursor({"stage": stage, "workerCursor": page.next_cursor})
+                elif stage == "images":
+                    next_cursor = encode_page_cursor({"stage": "documents", "workerCursor": None})
+                page_objects = page.objects
+                page_has_more = next_cursor is not None
+            else:
+                page = storage.list_directory(relative, cursor=cursor, limit=limit)
+                next_cursor = page.next_cursor
+                page_objects = page.objects
+                page_has_more = page.has_more
+        except MediaStorageError as error:
+            raise _storage_http_error(error) from error
+        prefix_parts = PurePosixPath(relative).parts
+        folders: dict[str, dict[str, Any]] = {}
+        files: list[dict[str, Any]] = []
+        for item in page_objects:
+            logical = logical_path_from_key(item.key)
+            parts = PurePosixPath(logical).parts
+            if parts and parts[-1] in {".folder.txt", ".folder.webp"}:
+                continue
+            if parts[:len(prefix_parts)] != prefix_parts or len(parts) <= len(prefix_parts):
+                continue
+            child_parts = parts[:len(prefix_parts) + 1]
+            child_path = PurePosixPath(*child_parts).as_posix()
+            if len(parts) > len(prefix_parts) + 1:
+                folders.setdefault(child_path, {
+                    "name": child_parts[-1], "path": child_path, "url": _file_url(child_path, True),
+                    "type": "folder", "size": None, "updatedAt": None,
+                })
+            else:
+                files.append({
+                    "name": parts[-1], "path": logical, "url": _file_url(logical), "type": "file",
+                    "size": item.size, "updatedAt": item.uploaded,
+                })
+        local_target = (PUBLIC_DIR / Path(*PurePosixPath(relative).parts)).resolve()
+        public_root = PUBLIC_DIR.resolve()
+        if (
+            (local_target == public_root or public_root in local_target.parents)
+            and local_target.is_dir()
+        ):
+            existing_paths = {item["path"] for item in [*folders.values(), *files]}
+            for local_item in local_target.iterdir():
+                if local_item.is_file() and local_item.suffix.casefold() in {".avi", ".m4v", ".mkv", ".mov", ".mp4", ".webm"}:
+                    formatted = _format_file_item(local_item, public_root)
+                    if formatted["path"] not in existing_paths:
+                        files.append(formatted)
+        items = [*folders.values(), *files]
+        items.sort(key=lambda item: (item["type"] != "folder", item["name"].casefold()))
+        return {
+            "path": relative, "url": _file_url(relative, True), "data": items,
+            "nextCursor": next_cursor, "hasMore": page_has_more,
+        }
+
     target, relative = _resolve_public_path(path)
     if not target.exists():
         raise HTTPException(status_code=404, detail="目录不存在")
@@ -1855,4 +2043,6 @@ def admin_file_tree(
         "path": relative,
         "url": _file_url(relative, is_dir=True),
         "data": items,
+        "nextCursor": None,
+        "hasMore": False,
     }

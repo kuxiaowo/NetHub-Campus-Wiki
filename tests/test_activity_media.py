@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 from PIL import Image
 
 from backend import resources
+from backend.media_storage import LocalMediaStorage
 from backend.schemas import PhotoActivity, PhotoActivityPhotosResponse
 
 
@@ -26,8 +27,6 @@ class ActivityMediaTest(unittest.TestCase):
         root_patch = patch.object(resources, 'PUBLIC_DIR', self.root)
         root_patch.start()
         self.addCleanup(root_patch.stop)
-        resources._PHOTO_DIR_CACHE.clear()
-        self.addCleanup(resources._PHOTO_DIR_CACHE.clear)
         frame = io.BytesIO()
         Image.new('RGB', (960, 540), 'blue').save(frame, 'PNG')
         self.frame = SimpleNamespace(stdout=frame.getvalue())
@@ -86,7 +85,7 @@ class ActivityMediaTest(unittest.TestCase):
         self.assertEqual(summary['coverType'], 'image')
         self.assertEqual(summary['coverSrc'], '/activity/cover.jpg')
 
-    def test_same_stem_files_have_distinct_thumbnails_and_cache_rebuilds(self):
+    def test_same_stem_files_have_distinct_thumbnails_without_directory_cache(self):
         self.photo('same.jpg')
         self.photo('same.png')
         video = self.video('same.mp4')
@@ -137,6 +136,23 @@ class ActivityMediaTest(unittest.TestCase):
         with patch.object(resources, 'get_db_connection', return_value=conn), \
                 patch.object(resources, 'format_photo_activity', side_effect=summaries):
             self.assertEqual([item['id'] for item in resources.list_photo_activities(sort='photoCount')], [2, 1])
+
+    def test_activity_media_uses_bounded_cursor_pages(self):
+        for index in range(105):
+            (self.directory / f'{index:03}.jpg').write_bytes(b'fixture')
+        conn = MagicMock()
+        cursor = conn.__enter__.return_value.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = {**self.row, 'photo_count': 105}
+        with patch.object(resources, 'get_db_connection', return_value=conn), \
+                patch.object(resources, 'get_media_storage', return_value=LocalMediaStorage(self.root)), \
+                patch.object(resources, '_ensure_thumbnail', return_value='/thumb.webp'):
+            first = resources.get_activity_photo_detail(1, limit=50)
+            second = resources.get_activity_photo_detail(1, cursor=first['nextCursor'], limit=50)
+            third = resources.get_activity_photo_detail(1, cursor=second['nextCursor'], limit=50)
+        self.assertEqual([len(first['photos']), len(second['photos']), len(third['photos'])], [50, 50, 5])
+        self.assertTrue(first['hasMore'])
+        self.assertTrue(second['hasMore'])
+        self.assertFalse(third['hasMore'])
 
     @unittest.skipUnless(shutil.which('ffmpeg'), 'FFmpeg is not on PATH')
     def test_real_ffmpeg_first_frame(self):
