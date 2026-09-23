@@ -55,7 +55,11 @@ def create_initial_admin(
                     """
                     INSERT INTO users
                       (username, password_hash, display_name, role, is_active)
-                    VALUES (%s, %s, %s, 'admin', 1)
+                    SELECT %s, %s, %s, 'admin', 1
+                    WHERE NOT EXISTS (
+                      SELECT 1 FROM users WHERE role = 'admin' AND is_active = 1
+                    )
+                    RETURNING id
                     """,
                     (
                         normalized_username,
@@ -63,7 +67,12 @@ def create_initial_admin(
                         normalized_display_name,
                     ),
                 )
-                user_id = cursor.lastrowid
+                created = cursor.fetchone()
+                if created is None:
+                    raise AdminBootstrapError(
+                        "数据库中已存在启用中的管理员，已拒绝再次执行首次引导"
+                    )
+                user_id = created["id"]
     except IntegrityError as exc:
         raise AdminBootstrapError("昵称已存在，请换一个昵称") from exc
 

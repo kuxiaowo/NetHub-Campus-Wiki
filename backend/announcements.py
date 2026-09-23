@@ -206,6 +206,7 @@ def admin_create_announcement(
                   (title, summary, content, status, is_pinned, created_by, published_at)
                 VALUES (%s, %s, %s, %s, %s, %s,
                   CASE WHEN %s = 'published' THEN CURRENT_TIMESTAMP ELSE NULL END)
+                RETURNING id
                 """,
                 (
                     data["title"],
@@ -217,7 +218,7 @@ def admin_create_announcement(
                     status,
                 ),
             )
-            announcement_id = cursor.lastrowid
+            announcement_id = cursor.fetchone()["id"]
     return {"data": {"id": announcement_id}}
 
 
@@ -259,16 +260,25 @@ def admin_delete_announcement(
     _: dict[str, Any] = Depends(_require_admin),
 ):
     with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                "DELETE FROM comment_notifications WHERE target_type = 'announcement' AND target_id = %s",
-                (announcement_id,),
-            )
-            cursor.execute(
-                "DELETE FROM comments WHERE target_type = 'announcement' AND target_id = %s",
-                (announcement_id,),
-            )
-            cursor.execute("DELETE FROM announcements WHERE id = %s", (announcement_id,))
-            if cursor.rowcount == 0:
-                raise HTTPException(status_code=404, detail="公告不存在")
+        results = conn.batch([
+            (
+                """
+                DELETE FROM comment_notifications
+                WHERE target_type = 'announcement' AND target_id = %s
+                  AND EXISTS (SELECT 1 FROM announcements WHERE id = %s)
+                """,
+                (announcement_id, announcement_id),
+            ),
+            (
+                """
+                DELETE FROM comments
+                WHERE target_type = 'announcement' AND target_id = %s
+                  AND EXISTS (SELECT 1 FROM announcements WHERE id = %s)
+                """,
+                (announcement_id, announcement_id),
+            ),
+            ("DELETE FROM announcements WHERE id = %s", (announcement_id,)),
+        ])
+        if int((results[-1].get("meta") or {}).get("changes", 0)) == 0:
+            raise HTTPException(status_code=404, detail="公告不存在")
     return {"ok": True}

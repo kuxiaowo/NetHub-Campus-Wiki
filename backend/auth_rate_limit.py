@@ -134,6 +134,43 @@ def _consume_fixed_window(
     key = _bucket_key(scope, identity)
     with get_db_connection() as connection:
         with connection.cursor() as cursor:
+            is_d1 = getattr(connection, "_adapter", None) is not None
+            if is_d1:
+                results = connection.batch(
+                    [
+                        (
+                            "DELETE FROM auth_rate_limit_buckets WHERE updated_at < %s",
+                            (now - BUCKET_RETENTION_SECONDS,),
+                        ),
+                        (
+                            """
+                            INSERT INTO auth_rate_limit_buckets
+                              (bucket_key, window_started_at, attempt_count, updated_at)
+                            VALUES (%s, %s, 1, %s)
+                            ON CONFLICT(bucket_key) DO UPDATE SET
+                              window_started_at = CASE
+                                WHEN %s - auth_rate_limit_buckets.window_started_at >= %s
+                                THEN excluded.window_started_at
+                                ELSE auth_rate_limit_buckets.window_started_at END,
+                              attempt_count = CASE
+                                WHEN %s - auth_rate_limit_buckets.window_started_at >= %s
+                                THEN 1 ELSE auth_rate_limit_buckets.attempt_count + 1 END,
+                              updated_at = excluded.updated_at
+                            RETURNING window_started_at, attempt_count
+                            """,
+                            (key, now, now, now, window_seconds, now, window_seconds),
+                        ),
+                    ]
+                )
+                rows = results[1].get("rows") or []
+                if not rows:
+                    raise RuntimeError("D1 rate-limit upsert did not return a row")
+                row = rows[0]
+                if int(row["attempt_count"]) > limit:
+                    elapsed = now - int(row["window_started_at"])
+                    raise _too_many_requests(detail, window_seconds - elapsed)
+                return
+
             cursor.execute("BEGIN IMMEDIATE")
             cursor.execute(
                 "DELETE FROM auth_rate_limit_buckets WHERE updated_at < %s",
@@ -145,8 +182,7 @@ def _consume_fixed_window(
             )
             row = cursor.fetchone()
             if row is None or now - int(row["window_started_at"]) >= window_seconds:
-                cursor.execute(
-                    """
+                statement = ("""
                     INSERT INTO auth_rate_limit_buckets
                       (bucket_key, window_started_at, attempt_count, updated_at)
                     VALUES (%s, %s, 1, %s)
@@ -155,21 +191,26 @@ def _consume_fixed_window(
                       attempt_count = 1,
                       updated_at = excluded.updated_at
                     """,
-                    (key, now, now),
-                )
+                    (key, now, now))
+                if is_d1:
+                    connection.batch([statement])
+                else:
+                    cursor.execute(*statement)
                 return
 
             elapsed = now - int(row["window_started_at"])
             if int(row["attempt_count"]) >= limit:
                 raise _too_many_requests(detail, window_seconds - elapsed)
-            cursor.execute(
-                """
+            statement = ("""
                 UPDATE auth_rate_limit_buckets
                 SET attempt_count = attempt_count + 1, updated_at = %s
                 WHERE bucket_key = %s
                 """,
-                (now, key),
-            )
+                (now, key))
+            if is_d1:
+                connection.batch([statement])
+            else:
+                cursor.execute(*statement)
 
 
 def _is_admin_username(username: str) -> bool:
@@ -239,6 +280,38 @@ def record_login_failure(username: str, config: dict[str, Any]) -> None:
     key = _bucket_key("login-failure", username.strip().casefold())
     with get_db_connection() as connection:
         with connection.cursor() as cursor:
+            is_d1 = getattr(connection, "_adapter", None) is not None
+            if is_d1:
+                results = connection.batch(
+                    [
+                        (
+                            """
+                            INSERT INTO auth_rate_limit_buckets
+                              (bucket_key, window_started_at, attempt_count, updated_at)
+                            VALUES (%s, %s, 1, %s)
+                            ON CONFLICT(bucket_key) DO UPDATE SET
+                              window_started_at = CASE
+                                WHEN %s - auth_rate_limit_buckets.updated_at >= %s
+                                THEN excluded.window_started_at
+                                ELSE auth_rate_limit_buckets.window_started_at END,
+                              attempt_count = CASE
+                                WHEN %s - auth_rate_limit_buckets.updated_at >= %s
+                                THEN 1 ELSE auth_rate_limit_buckets.attempt_count + 1 END,
+                              updated_at = excluded.updated_at
+                            RETURNING attempt_count
+                            """,
+                            (key, now, now, now, cooldown, now, cooldown),
+                        )
+                    ]
+                )
+                rows = results[0].get("rows") or []
+                if not rows:
+                    raise RuntimeError("D1 login-failure upsert did not return a row")
+                attempts = int(rows[0]["attempt_count"])
+                if attempts >= config["loginFailureLimit"]:
+                    raise _too_many_requests("登录失败次数过多，请稍后再试", cooldown)
+                return
+
             cursor.execute("BEGIN IMMEDIATE")
             cursor.execute(
                 "SELECT * FROM auth_rate_limit_buckets WHERE bucket_key = %s",
@@ -247,8 +320,7 @@ def record_login_failure(username: str, config: dict[str, Any]) -> None:
             row = cursor.fetchone()
             if row is None or now - int(row["updated_at"]) >= cooldown:
                 attempts = 1
-                cursor.execute(
-                    """
+                statement = ("""
                     INSERT INTO auth_rate_limit_buckets
                       (bucket_key, window_started_at, attempt_count, updated_at)
                     VALUES (%s, %s, 1, %s)
@@ -257,18 +329,23 @@ def record_login_failure(username: str, config: dict[str, Any]) -> None:
                       attempt_count = 1,
                       updated_at = excluded.updated_at
                     """,
-                    (key, now, now),
-                )
+                    (key, now, now))
+                if is_d1:
+                    connection.batch([statement])
+                else:
+                    cursor.execute(*statement)
             else:
                 attempts = int(row["attempt_count"]) + 1
-                cursor.execute(
-                    """
+                statement = ("""
                     UPDATE auth_rate_limit_buckets
                     SET attempt_count = %s, updated_at = %s
                     WHERE bucket_key = %s
                     """,
-                    (attempts, now, key),
-                )
+                    (attempts, now, key))
+                if is_d1:
+                    connection.batch([statement])
+                else:
+                    cursor.execute(*statement)
     if attempts >= config["loginFailureLimit"]:
         raise _too_many_requests("登录失败次数过多，请稍后再试", cooldown)
 

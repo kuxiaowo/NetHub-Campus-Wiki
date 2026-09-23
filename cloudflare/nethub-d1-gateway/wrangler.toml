@@ -1,0 +1,31 @@
+name = "nethub-campus-wiki-d1-gateway"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = false
+preview_urls = false
+
+[vars]
+# Unit tests may opt into isolate-local replay protection. Production should
+# leave this false and configure the Durable Object binding below.
+ALLOW_IN_MEMORY_REPLAY = "false"
+
+# Uncomment for deployment, then apply the Durable Object migration using the
+# site's own Cloudflare account. No namespace is created by this template.
+# [[durable_objects.bindings]]
+# name = "REPLAY_GUARD"
+# class_name = "ReplayGuard"
+#
+# [[migrations]]
+# tag = "replay-guard-v1"
+# new_sqlite_classes = ["ReplayGuard"]
+
+# Bind a site-specific D1 database outside source control before deployment.
+# The gateway deliberately has no database_id here so this repository cannot
+# accidentally create or write a production database.
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "<site-specific-name>"
+# database_id = "<site-specific-id>"
+
+# Configure outside Git before deployment:
+#   wrangler secret put HMAC_SECRET

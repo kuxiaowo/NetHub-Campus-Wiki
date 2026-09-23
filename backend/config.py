@@ -86,6 +86,14 @@ class Settings:
     )
     public_media_base_url: str = os.getenv("PUBLIC_MEDIA_BASE_URL", "").strip().rstrip("/")
     database_path: str = os.getenv("DATABASE_PATH", "data/campus_wiki.db")
+    # ``sqlite`` is retained for local development/tests.  ``d1`` routes all
+    # application SQL through the internal Worker gateway.
+    database_backend: str = os.getenv("DATABASE_BACKEND", "sqlite").strip().casefold()
+    d1_gateway_url: str = os.getenv("D1_GATEWAY_URL", "").strip().rstrip("/")
+    d1_gateway_hmac_secret: str = os.getenv("D1_GATEWAY_HMAC_SECRET", "").strip()
+    d1_request_timeout_seconds: float = _env_float(
+        "D1_REQUEST_TIMEOUT_SECONDS", 15, minimum=1
+    )
     database_connect_timeout_seconds: float = _env_float(
         "DATABASE_CONNECT_TIMEOUT_SECONDS", 5, minimum=0
     )
@@ -204,6 +212,21 @@ def validate_runtime_settings() -> None:
             raise RuntimeError("R2_MEDIA_HMAC_SECRET 至少需要 32 字节")
         if settings.r2_download_url_seconds > 120:
             raise RuntimeError("R2_DOWNLOAD_URL_SECONDS 不能超过 Worker 的 120 秒上限")
+    if settings.database_backend not in {"sqlite", "d1"}:
+        raise RuntimeError("DATABASE_BACKEND 必须是 sqlite 或 d1")
+    if settings.database_backend == "d1":
+        gateway = urlsplit(settings.d1_gateway_url)
+        if (
+            gateway.scheme != "https"
+            or not gateway.netloc
+            or gateway.username
+            or gateway.password
+            or gateway.query
+            or gateway.fragment
+        ):
+            raise RuntimeError("D1_GATEWAY_URL 必须是有效的 HTTPS 网关地址")
+        if len(settings.d1_gateway_hmac_secret.encode("utf-8")) < 32:
+            raise RuntimeError("D1_GATEWAY_HMAC_SECRET 至少需要 32 字节")
     if not 1 <= settings.thumbnail_webp_quality <= 100:
         raise RuntimeError("THUMBNAIL_WEBP_QUALITY 必须在 1-100 之间")
     if not 0 <= settings.thumbnail_webp_method <= 6:

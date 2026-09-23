@@ -337,10 +337,19 @@ def follow_user(user_id: int, user: dict[str, Any] = Depends(get_current_user)):
             cursor.execute(
                 """
                 INSERT INTO user_follows (follower_id, following_id)
-                VALUES (%s, %s)
+                SELECT %s, %s
+                WHERE EXISTS (SELECT 1 FROM users WHERE id = %s AND is_active = 1)
+                  AND NOT EXISTS (
+                    SELECT 1 FROM user_blocks
+                    WHERE (blocker_id = %s AND blocked_id = %s)
+                       OR (blocker_id = %s AND blocked_id = %s)
+                  )
                 ON CONFLICT(follower_id, following_id) DO NOTHING
                 """,
-                (user["id"], user_id),
+                (
+                    user["id"], user_id, user_id,
+                    user["id"], user_id, user_id, user["id"],
+                ),
             )
     return {"ok": True, "profile": _public_profile(user_id, user["id"])}
 
@@ -363,22 +372,24 @@ def block_user(user_id: int, user: dict[str, Any] = Depends(get_current_user)):
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             _ensure_active_user(cursor, user_id)
-            cursor.execute(
-                """
-                INSERT INTO user_blocks (blocker_id, blocked_id)
-                VALUES (%s, %s)
-                ON CONFLICT(blocker_id, blocked_id) DO NOTHING
-                """,
-                (user["id"], user_id),
-            )
-            cursor.execute(
-                """
-                DELETE FROM user_follows
-                WHERE (follower_id = %s AND following_id = %s)
-                   OR (follower_id = %s AND following_id = %s)
-                """,
-                (user["id"], user_id, user_id, user["id"]),
-            )
+            conn.batch([
+                (
+                    """
+                    INSERT INTO user_blocks (blocker_id, blocked_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT(blocker_id, blocked_id) DO NOTHING
+                    """,
+                    (user["id"], user_id),
+                ),
+                (
+                    """
+                    DELETE FROM user_follows
+                    WHERE (follower_id = %s AND following_id = %s)
+                       OR (follower_id = %s AND following_id = %s)
+                    """,
+                    (user["id"], user_id, user_id, user["id"]),
+                ),
+            ])
     return {"ok": True}
 
 
@@ -484,12 +495,12 @@ def bind_project_member(
             if user_id is not None:
                 _ensure_active_user(cursor, user_id)
             old_user_id = person.get("user_id")
-            cursor.execute(
+            statements: list[tuple[str, tuple[Any, ...]]] = [(
                 "UPDATE people SET user_id = %s, status = %s WHERE id = %s",
                 (user_id, "claimed" if user_id else "provisional", person_id),
-            )
+            )]
             if old_user_id is not None and old_user_id != user_id:
-                cursor.execute(
+                statements.append((
                     """
                     UPDATE users
                     SET campus_verified = CASE
@@ -499,15 +510,16 @@ def bind_project_member(
                     WHERE id = %s
                     """,
                     (old_user_id,),
-                )
+                ))
             if user_id is not None:
-                cursor.execute("UPDATE users SET campus_verified = 1 WHERE id = %s", (user_id,))
-                cursor.execute(
+                statements.append(("UPDATE users SET campus_verified = 1 WHERE id = %s", (user_id,)))
+                statements.append((
                     """
                     UPDATE person_claims
                     SET status = 'cancelled', reviewed_by = %s, reviewed_at = CURRENT_TIMESTAMP
                     WHERE person_id = %s AND status = 'pending'
                     """,
                     (admin["id"], person_id),
-                )
+                ))
+            conn.batch(statements)
     return {"ok": True}

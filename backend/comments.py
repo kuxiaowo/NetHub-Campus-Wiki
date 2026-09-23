@@ -507,6 +507,7 @@ def create_comment(
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
+            is_d1 = getattr(conn, "_adapter", None) is not None
             _validate_target(cursor, target_type, target_id)
             cursor.execute(
                 """
@@ -547,36 +548,124 @@ def create_comment(
                 if cursor.fetchone() is not None:
                     raise HTTPException(status_code=403, detail="黑名单关系下无法回复")
 
-            cursor.execute(
-                """
+            target_table = TARGET_TABLES[target_type]
+            target_extra = (
+                " AND status = 'published' AND published_at <= CURRENT_TIMESTAMP"
+                if target_type == "announcement"
+                else ""
+            )
+            insert_sql = f"""
                 INSERT INTO comments
                   (target_type, target_id, user_id, parent_id, root_id,
                    reply_to_user_id, content)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    target_type,
-                    target_id,
-                    user["id"],
-                    parent_id,
-                    root_id,
-                    reply_to_user_id,
-                    content,
-                ),
+                SELECT %s, %s, %s, %s, %s, %s, %s
+                WHERE (
+                  SELECT COUNT(*) FROM comments
+                  WHERE user_id = %s AND created_at >= datetime('now', '-1 minute')
+                ) < %s
+                  AND EXISTS (SELECT 1 FROM {target_table} WHERE id = %s{target_extra})
+                  AND (
+                    %s IS NULL OR (
+                      EXISTS (
+                        SELECT 1 FROM comments
+                        WHERE id = %s AND target_type = %s AND target_id = %s
+                          AND status = 'visible'
+                      )
+                      AND NOT EXISTS (
+                        SELECT 1 FROM user_blocks
+                        WHERE (blocker_id = %s AND blocked_id = %s)
+                           OR (blocker_id = %s AND blocked_id = %s)
+                      )
+                    )
+                  )
+                RETURNING id
+                """
+            insert_params = (
+                target_type,
+                target_id,
+                user["id"],
+                parent_id,
+                root_id,
+                reply_to_user_id,
+                content,
+                user["id"],
+                COMMENT_RATE_PER_MINUTE,
+                target_id,
+                parent_id,
+                parent_id,
+                target_type,
+                target_id,
+                user["id"],
+                reply_to_user_id,
+                reply_to_user_id,
+                user["id"],
             )
-            comment_id = cursor.lastrowid
-            if parent_id is None:
-                cursor.execute("UPDATE comments SET root_id = %s WHERE id = %s", (comment_id, comment_id))
-            elif reply_to_user_id is not None:
-                _create_notification(
-                    cursor,
-                    kind="reply",
-                    recipient_id=reply_to_user_id,
-                    actor_id=user["id"],
-                    comment_id=comment_id,
-                    target_type=target_type,
-                    target_id=target_id,
-                )
+            if is_d1:
+                statements: list[tuple[str, tuple[Any, ...]]] = [(insert_sql, insert_params)]
+                if parent_id is None:
+                    statements.append((
+                        "UPDATE comments SET root_id = last_insert_rowid() WHERE id = last_insert_rowid()",
+                        (),
+                    ))
+                elif reply_to_user_id is not None and reply_to_user_id != user["id"]:
+                    statements.append((
+                        """
+                        INSERT INTO comment_notifications
+                          (kind, recipient_id, actor_id, comment_id, target_type, target_id)
+                        SELECT 'reply', %s, %s, last_insert_rowid(), %s, %s
+                        WHERE changes() > 0
+                        ON CONFLICT(kind, recipient_id, actor_id, comment_id) DO UPDATE SET
+                          created_at = CURRENT_TIMESTAMP, read_at = NULL,
+                          target_type = excluded.target_type, target_id = excluded.target_id
+                        """,
+                        (reply_to_user_id, user["id"], target_type, target_id),
+                    ))
+                results = conn.batch(statements)
+                inserted_rows = results[0].get("rows") or []
+                if not inserted_rows:
+                    _validate_target(cursor, target_type, target_id)
+                    if parent_id is not None:
+                        cursor.execute(
+                            """
+                            SELECT 1 FROM comments
+                            WHERE id = %s AND target_type = %s AND target_id = %s
+                              AND status = 'visible'
+                            """,
+                            (parent_id, target_type, target_id),
+                        )
+                        if cursor.fetchone() is None:
+                            raise HTTPException(status_code=404, detail="回复的留言不存在")
+                        cursor.execute(
+                            """
+                            SELECT 1 FROM user_blocks
+                            WHERE (blocker_id = %s AND blocked_id = %s)
+                               OR (blocker_id = %s AND blocked_id = %s)
+                            LIMIT 1
+                            """,
+                            (user["id"], reply_to_user_id, reply_to_user_id, user["id"]),
+                        )
+                        if cursor.fetchone() is not None:
+                            raise HTTPException(status_code=403, detail="黑名单关系下无法回复")
+                    raise HTTPException(status_code=429, detail="留言过于频繁，请稍后再试")
+                comment_id = inserted_rows[0]["id"]
+            else:
+                cursor.execute(insert_sql, insert_params)
+                inserted = cursor.fetchone()
+                if inserted is None:
+                    raise HTTPException(status_code=429, detail="留言过于频繁，请稍后再试")
+                comment_id = inserted["id"]
+                if parent_id is None:
+                    cursor.execute("UPDATE comments SET root_id = %s WHERE id = %s", (comment_id, comment_id))
+                elif reply_to_user_id is not None:
+                    _create_notification(
+                        cursor,
+                        kind="reply",
+                        recipient_id=reply_to_user_id,
+                        actor_id=user["id"],
+                        comment_id=comment_id,
+                        target_type=target_type,
+                        target_id=target_id,
+                    )
     return {"data": {"id": comment_id}}
 
 
@@ -614,15 +703,41 @@ def like_comment(comment_id: int, user: dict[str, Any] = Depends(get_current_use
             comment = cursor.fetchone()
             if comment is None or comment["status"] != "visible":
                 raise HTTPException(status_code=404, detail="留言不存在")
-            cursor.execute(
-                """
-                INSERT INTO comment_likes (comment_id, user_id)
-                VALUES (%s, %s)
-                ON CONFLICT(comment_id, user_id) DO NOTHING
-                """,
-                (comment_id, user["id"]),
-            )
-            if cursor.rowcount:
+            if getattr(conn, "_adapter", None) is not None:
+                statements: list[tuple[str, tuple[Any, ...]]] = [(
+                    """
+                    INSERT INTO comment_likes (comment_id, user_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT(comment_id, user_id) DO NOTHING
+                    """,
+                    (comment_id, user["id"]),
+                )]
+                if comment["user_id"] != user["id"]:
+                    statements.append((
+                        """
+                        INSERT INTO comment_notifications
+                          (kind, recipient_id, actor_id, comment_id, target_type, target_id)
+                        SELECT 'like', %s, %s, %s, %s, %s WHERE changes() > 0
+                        ON CONFLICT(kind, recipient_id, actor_id, comment_id) DO UPDATE SET
+                          created_at = CURRENT_TIMESTAMP, read_at = NULL,
+                          target_type = excluded.target_type, target_id = excluded.target_id
+                        """,
+                        (
+                            comment["user_id"], user["id"], comment_id,
+                            comment["target_type"], comment["target_id"],
+                        ),
+                    ))
+                conn.batch(statements)
+            else:
+                cursor.execute(
+                    """
+                    INSERT INTO comment_likes (comment_id, user_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT(comment_id, user_id) DO NOTHING
+                    """,
+                    (comment_id, user["id"]),
+                )
+            if getattr(conn, "_adapter", None) is None and cursor.rowcount:
                 _create_notification(
                     cursor,
                     kind="like",
@@ -738,16 +853,28 @@ def admin_review_comment_report(
             report = cursor.fetchone()
             if report is None:
                 raise HTTPException(status_code=404, detail="待处理举报不存在")
+            statements: list[tuple[str, tuple[Any, ...]]] = []
             if hide_comment:
-                cursor.execute("UPDATE comments SET status = 'hidden' WHERE id = %s", (report["comment_id"],))
-            cursor.execute(
+                statements.append((
+                    """
+                    UPDATE comments SET status = 'hidden'
+                    WHERE id = %s
+                      AND EXISTS (
+                        SELECT 1 FROM comment_reports
+                        WHERE id = %s AND status = 'pending'
+                      )
+                    """,
+                    (report["comment_id"], report_id),
+                ))
+            statements.append((
                 """
                 UPDATE comment_reports
                 SET status = %s, resolved_at = CURRENT_TIMESTAMP, resolved_by = %s
-                WHERE id = %s
+                WHERE id = %s AND status = 'pending'
                 """,
                 (status, admin["id"], report_id),
-            )
+            ))
+            conn.batch(statements)
     return {"ok": True, "status": status}
 
 
@@ -772,16 +899,25 @@ def admin_delete_reported_comment(
             report = cursor.fetchone()
             if report is None:
                 raise HTTPException(status_code=404, detail="待处理举报不存在")
-            cursor.execute(
-                "UPDATE comments SET content = '', status = 'deleted' WHERE id = %s",
-                (report["comment_id"],),
-            )
-            cursor.execute(
-                """
-                UPDATE comment_reports
-                SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP, resolved_by = %s
-                WHERE comment_id = %s AND status = 'pending'
-                """,
-                (admin["id"], report["comment_id"]),
-            )
+            conn.batch([
+                (
+                    """
+                    UPDATE comments SET content = '', status = 'deleted'
+                    WHERE id = %s
+                      AND EXISTS (
+                        SELECT 1 FROM comment_reports
+                        WHERE id = %s AND status = 'pending'
+                      )
+                    """,
+                    (report["comment_id"], report_id),
+                ),
+                (
+                    """
+                    UPDATE comment_reports
+                    SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP, resolved_by = %s
+                    WHERE comment_id = %s AND status = 'pending'
+                    """,
+                    (admin["id"], report["comment_id"]),
+                ),
+            ])
     return {"ok": True, "commentId": report["comment_id"]}

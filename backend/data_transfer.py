@@ -649,6 +649,11 @@ def import_transfer_document(document: dict[str, Any]) -> dict[str, Any]:
         "photoActivities": [],
     }
     with get_db_connection() as conn:
+        if getattr(conn, "_adapter", None) is not None:
+            raise HTTPException(
+                status_code=501,
+                detail="D1 模式暂不支持整份数据导入；请使用独立、可回滚的离线导入流程",
+            )
         with conn.cursor() as cursor:
             for project in document["projects"]:
                 cursor.execute("SELECT id FROM project_categories WHERE name = %s LIMIT 1", (project["category"],))
