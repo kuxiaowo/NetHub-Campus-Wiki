@@ -9,6 +9,10 @@ routes = [{ pattern = "wiki-media.nethub.wiki", custom_domain = true }]
 binding = "MEDIA_BUCKET"
 bucket_name = "nethub-wiki-media"
 
+[[r2_buckets]]
+binding = "ACCOUNTS_AVATARS"
+bucket_name = "nethub-accounts-avatars"
+
 [vars]
 ALLOWED_KEY_PREFIXES = "Photos/,avatars/,project-media/,thumbnails/,yearbook-pages/,yearbook-pdfs/,documents/,video-thumbnails/,CAS/"
 PUBLIC_MEDIA_PREFIXES = "Photos/,avatars/,project-media/,thumbnails/,yearbook-pages/,video-thumbnails/,CAS/"
@@ -22,3 +26,4 @@ PUBLIC_CACHE_CONTROL = "public, max-age=86400"
 
 # Configure outside Git before deployment:
 #   wrangler secret put HMAC_SECRET
+#   wrangler secret put ACCOUNTS_AVATAR_HMAC_SECRET

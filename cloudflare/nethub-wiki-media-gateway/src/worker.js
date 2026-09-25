@@ -476,6 +476,32 @@ function parseRoute(pathname) {
   return null;
 }
 
+const ACCOUNT_AVATAR_PATH = /^\/accounts\/(?:media|internal\/object)\/avatars\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/[0-9a-f]{24}\.webp$/;
+
+function accountAvatarRequest(request, env) {
+  const url = new URL(request.url);
+  if (!url.pathname.startsWith("/accounts/")) return null;
+  if (!ACCOUNT_AVATAR_PATH.test(url.pathname)) throw new HttpError(400, "invalid_key", "Account avatar key is invalid");
+  if (!env.ACCOUNTS_AVATARS || !env.ACCOUNTS_AVATAR_HMAC_SECRET) {
+    throw new HttpError(503, "worker_not_configured", "Account avatar storage is not configured");
+  }
+  url.pathname = url.pathname.slice("/accounts".length);
+  return {
+    request: new Request(url, request),
+    env: {
+      ...env,
+      MEDIA_BUCKET: env.ACCOUNTS_AVATARS,
+      HMAC_SECRET: env.ACCOUNTS_AVATAR_HMAC_SECRET,
+      ALLOWED_KEY_PREFIXES: "avatars/",
+      PUBLIC_MEDIA_PREFIXES: "avatars/",
+      ALLOWED_UPLOAD_EXTENSIONS: "webp",
+      PUBLIC_MEDIA_EXTENSIONS: "webp",
+      MAX_UPLOAD_BYTES: "262144",
+      PUBLIC_CACHE_CONTROL: "public, max-age=31536000, immutable",
+    },
+  };
+}
+
 async function handle(request, env) {
   if (!env.MEDIA_BUCKET) throw new HttpError(503, "worker_not_configured", "R2 bucket binding is not configured");
   const url = new URL(request.url);
@@ -542,7 +568,11 @@ function finalizeResponse(request, response) {
 export default {
   async fetch(request, env) {
     try {
-      return finalizeResponse(request, await handle(request, env));
+      const accountAvatar = accountAvatarRequest(request, env);
+      return finalizeResponse(
+        request,
+        await handle(accountAvatar?.request || request, accountAvatar?.env || env),
+      );
     } catch (error) {
       if (error instanceof HttpError) {
         const headers = error.status === 405 ? { Allow: (error.details?.allowedMethods || []).join(", ") } : {};

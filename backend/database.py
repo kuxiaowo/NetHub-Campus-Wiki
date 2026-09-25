@@ -84,6 +84,7 @@ class D1GatewayAdapter:
                 self.url, data=payload,
                 headers={
                     "Content-Type": "application/json",
+                    "User-Agent": "NetHub-D1-Client/1.0",
                     "X-DB-Request-ID": request_id,
                     "X-DB-Timestamp": timestamp,
                     "X-DB-Signature": digest,

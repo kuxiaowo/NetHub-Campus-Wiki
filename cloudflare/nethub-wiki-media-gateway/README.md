@@ -1,12 +1,13 @@
 # nethub-wiki-media-gateway
 
-私有 R2 bucket `nethub-wiki-media` 的唯一 HTTP 网关。浏览器只可读取公开图片；管理操作必须由已完成登录、权限、CSRF、类型和大小检查的 Python 后端签名发起。
+私有 R2 bucket `nethub-wiki-media` 和 `nethub-accounts-avatars` 的 HTTP 网关。浏览器只可读取公开图片；管理操作必须由已完成登录、权限、CSRF、类型和大小检查的 Python 后端签名发起。两个 bucket 使用不同的路由、密钥和访问策略。
 
 ## 路由
 
 - `GET|HEAD /media/{key}`：公开图片，默认缓存一天，支持单段 `Range`、`If-Range`、`If-None-Match`；响应 MIME 按扩展名白名单强制设置，不信任历史对象元数据。
 - `GET|HEAD /download/{key}?expires={unix}&sig={hex}`：短时受保护下载。
 - `PUT|HEAD|DELETE /internal/object/{key}`：不覆盖上传、元数据读取、删除。`HEAD` 通过 `Content-Length`、`ETag`、`Content-Type`、`X-Media-Uploaded` 与可选的 `X-Media-SHA256` 返回元数据，不返回响应体。
+- `GET|HEAD /accounts/media/avatars/{sub}/{filename}.webp` 及 `PUT|HEAD|DELETE /accounts/internal/object/avatars/{sub}/{filename}.webp`：Accounts 头像专用路由。使用独立的 `nethub-accounts-avatars` R2 binding 和 `ACCOUNTS_AVATAR_HMAC_SECRET`，只接受 UUID 用户目录、24 位十六进制文件名和 WebP，上传限制为 256 KiB。签名请求头沿用 `X-Media-*`，签名目标为去掉 `/accounts` 后的 `/internal/object/...`。
 - `GET /internal/list?prefix=...&cursor=...&limit=...`：游标列表，`limit` 为 1–100；`prefix` 必须包含已配置根前缀后的 `/`，不允许从相似的同级前缀开始列举。
 - `POST /internal/multipart/{key}`：创建分片上传；可用 `X-Media-Content-Type` 指定类型。
 - `PUT /internal/multipart/{key}/part/{1..10000}?uploadId=...`：上传分片。
@@ -22,6 +23,8 @@ Yearbook 固定使用 `yearbook-pages/`（公开页面原图）、`yearbook-pdfs
 ## HMAC v1
 
 使用小写十六进制 HMAC-SHA256。每个部署必须有独立的、至少 32 字节的 `HMAC_SECRET`，只存于 Worker Secret 与对应后端 Secret，不写入代码或配置文件。
+
+Accounts 头像使用单独的 `ACCOUNTS_AVATAR_HMAC_SECRET`，不得与 Wiki 的 `HMAC_SECRET` 共用。
 
 内部请求头：
 

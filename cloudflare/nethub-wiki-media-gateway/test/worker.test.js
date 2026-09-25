@@ -431,3 +431,46 @@ test("bodyless internal endpoints reject a smuggled body", async () => {
   assert.equal(response.status, 400);
   assert.equal((await response.json()).error, "unexpected_body");
 });
+
+test("Accounts avatars use a separate bucket and signing key", async () => {
+  const wikiBucket = new MemoryBucket();
+  const accountsBucket = new MemoryBucket();
+  const accountSecret = "accounts-avatar-test-secret-at-least-32-bytes";
+  const env = {
+    ...environment(wikiBucket),
+    ACCOUNTS_AVATARS: accountsBucket,
+    ACCOUNTS_AVATAR_HMAC_SECRET: accountSecret,
+  };
+  const key = "avatars/3b657e44-f928-4acf-89bb-24a5a1155aa5/0123456789abcdef01234567.webp";
+  const target = `/internal/object/${key}`;
+  const accountPath = `/accounts${target}`;
+  const bytes = new TextEncoder().encode("RIFF0000WEBPpayload");
+  const digest = await sha256Hex(bytes);
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const signature = await hmacHex(accountSecret, `v1\nPUT\n${target}\n${timestamp}\n${digest}`);
+  const headers = {
+    "Content-Type": "image/webp",
+    "Content-Length": String(bytes.byteLength),
+    "X-Media-Timestamp": timestamp,
+    "X-Media-Content-SHA256": digest,
+    "X-Media-Signature": signature,
+  };
+  const put = await worker.fetch(new Request(`${BASE}${accountPath}`, { method: "PUT", body: bytes, headers }), env);
+  assert.equal(put.status, 201);
+  assert.equal(wikiBucket.objects.size, 0);
+  assert.equal(accountsBucket.objects.size, 1);
+
+  const publicUrl = `${BASE}/accounts/media/${key}`;
+  const image = await worker.fetch(new Request(publicUrl), env);
+  assert.equal(image.status, 200);
+  assert.deepEqual(new Uint8Array(await image.arrayBuffer()), bytes);
+  assert.equal(image.headers.get("Cache-Control"), "public, max-age=31536000, immutable");
+
+  const wrongRoute = await worker.fetch(new Request(`${BASE}${target}`, { method: "PUT", body: bytes, headers }), env);
+  assert.equal(wrongRoute.status, 401);
+  const wrongKey = await worker.fetch(new Request(`${BASE}${accountPath}`, {
+    method: "PUT", body: bytes, headers: { ...headers, "X-Media-Signature": await hmacHex(SECRET, `v1\nPUT\n${target}\n${timestamp}\n${digest}`) },
+  }), env);
+  assert.equal(wrongKey.status, 401);
+  assert.equal((await worker.fetch(new Request(`${BASE}/accounts/media/avatars/bad.webp`), env)).status, 400);
+});
