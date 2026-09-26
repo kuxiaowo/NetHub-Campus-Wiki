@@ -12,6 +12,7 @@ from contextlib import contextmanager
 import hashlib
 import json
 import os
+import re
 import stat
 import sys
 import tempfile
@@ -190,6 +191,18 @@ def verify_remote(storage: R2MediaStorage, key: str, expected_hash: str, expecte
         raise MediaStorageError("迁移后回读哈希不一致", status_code=409, code="verification_failed")
 
 
+def verify_existing_remote(
+    storage: R2MediaStorage, key: str, expected_hash: str, expected_size: int,
+    metadata_hash: str | None,
+) -> None:
+    # The Worker stores this hash only after verifying the uploaded body.
+    if metadata_hash is not None:
+        if not re.fullmatch(r"[a-fA-F0-9]{64}", metadata_hash) or metadata_hash.lower() != expected_hash:
+            raise MediaStorageError("云端对象 SHA-256 元数据不一致", status_code=409, code="verification_failed")
+        return
+    verify_remote(storage, key, expected_hash, expected_size)
+
+
 def checkpoint_matches(
     checkpoint: dict[str, Any] | None,
     key: str,
@@ -222,7 +235,7 @@ def migrate_object(
     if existing:
         if existing.size != size:
             raise MediaConflictError("云端同名对象大小不同，拒绝覆盖")
-        verify_remote(storage, key, digest, size)
+        verify_existing_remote(storage, key, digest, size, existing.sha256)
         record.update(status="verified", action="same-object-skip", etag=existing.etag)
     else:
         uploaded = storage.put_key_file(key, source)
@@ -323,7 +336,7 @@ def run(args: argparse.Namespace, public_root: Path, manifest_path: Path) -> int
                 if existing is not None:
                     if existing.size != size:
                         raise MediaConflictError("断点对象大小已变化，拒绝覆盖")
-                    verify_remote(storage, key, digest, size)
+                    verify_existing_remote(storage, key, digest, size, existing.sha256)
                     print(f"RESUME verified {relative}")
                     source_verified = True
             except (MediaStorageError, OSError) as exc:
@@ -376,7 +389,7 @@ def run(args: argparse.Namespace, public_root: Path, manifest_path: Path) -> int
                         if existing is not None:
                             if existing.size != thumb_size:
                                 raise MediaConflictError("断点缩略图大小已变化，拒绝覆盖")
-                            verify_remote(storage, thumb_key, thumb_digest, thumb_size)
+                            verify_existing_remote(storage, thumb_key, thumb_digest, thumb_size, existing.sha256)
                             print(f"RESUME thumbnail verified {relative}")
                             continue
                     except (MediaStorageError, OSError) as exc:

@@ -29,7 +29,10 @@ class FakeStorage:
         payload = self.objects.get(key)
         if payload is None:
             return None
-        return SimpleNamespace(size=len(payload), etag="test-etag")
+        return SimpleNamespace(
+            size=len(payload), etag="test-etag",
+            sha256=hashlib.sha256(payload).hexdigest(),
+        )
 
     def put_key_file(self, key: str, source: Path, **_kwargs):
         self.put_calls.append(key)
@@ -43,6 +46,27 @@ def verify_fake_remote(storage: FakeStorage, key: str, digest: str, size: int) -
         raise migration.MediaStorageError(
             "迁移后回读哈希不一致", status_code=409, code="verification_failed"
         )
+
+
+class ExistingObjectVerificationTest(unittest.TestCase):
+    def test_matching_worker_hash_avoids_download(self) -> None:
+        digest = hashlib.sha256(b"example").hexdigest()
+        with patch.object(migration, "verify_remote") as download:
+            migration.verify_existing_remote(FakeStorage({}), "CAS/example", digest, 7, digest)
+        download.assert_not_called()
+
+    def test_missing_worker_hash_downloads_and_compares(self) -> None:
+        digest = hashlib.sha256(b"example").hexdigest()
+        with patch.object(migration, "verify_remote") as download:
+            migration.verify_existing_remote(FakeStorage({}), "CAS/example", digest, 7, None)
+        download.assert_called_once()
+
+    def test_conflicting_worker_hash_is_rejected(self) -> None:
+        digest = hashlib.sha256(b"example").hexdigest()
+        with patch.object(migration, "verify_remote") as download:
+            with self.assertRaises(migration.MediaStorageError):
+                migration.verify_existing_remote(FakeStorage({}), "CAS/example", digest, 7, "0" * 64)
+        download.assert_not_called()
 
 
 class SafeDiscoveryTest(unittest.TestCase):

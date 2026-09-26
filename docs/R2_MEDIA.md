@@ -59,10 +59,11 @@ python scripts/migrate_media_to_r2.py --manifest D:\temp\campus-r2-sample.json
 python scripts/migrate_media_to_r2.py public/CAS --execute --manifest D:\temp\campus-r2-sample.json
 ```
 
-脚本逐对象写断点清单；上传前 HEAD，已有相同对象会回读并校验 SHA-256 后跳过，
-不同对象拒绝冲突。大文件使用 multipart，完成后通过短时签名下载回读验证。默认不覆盖、
-不删除任何本地或云端对象。恢复断点时仍会实时 HEAD 和回读校验；云端对象缺失时重新
-上传，内容变化时明确失败。源目录中的文件符号链接、目录链接、junction 或其他 reparse
+脚本逐对象写断点清单；上传前 HEAD，已有对象会比对大小及 Worker 验证上传内容后保存的
+SHA-256 元数据，缺少该元数据时回读并计算 SHA-256，不同对象拒绝冲突。新上传对象始终
+通过短时签名下载回读验证，大文件使用 multipart。默认不覆盖、不删除任何本地或云端对象。
+恢复断点时仍会实时 HEAD 并校验哈希；云端对象缺失时重新上传，内容变化时明确失败。
+源目录中的文件符号链接、目录链接、junction 或其他 reparse
 point 会使迁移停止，解析后的所有源文件也必须位于 `public/` 内。不要并行运行两个包含
 相同对象键的迁移进程。
 
