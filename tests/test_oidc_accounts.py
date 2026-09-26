@@ -106,14 +106,14 @@ class AccountsOidcTest(unittest.TestCase):
         attempt = {"return_to": "https://wiki.example.test/", "expires_at": int(time.time()) + 60}
         connection = MagicMock()
         connection._adapter = object()
-        connection.batch.return_value = [
-            {"rows": [attempt], "meta": {"changes": 0}},
-            {"rows": [], "meta": {"changes": 1}},
-        ]
         connection.__enter__.return_value = connection
+        cursor = connection.cursor.return_value
+        cursor.__enter__.return_value = cursor
+        cursor.fetchone.return_value = attempt
+        cursor.rowcount = 1
         with patch("backend.oidc_client.get_db_connection", return_value=connection):
             self.assertEqual(_consume_attempt(state, state), attempt)
-        statements = connection.batch.call_args.args[0]
+        statements = [call.args for call in cursor.execute.call_args_list]
         self.assertEqual(len(statements), 2)
         self.assertTrue(statements[0][0].strip().startswith("SELECT *"))
         self.assertTrue(statements[1][0].strip().startswith("DELETE FROM"))

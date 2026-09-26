@@ -200,14 +200,13 @@ def _consume_attempt(state: str, cookie_state: str) -> dict[str, Any]:
     with get_db_connection() as conn:
         state_hash = _digest(state)
         if conn._adapter is not None:
-            results = conn.batch([
-                ("SELECT * FROM oidc_login_attempts WHERE state_hash = %s", (state_hash,)),
-                ("DELETE FROM oidc_login_attempts WHERE state_hash = %s", (state_hash,)),
-            ])
-            rows = results[0]["rows"]
-            attempt = rows[0] if rows else None
-            if attempt is not None and results[1]["meta"]["changes"] != 1:
-                raise OidcClientError("登录请求未能被安全消费，请重新发起登录")
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT * FROM oidc_login_attempts WHERE state_hash = %s", (state_hash,))
+                attempt = cursor.fetchone()
+                if attempt is not None:
+                    cursor.execute("DELETE FROM oidc_login_attempts WHERE state_hash = %s", (state_hash,))
+                    if cursor.rowcount != 1:
+                        raise OidcClientError("登录请求未能被安全消费，请重新发起登录")
         else:
             with conn.cursor() as cursor:
                 cursor.execute(
