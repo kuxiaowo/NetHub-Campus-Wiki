@@ -249,6 +249,8 @@ def sync_project_members(project_id: int, leader: str, members: str) -> None:
     names = split_member_names(leader, members)
     leader_key = str(leader or "").strip().casefold()
     with get_db_connection() as conn:
+        if getattr(conn, "_adapter", None) is not None:
+            raise RuntimeError("D1 模式请使用 replace_project_members() 的显式 batch 路径")
         with conn.cursor() as cursor:
             cursor.execute(
                 """
@@ -339,6 +341,99 @@ def replace_project_members(project_id: int, members: list[dict[str, Any]]) -> N
             )
             existing_person_ids = {row["person_id"] for row in cursor.fetchall()}
             retained_person_ids: list[int] = []
+
+            if getattr(conn, "_adapter", None) is not None:
+                statements: list[tuple[str, tuple[Any, ...] | list[Any]]] = []
+                retained_source_keys: list[str] = []
+                for index, member in enumerate(members):
+                    name = str(member.get("name") or "").strip()
+                    if not name:
+                        raise ValueError("成员姓名不能为空")
+                    person_id = member.get("personId")
+                    if person_id is not None:
+                        person_id = int(person_id)
+                        if person_id not in existing_person_ids:
+                            raise ValueError("成员档案不属于当前项目")
+                        retained_person_ids.append(person_id)
+                        statements.append((
+                            """
+                            UPDATE people SET display_name = %s
+                            WHERE id = %s AND status = 'provisional' AND user_id IS NULL
+                            """,
+                            (name, person_id),
+                        ))
+                        statements.append((
+                            """
+                            INSERT INTO project_members
+                              (project_id, person_id, role, display_name_snapshot, sort_order,
+                               contact_type, contact_value)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                            ON CONFLICT(project_id, person_id) DO UPDATE SET
+                              role = excluded.role,
+                              display_name_snapshot = excluded.display_name_snapshot,
+                              sort_order = excluded.sort_order,
+                              contact_type = excluded.contact_type,
+                              contact_value = excluded.contact_value
+                            """,
+                            (
+                                project_id, person_id, member["role"], name, index * 10,
+                                member.get("contactType"), member.get("contactValue"),
+                            ),
+                        ))
+                    else:
+                        source_key = f"project:{project_id}:member:{secrets.token_hex(8)}"
+                        retained_source_keys.append(source_key)
+                        statements.append((
+                            "INSERT INTO people (display_name, source_key, status) VALUES (%s, %s, 'provisional')",
+                            (name, source_key),
+                        ))
+                        statements.append((
+                            """
+                            INSERT INTO project_members
+                              (project_id, person_id, role, display_name_snapshot, sort_order,
+                               contact_type, contact_value)
+                            SELECT %s, id, %s, %s, %s, %s, %s
+                            FROM people WHERE source_key = %s
+                            """,
+                            (
+                                project_id, member["role"], name, index * 10,
+                                member.get("contactType"), member.get("contactValue"), source_key,
+                            ),
+                        ))
+
+                keep_clauses: list[str] = []
+                keep_params: list[Any] = [project_id]
+                if retained_person_ids:
+                    keep_clauses.append(f"person_id IN ({', '.join(['%s'] * len(retained_person_ids))})")
+                    keep_params.extend(retained_person_ids)
+                if retained_source_keys:
+                    keep_clauses.append(
+                        f"person_id IN (SELECT id FROM people WHERE source_key IN ({', '.join(['%s'] * len(retained_source_keys))}))"
+                    )
+                    keep_params.extend(retained_source_keys)
+                statements.append((
+                    f"DELETE FROM project_members WHERE project_id = %s AND NOT ({' OR '.join(keep_clauses)})",
+                    keep_params,
+                ))
+                leader_name = str(leaders[0]["name"]).strip() if leaders else ""
+                member_summary = ", ".join(str(member["name"]).strip() for member in members)
+                statements.append((
+                    "UPDATE projects SET leader = %s, members = %s WHERE id = %s",
+                    (leader_name, member_summary, project_id),
+                ))
+                statements.append((
+                    """
+                    DELETE FROM people
+                    WHERE status = 'provisional' AND user_id IS NULL
+                      AND NOT EXISTS (SELECT 1 FROM project_members pm WHERE pm.person_id = people.id)
+                      AND NOT EXISTS (SELECT 1 FROM person_claims pc WHERE pc.person_id = people.id)
+                    """,
+                    (),
+                ))
+                if len(statements) > 100:
+                    raise ValueError("项目成员过多，单次最多支持 48 人")
+                conn.batch(statements)
+                return
 
             for index, member in enumerate(members):
                 name = str(member.get("name") or "").strip()

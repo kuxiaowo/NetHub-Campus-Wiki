@@ -334,13 +334,19 @@ function renderPhotos(activities) {
 
 async function loadActivityPhotos(activity) {
   if (!activity.loadedImages) {
-    const result = await request(`/photo-activities/${activity.id}/photos`);
+    const result = await request(`/photo-activities/${activity.id}/photos?limit=50`);
     activity.loadedImages = result.data;
+    activity.photoCursor = result.nextCursor || null;
+    activity.photosHaveMore = Boolean(result.hasMore);
     if (result.activity) {
       Object.assign(activity, result.activity);
       updateCurrentActivityDownloads(activity);
     }
   }
+  renderActivityPhotoPage(activity);
+}
+
+function renderActivityPhotoPage(activity) {
   activePhotoItems = activity.loadedImages.map((item, index) => ({
     ...item,
     activity: activity.activity,
@@ -354,9 +360,33 @@ async function loadActivityPhotos(activity) {
   photoGrid.innerHTML = activePhotoItems.length
     ? activePhotoItems.map(photoButton).join('')
     : '<div class="empty">这个活动还没有照片或视频。</div>';
+  if (activity.photosHaveMore) {
+    photoGrid.insertAdjacentHTML('beforeend', '<button class="button secondary" type="button" data-load-more-photos>加载更多</button>');
+  }
   photoGrid.querySelectorAll('[data-photo-index]').forEach((button) => {
     button.addEventListener('click', () => openPhotoModal(Number(button.dataset.photoIndex)));
   });
+  photoGrid.querySelector('[data-load-more-photos]')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    button.textContent = '正在加载...';
+    try {
+      await loadNextActivityPhotoPage(activity);
+      renderActivityPhotoPage(activity);
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = error.message || '加载失败，请重试';
+    }
+  });
+}
+
+async function loadNextActivityPhotoPage(activity) {
+  if (!activity.photosHaveMore || !activity.photoCursor) return;
+  const params = new URLSearchParams({ limit: '50', cursor: activity.photoCursor, track: 'false' });
+  const result = await request(`/photo-activities/${activity.id}/photos?${params.toString()}`);
+  activity.loadedImages.push(...result.data);
+  activity.photoCursor = result.nextCursor || null;
+  activity.photosHaveMore = Boolean(result.hasMore);
 }
 
 async function loadPhotoActivities() {
@@ -543,8 +573,13 @@ async function downloadCurrentActivityPhotos() {
   const originalLabel = downloadActivity.textContent;
   downloadActivity.disabled = true;
   try {
+    while (activity.photosHaveMore) {
+      downloadActivity.textContent = `正在读取清单 ${activity.loadedImages.length}...`;
+      await loadNextActivityPhotoPage(activity);
+    }
+    renderActivityPhotoPage(activity);
     const result = await downloadFilesToSelectedDirectory(
-      activePhotoItems.map((item, index) => ({
+      activity.loadedImages.map((item, index) => ({
         url: authenticatedPublicFileUrl(item.src) || item.src,
         filename: localFileNameFromUrl(item.src, `media-${String(index + 1).padStart(4, '0')}`),
       })),

@@ -594,14 +594,21 @@ function renderFileRows(items, { selectable = false, mode = 'fileOrFolder' } = {
   );
 }
 
-async function loadFiles(path = adminState.filePath) {
-  const query = buildQuery({ path });
+async function loadFiles(path = adminState.filePath, cursor = null) {
+  const query = buildQuery({ path, cursor });
   const result = await adminEndpoint(`/admin/files/tree${query}`);
   adminState.filePath = result.path || '';
-  adminState.fileItems = result.data;
+  const mergedItems = cursor ? [...adminState.fileItems, ...result.data] : result.data;
+  adminState.fileItems = [...new Map(mergedItems.map((item) => [item.path, item])).values()];
+  adminState.fileCursor = result.nextCursor || null;
   adminEls.filePathLabel.textContent = result.url;
   adminEls.uploadTargetLabel.textContent = result.url;
-  adminEls.fileTable.innerHTML = renderFileRows(result.data);
+  adminEls.fileTable.innerHTML = renderFileRows(adminState.fileItems) + (result.hasMore
+    ? '<button class="button secondary compact" type="button" data-load-more-files>加载更多</button>'
+    : '');
+  adminEls.fileTable.querySelector('[data-load-more-files]')?.addEventListener('click', () => {
+    loadFiles(adminState.filePath, adminState.fileCursor);
+  });
 }
 
 function setFileActionMessage(text, isError = false) {
@@ -711,15 +718,20 @@ async function openFilePicker(inputName, mode, root = '', relativeTo = '') {
   await loadPickerFiles(normalizedRoot);
 }
 
-async function loadPickerFiles(path = adminState.picker?.path || '') {
-  const query = buildQuery({ path });
+async function loadPickerFiles(path = adminState.picker?.path || '', cursor = null) {
+  const query = buildQuery({ path, cursor });
   const result = await adminEndpoint(`/admin/files/tree${query}`);
   adminState.picker.path = result.path || '';
-  adminState.picker.items = result.data;
+  const mergedItems = cursor ? [...adminState.picker.items, ...result.data] : result.data;
+  adminState.picker.items = [...new Map(mergedItems.map((item) => [item.path, item])).values()];
+  adminState.picker.cursor = result.nextCursor || null;
   adminQuery('#pickerPathLabel').textContent = result.url;
-  adminQuery('#pickerFileTable').innerHTML = renderFileRows(result.data, {
+  adminQuery('#pickerFileTable').innerHTML = renderFileRows(adminState.picker.items, {
     selectable: true,
     mode: adminState.picker.mode,
+  }) + (result.hasMore ? '<button class="button secondary compact" type="button" data-load-more-picker-files>加载更多</button>' : '');
+  adminQuery('#pickerFileTable').querySelector('[data-load-more-picker-files]')?.addEventListener('click', () => {
+    loadPickerFiles(adminState.picker.path, adminState.picker.cursor);
   });
 }
 

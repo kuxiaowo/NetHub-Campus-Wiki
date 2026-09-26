@@ -308,3 +308,5 @@ class PhotoActivityPhotosResponse(BaseModel):
 
     data: list[PhotoItem] = Field(description="指定活动下按序混排的图片和视频集合。")
     activity: PhotoActivity | None = Field(default=None, description="更新热度后的活动摘要。")
+    nextCursor: str | None = Field(default=None, description="下一页不透明游标。")
+    hasMore: bool = Field(default=False, description="是否还有下一页。")

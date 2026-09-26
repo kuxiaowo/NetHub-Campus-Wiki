@@ -144,11 +144,11 @@ def begin_login(
     now = int(time.time())
     destination = safe_return_to(return_to)
     with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
+        conn.batch([
+            (
                 "DELETE FROM oidc_login_attempts WHERE expires_at <= %s", (now,)
-            )
-            cursor.execute(
+            ),
+            (
                 """
                 INSERT INTO oidc_login_attempts
                   (state_hash, code_verifier, nonce, return_to, created_at, expires_at)
@@ -162,7 +162,8 @@ def begin_login(
                     now,
                     now + LOGIN_ATTEMPT_TTL_SECONDS,
                 ),
-            )
+            ),
+        ])
     client = OAuth2Session(
         client_id=settings.oidc_client_id,
         client_secret=settings.oidc_client_secret,
@@ -199,14 +200,10 @@ def _consume_attempt(state: str, cookie_state: str) -> dict[str, Any]:
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
-                "SELECT * FROM oidc_login_attempts WHERE state_hash = %s LIMIT 1",
+                "DELETE FROM oidc_login_attempts WHERE state_hash = %s RETURNING *",
                 (_digest(state),),
             )
             attempt = cursor.fetchone()
-            cursor.execute(
-                "DELETE FROM oidc_login_attempts WHERE state_hash = %s",
-                (_digest(state),),
-            )
     if attempt is None or int(attempt["expires_at"]) <= now:
         raise OidcClientError("登录请求不存在或已过期，请重新发起登录")
     return attempt
@@ -312,15 +309,16 @@ def validate_logout_token(encoded_token: str) -> dict[str, Any]:
         raise OidcClientError("退出通知已过期")
     try:
         with get_db_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
+            conn.batch([
+                (
                     "INSERT INTO backchannel_logout_events (jti, received_at) VALUES (%s, %s)",
                     (str(claims["jti"]), now),
-                )
-                cursor.execute(
+                ),
+                (
                     "DELETE FROM backchannel_logout_events WHERE received_at < %s",
                     (now - 86400,),
-                )
+                ),
+            ])
     except IntegrityError:
         # A provider retries when its first successful response was lost. Treat
         # a verified duplicate as success so the retry queue can settle.

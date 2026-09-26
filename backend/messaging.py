@@ -220,6 +220,39 @@ def open_conversation(
             ):
                 raise HTTPException(status_code=403, detail="对方的私信权限不允许发起会话")
 
+            is_d1 = getattr(conn, "_adapter", None) is not None
+            if is_d1:
+                generated_id = secrets.randbelow(2**62 - 1) + 1
+                results = conn.batch([
+                    (
+                        "INSERT OR IGNORE INTO conversations (id,direct_key) VALUES (%s,%s)",
+                        (generated_id, direct_key),
+                    ),
+                    (
+                        "INSERT INTO conversation_members (conversation_id,user_id) "
+                        "SELECT id,%s FROM conversations WHERE direct_key=%s "
+                        "ON CONFLICT(conversation_id,user_id) DO NOTHING",
+                        (user["id"], direct_key),
+                    ),
+                    (
+                        "INSERT INTO conversation_members (conversation_id,user_id) "
+                        "SELECT id,%s FROM conversations WHERE direct_key=%s "
+                        "ON CONFLICT(conversation_id,user_id) DO NOTHING",
+                        (target_user_id, direct_key),
+                    ),
+                ])
+                cursor.execute(
+                    "SELECT id FROM conversations WHERE direct_key=%s LIMIT 1", (direct_key,)
+                )
+                created_row = cursor.fetchone()
+                if created_row is None:
+                    raise HTTPException(status_code=409, detail="会话创建状态已变化，请重试")
+                return {
+                    "data": {
+                        "id": created_row["id"],
+                        "created": int((results[0].get("meta") or {}).get("changes", 0)) == 1,
+                    }
+                }
             cursor.execute(
                 "INSERT OR IGNORE INTO conversations (direct_key) VALUES (%s)",
                 (direct_key,),
@@ -439,9 +472,12 @@ async def send_message(
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            # Serialize quota checks and insertion so concurrent requests cannot
-            # both consume the same sender/recipient/day allowance.
-            cursor.execute("BEGIN IMMEDIATE")
+            # SQLite serializes quota checks with BEGIN IMMEDIATE. D1 performs
+            # the final insert and related conversation updates in one batch;
+            # its quota predicates still need a later single-statement rewrite.
+            is_d1 = getattr(conn, "_adapter", None) is not None
+            if not is_d1:
+                cursor.execute("BEGIN IMMEDIATE")
             cursor.execute(
                 """
                 SELECT other_cm.user_id AS other_user_id
@@ -543,8 +579,140 @@ async def send_message(
                 if cursor.fetchone() is None:
                     raise HTTPException(status_code=422, detail="回复的消息不在当前会话中")
 
+            stored_message_key = client_message_id or f"_server_{secrets.token_urlsafe(24)}"
             try:
-                cursor.execute(
+                if is_d1:
+                    results = conn.batch([
+                        ("""
+                          WITH peer AS (
+                            SELECT other.user_id AS other_id
+                            FROM conversation_members me
+                            JOIN conversation_members other
+                              ON other.conversation_id = me.conversation_id
+                             AND other.user_id <> me.user_id
+                            JOIN users recipient ON recipient.id = other.user_id
+                            WHERE me.conversation_id = %s AND me.user_id = %s
+                              AND recipient.is_active = 1
+                              AND NOT EXISTS (
+                                SELECT 1 FROM user_blocks b
+                                WHERE (b.blocker_id = %s AND b.blocked_id = other.user_id)
+                                   OR (b.blocker_id = other.user_id AND b.blocked_id = %s)
+                              )
+                          )
+                          INSERT INTO messages
+                            (conversation_id, sender_id, message_type, body, project_id,
+                             client_message_id, reply_to_id)
+                          SELECT %s, %s, %s, %s, %s, %s, %s FROM peer
+                          WHERE (
+                            EXISTS (
+                              SELECT 1 FROM user_follows f
+                              WHERE f.follower_id = peer.other_id AND f.following_id = %s
+                            )
+                            OR EXISTS (
+                              SELECT 1 FROM messages r
+                              WHERE r.conversation_id = %s AND r.sender_id = peer.other_id
+                            )
+                            OR NOT EXISTS (
+                              SELECT 1 FROM messages d
+                              WHERE d.conversation_id = %s AND d.sender_id = %s
+                                AND date(d.created_at, '+8 hours') = date('now', '+8 hours')
+                            )
+                          )
+                            AND (
+                              SELECT COUNT(*) FROM messages recent
+                              WHERE recent.sender_id = %s
+                                AND recent.created_at >= datetime('now', '-1 minute')
+                            ) < %s
+                            AND (%s IS NULL OR EXISTS (SELECT 1 FROM projects p WHERE p.id = %s))
+                            AND (%s IS NULL OR EXISTS (
+                              SELECT 1 FROM messages reply
+                              WHERE reply.id = %s AND reply.conversation_id = %s
+                            ))
+                          ON CONFLICT(sender_id, client_message_id) DO NOTHING
+                          RETURNING id
+                          """,
+                         (
+                             conversation_id, user["id"], user["id"], user["id"],
+                             conversation_id, user["id"], message_type, body, project_id,
+                             stored_message_key, reply_to_id, user["id"], conversation_id,
+                             conversation_id, user["id"], user["id"], SEND_RATE_PER_MINUTE,
+                             project_id, project_id, reply_to_id, reply_to_id, conversation_id,
+                         )),
+                        ("""
+                          UPDATE conversation_members SET hidden_at = NULL
+                          WHERE conversation_id = %s
+                            AND COALESCE((SELECT last_message_id FROM conversations WHERE id = %s), 0)
+                              < COALESCE((SELECT id FROM messages WHERE sender_id = %s
+                                  AND client_message_id = %s AND conversation_id = %s), 0)
+                          """,
+                         (conversation_id, conversation_id, user["id"], stored_message_key, conversation_id)),
+                        ("""
+                          UPDATE conversations
+                          SET last_message_id = (SELECT id FROM messages WHERE sender_id = %s
+                                AND client_message_id = %s AND conversation_id = %s),
+                              last_message_at = CURRENT_TIMESTAMP
+                          WHERE id = %s
+                            AND COALESCE(last_message_id, 0)
+                              < COALESCE((SELECT id FROM messages WHERE sender_id = %s
+                                  AND client_message_id = %s AND conversation_id = %s), 0)
+                          """,
+                         (user["id"], stored_message_key, conversation_id, conversation_id,
+                          user["id"], stored_message_key, conversation_id)),
+                    ])
+                    rows = results[0].get("rows") or []
+                    message_id = rows[0]["id"] if rows else None
+                    if message_id is None:
+                        with conn.cursor() as diagnose:
+                            diagnose.execute(
+                                """SELECT id, conversation_id FROM messages
+                                   WHERE sender_id = %s AND client_message_id = %s LIMIT 1""",
+                                (user["id"], stored_message_key),
+                            )
+                            existing = diagnose.fetchone()
+                            if existing is not None:
+                                if existing["conversation_id"] != conversation_id:
+                                    raise HTTPException(status_code=409, detail="clientMessageId 已用于其他会话")
+                                return {"data": _message_dict(_fetch_message(diagnose, existing["id"]))}
+                            diagnose.execute(
+                                """
+                                SELECT
+                                  EXISTS(SELECT 1 FROM conversation_members WHERE conversation_id=%s AND user_id=%s) AS membership_ok,
+                                  EXISTS(SELECT 1 FROM users WHERE id=%s AND is_active=1) AS recipient_ok,
+                                  EXISTS(SELECT 1 FROM user_blocks WHERE
+                                    (blocker_id=%s AND blocked_id=%s) OR (blocker_id=%s AND blocked_id=%s)) AS blocked,
+                                  (%s IS NULL OR EXISTS(SELECT 1 FROM projects WHERE id=%s)) AS project_ok,
+                                  (%s IS NULL OR EXISTS(SELECT 1 FROM messages WHERE id=%s AND conversation_id=%s)) AS reply_ok,
+                                  (EXISTS(SELECT 1 FROM user_follows WHERE follower_id=%s AND following_id=%s)
+                                    OR EXISTS(SELECT 1 FROM messages WHERE conversation_id=%s AND sender_id=%s)
+                                    OR NOT EXISTS(SELECT 1 FROM messages WHERE conversation_id=%s AND sender_id=%s
+                                      AND date(created_at,'+8 hours')=date('now','+8 hours'))) AS contact_quota_ok,
+                                  ((SELECT COUNT(*) FROM messages WHERE sender_id=%s
+                                    AND created_at>=datetime('now','-1 minute')) < %s) AS rate_ok
+                                """,
+                                (conversation_id, user["id"], other_user_id,
+                                 user["id"], other_user_id, other_user_id, user["id"],
+                                 project_id, project_id, reply_to_id, reply_to_id, conversation_id,
+                                 other_user_id, user["id"], conversation_id, other_user_id,
+                                 conversation_id, user["id"], user["id"], SEND_RATE_PER_MINUTE),
+                            )
+                            state = diagnose.fetchone()
+                        if not state or not state["membership_ok"]:
+                            raise HTTPException(status_code=404, detail="会话不存在")
+                        if not state["recipient_ok"]:
+                            raise HTTPException(status_code=409, detail="对方账号已停用或注销")
+                        if state["blocked"]:
+                            raise HTTPException(status_code=403, detail="黑名单关系下无法私信")
+                        if not state["project_ok"]:
+                            raise HTTPException(status_code=404, detail="项目不存在")
+                        if not state["reply_ok"]:
+                            raise HTTPException(status_code=422, detail="回复的消息不在当前会话中")
+                        if not state["contact_quota_ok"]:
+                            raise HTTPException(status_code=429, detail="对方回复或关注你前，每天最多发送一条消息")
+                        if not state["rate_ok"]:
+                            raise HTTPException(status_code=429, detail="发送过于频繁，请稍后再试")
+                        raise HTTPException(status_code=409, detail="消息状态已变化，请重试")
+                else:
+                    cursor.execute(
                     """
                     INSERT INTO messages
                       (conversation_id, sender_id, message_type, body, project_id,
@@ -561,7 +729,7 @@ async def send_message(
                         reply_to_id,
                     ),
                 )
-                message_id = cursor.lastrowid
+                    message_id = cursor.lastrowid
             except IntegrityError:
                 if not client_message_id:
                     raise
@@ -580,7 +748,8 @@ async def send_message(
                     raise HTTPException(status_code=409, detail="clientMessageId 已用于其他会话")
                 message_id = existing["id"]
 
-            cursor.execute(
+            if not is_d1:
+                cursor.execute(
                 """
                 UPDATE conversations
                 SET last_message_id = %s, last_message_at = CURRENT_TIMESTAMP
@@ -588,11 +757,16 @@ async def send_message(
                 """,
                 (message_id, conversation_id),
             )
-            cursor.execute(
+                cursor.execute(
                 "UPDATE conversation_members SET hidden_at = NULL WHERE conversation_id = %s",
                 (conversation_id,),
             )
-            message = _message_dict(_fetch_message(cursor, message_id))
+            else:
+                with conn.cursor() as refresh:
+                    message_row = _fetch_message(refresh, message_id)
+                message = _message_dict(message_row)
+            if not is_d1:
+                message = _message_dict(_fetch_message(cursor, message_id))
 
     event = {"event": "message", "conversationId": conversation_id, "message": message}
     await manager.send(user["id"], event)
@@ -925,23 +1099,40 @@ async def admin_delete_reported_message(
             report = cursor.fetchone()
             if report is None:
                 raise HTTPException(status_code=404, detail="待处理举报不存在")
-            cursor.execute(
-                """
-                UPDATE messages
-                SET body = '', message_type = 'text', project_id = NULL,
-                    recalled_at = COALESCE(recalled_at, CURRENT_TIMESTAMP)
-                WHERE id = %s
-                """,
-                (report["message_id"],),
-            )
-            cursor.execute(
-                """
-                UPDATE message_reports
-                SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP, resolved_by = %s
-                WHERE message_id = %s AND status = 'pending'
-                """,
-                (admin["id"], report["message_id"]),
-            )
+            if getattr(conn, "_adapter", None) is not None:
+                conn.batch([
+                    (
+                        """UPDATE messages
+                           SET body='',message_type='text',project_id=NULL,
+                               recalled_at=COALESCE(recalled_at,CURRENT_TIMESTAMP)
+                           WHERE id=%s""",
+                        (report["message_id"],),
+                    ),
+                    (
+                        """UPDATE message_reports
+                           SET status='resolved',resolved_at=CURRENT_TIMESTAMP,resolved_by=%s
+                           WHERE message_id=%s AND status='pending'""",
+                        (admin["id"], report["message_id"]),
+                    ),
+                ])
+            else:
+                cursor.execute(
+                    """
+                    UPDATE messages
+                    SET body = '', message_type = 'text', project_id = NULL,
+                        recalled_at = COALESCE(recalled_at, CURRENT_TIMESTAMP)
+                    WHERE id = %s
+                    """,
+                    (report["message_id"],),
+                )
+                cursor.execute(
+                    """
+                    UPDATE message_reports
+                    SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP, resolved_by = %s
+                    WHERE message_id = %s AND status = 'pending'
+                    """,
+                    (admin["id"], report["message_id"]),
+                )
             user_ids = _conversation_user_ids(cursor, report["conversation_id"])
     event = {
         "event": "recall",

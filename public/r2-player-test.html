@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>R2 视频链路测试台</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #eaf1ff;
+      --muted: #91a0ba;
+      --panel: #121a29;
+      --line: #29354a;
+      --blue: #79b8ff;
+      --cyan: #68e5d2;
+      --amber: #ffc66d;
+      --red: #ff7d8c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background: #09101c;
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+    button, input { font: inherit; }
+    .shell { width: min(1440px, calc(100% - 40px)); margin: 0 auto; padding: 30px 0 44px; }
+    header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-end; margin-bottom: 22px; }
+    .eyebrow { margin: 0 0 5px; color: var(--cyan); font: 700 12px/1.4 Consolas, monospace; letter-spacing: .14em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(28px, 4vw, 48px); letter-spacing: -.045em; }
+    .header-note { max-width: 520px; margin: 0; color: var(--muted); line-height: 1.65; }
+    .source-bar { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 14px; }
+    .source-bar input {
+      min-width: 0; padding: 13px 15px; border: 1px solid var(--line); border-radius: 8px;
+      color: var(--ink); background: #0c1422; outline: none;
+    }
+    .source-bar input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #79b8ff20; }
+    button { border: 0; border-radius: 8px; cursor: pointer; }
+    .load-button { padding: 0 22px; color: #07111c; background: var(--cyan); font-weight: 800; }
+    .load-button:hover { background: #8af1e1; }
+    .workbench { display: grid; grid-template-columns: minmax(0, 1fr) 330px; border: 1px solid var(--line); background: var(--panel); }
+    .screen { position: relative; display: grid; place-items: center; min-height: 540px; background: #020408; overflow: hidden; }
+    video { display: block; width: 100%; max-height: 76vh; background: #000; }
+    .signal {
+      position: absolute; top: 14px; left: 14px; display: flex; align-items: center; gap: 8px;
+      padding: 7px 10px; border: 1px solid #ffffff24; border-radius: 999px;
+      background: #07101dcc; color: var(--muted); font: 700 11px Consolas, monospace;
+      pointer-events: none;
+    }
+    .signal-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 5px #ffc66d18; }
+    .signal.is-playing .signal-dot { background: var(--cyan); box-shadow: 0 0 0 5px #68e5d218; }
+    .signal.is-error .signal-dot { background: var(--red); box-shadow: 0 0 0 5px #ff7d8c18; }
+    aside { padding: 24px; border-left: 1px solid var(--line); }
+    aside h2 { margin: 0 0 18px; font: 700 13px Consolas, monospace; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
+    .metric { padding: 15px 0; border-top: 1px solid var(--line); }
+    .metric:first-of-type { border-top: 0; padding-top: 0; }
+    .metric-label { display: block; margin-bottom: 5px; color: var(--muted); font-size: 12px; }
+    .metric-value { display: block; font: 700 25px/1.15 Consolas, monospace; letter-spacing: -.04em; }
+    .metric-value small { color: var(--muted); font-size: 12px; letter-spacing: 0; }
+    .buffer-track { height: 5px; margin-top: 9px; background: #202b3e; overflow: hidden; }
+    .buffer-fill { display: block; width: 0; height: 100%; background: var(--cyan); transition: width .2s linear; }
+    .events { height: 122px; overflow: auto; margin: 8px 0 0; padding: 10px; color: #a8b7cf; background: #0a111d; font: 11px/1.65 Consolas, monospace; }
+    .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .preset { padding: 8px 12px; border: 1px solid var(--line); color: var(--muted); background: transparent; }
+    .preset:hover, .preset:focus-visible { color: var(--ink); border-color: var(--blue); outline: none; }
+    footer { display: flex; justify-content: space-between; gap: 20px; margin-top: 14px; color: var(--muted); font-size: 12px; }
+    footer code { color: var(--blue); }
+    @media (max-width: 900px) {
+      header { display: block; }
+      .header-note { margin-top: 12px; }
+      .workbench { grid-template-columns: 1fr; }
+      .screen { min-height: 280px; }
+      aside { border-top: 1px solid var(--line); border-left: 0; }
+    }
+    @media (max-width: 560px) {
+      .shell { width: min(100% - 22px, 1440px); padding-top: 18px; }
+      .source-bar { grid-template-columns: 1fr; }
+      .load-button { min-height: 44px; }
+      footer { display: block; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div>
+        <p class="eyebrow">NetHub · R2 field monitor</p>
+        <h1>视频链路测试台</h1>
+      </div>
+      <p class="header-note">直接使用浏览器原生视频播放与 HTTP Range 请求，记录首帧、缓冲和卡顿。这里测到的，基本就是 Wiki 访客实际感受到的。</p>
+    </header>
+
+    <form class="source-bar" id="sourceForm">
+      <input id="sourceInput" type="url" aria-label="视频地址" autocomplete="off" spellcheck="false">
+      <button class="load-button" type="submit">载入视频</button>
+    </form>
+
+    <section class="workbench" aria-label="播放器与监测数据">
+      <div class="screen">
+        <video id="player" controls playsinline preload="metadata"></video>
+        <div class="signal" id="signal"><span class="signal-dot"></span><span id="signalText">等待载入</span></div>
+      </div>
+      <aside>
+        <h2>Playback telemetry</h2>
+        <div class="metric">
+          <span class="metric-label">首帧时间</span>
+          <span class="metric-value" id="firstFrame">— <small>秒</small></span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">当前缓冲</span>
+          <span class="metric-value" id="buffered">0.0 <small>秒</small></span>
+          <span class="buffer-track"><span class="buffer-fill" id="bufferFill"></span></span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">卡顿 / 丢帧</span>
+          <span class="metric-value"><span id="stalls">0</span> <small>次</small> · <span id="dropped">0</span> <small>帧</small></span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">视频信息</span>
+          <span class="metric-value" id="videoInfo">—</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">事件记录</span>
+          <div class="events" id="events" aria-live="polite"></div>
+        </div>
+      </aside>
+    </section>
+
+    <div class="presets" aria-label="测试视频">
+      <button class="preset" type="button" data-file="Jack.mp4">Jack · HEVC · 402 MiB</button>
+      <button class="preset" type="button" data-file="Nina.mp4">Nina · HEVC · 1.02 GiB</button>
+      <button class="preset" type="button" data-file="Tony.mp4">Tony · H.264 · 391 MiB</button>
+    </div>
+    <footer>
+      <span>建议拖动进度条测试 Range 响应；连续出现“缓冲中”才算真实卡顿。</span>
+      <span>源站：<code>Cloudflare R2 public URL</code></span>
+    </footer>
+  </main>
+
+  <script>
+    (() => {
+      const baseUrl = 'https://pub-7811981eb7364741b029d2cbfc0f0a7c.r2.dev/teacher%20on%20stage/';
+      const player = document.querySelector('#player');
+      const input = document.querySelector('#sourceInput');
+      const signal = document.querySelector('#signal');
+      const signalText = document.querySelector('#signalText');
+      const firstFrame = document.querySelector('#firstFrame');
+      const buffered = document.querySelector('#buffered');
+      const bufferFill = document.querySelector('#bufferFill');
+      const stalls = document.querySelector('#stalls');
+      const dropped = document.querySelector('#dropped');
+      const videoInfo = document.querySelector('#videoInfo');
+      const events = document.querySelector('#events');
+      let loadStarted = 0;
+      let stallCount = 0;
+      let firstFrameRecorded = false;
+
+      function log(message) {
+        const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+        events.insertAdjacentHTML('afterbegin', `<div>${time} · ${message}</div>`);
+      }
+
+      function setSignal(text, state = '') {
+        signal.className = `signal ${state}`.trim();
+        signalText.textContent = text;
+      }
+
+      function resetTelemetry() {
+        loadStarted = performance.now();
+        stallCount = 0;
+        firstFrameRecorded = false;
+        firstFrame.innerHTML = '— <small>秒</small>';
+        buffered.innerHTML = '0.0 <small>秒</small>';
+        bufferFill.style.width = '0%';
+        stalls.textContent = '0';
+        dropped.textContent = '0';
+        videoInfo.textContent = '—';
+        events.replaceChildren();
+      }
+
+      function loadVideo(url) {
+        resetTelemetry();
+        input.value = url;
+        setSignal('正在连接');
+        log('开始载入');
+        player.pause();
+        player.src = url;
+        player.load();
+      }
+
+      function updateTelemetry() {
+        let ahead = 0;
+        for (let index = 0; index < player.buffered.length; index += 1) {
+          if (player.buffered.start(index) <= player.currentTime && player.buffered.end(index) >= player.currentTime) {
+            ahead = player.buffered.end(index) - player.currentTime;
+            break;
+          }
+        }
+        buffered.innerHTML = `${ahead.toFixed(1)} <small>秒</small>`;
+        bufferFill.style.width = `${Math.min(100, ahead / 30 * 100)}%`;
+        if (typeof player.getVideoPlaybackQuality === 'function') {
+          dropped.textContent = player.getVideoPlaybackQuality().droppedVideoFrames;
+        }
+        requestAnimationFrame(updateTelemetry);
+      }
+
+      document.querySelector('#sourceForm').addEventListener('submit', (event) => {
+        event.preventDefault();
+        if (input.reportValidity()) loadVideo(input.value.trim());
+      });
+
+      document.querySelectorAll('.preset').forEach((button) => {
+        button.addEventListener('click', () => loadVideo(baseUrl + encodeURIComponent(button.dataset.file)));
+      });
+
+      player.addEventListener('loadedmetadata', () => {
+        videoInfo.textContent = `${player.videoWidth}×${player.videoHeight}`;
+        log(`元数据到达 · ${player.duration.toFixed(1)} 秒`);
+        setSignal('可开始播放');
+      });
+      player.addEventListener('loadeddata', () => {
+        if (!firstFrameRecorded) {
+          firstFrameRecorded = true;
+          const seconds = (performance.now() - loadStarted) / 1000;
+          firstFrame.innerHTML = `${seconds.toFixed(2)} <small>秒</small>`;
+          log(`首帧到达 · ${seconds.toFixed(2)} 秒`);
+        }
+      });
+      player.addEventListener('playing', () => { setSignal('播放中', 'is-playing'); log('播放'); });
+      player.addEventListener('waiting', () => {
+        if (!player.paused && player.currentTime > 0) {
+          stallCount += 1;
+          stalls.textContent = stallCount;
+          log(`缓冲中 · 第 ${stallCount} 次`);
+        }
+        setSignal('缓冲中');
+      });
+      player.addEventListener('seeking', () => { setSignal('正在跳转'); log(`跳转到 ${player.currentTime.toFixed(1)} 秒`); });
+      player.addEventListener('ended', () => { setSignal('播放结束'); log('播放结束'); });
+      player.addEventListener('error', () => {
+        const code = player.error ? player.error.code : 'unknown';
+        setSignal('加载失败', 'is-error');
+        log(`加载失败 · MediaError ${code}`);
+      });
+
+      loadVideo(baseUrl + 'Tony.mp4');
+      requestAnimationFrame(updateTelemetry);
+    })();
+  </script>
+</body>
+</html>

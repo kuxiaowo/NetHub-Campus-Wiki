@@ -5,13 +5,16 @@ from __future__ import annotations
 import io
 import os
 import secrets
+import tempfile
 from pathlib import Path
 
 from fastapi import HTTPException, UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
+from starlette.concurrency import run_in_threadpool
 
 from backend.config import settings
 from backend.media import local_public_path
+from backend.media_storage import LocalMediaStorage, MediaStorageError, get_media_storage
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 AVATAR_ROOT = BASE_DIR / "public" / "uploads" / "avatars"
@@ -40,6 +43,15 @@ def managed_avatar_path(url: str | None) -> Path | None:
 
 
 def delete_managed_avatar(url: str | None) -> None:
+    relative = local_public_path(url)
+    if relative and relative.startswith("uploads/avatars/"):
+        storage = get_media_storage()
+        if not isinstance(storage, LocalMediaStorage):
+            try:
+                storage.delete(relative)
+            except MediaStorageError:
+                pass
+            return
     target = _managed_avatar_path(url)
     if target is None or not target.is_file():
         return
@@ -84,13 +96,28 @@ async def store_avatar(user_id: int, upload: UploadFile) -> str:
     except (Image.DecompressionBombError, UnidentifiedImageError, OSError, ValueError) as exc:
         raise HTTPException(status_code=422, detail="头像文件不是有效图片") from exc
 
+    filename = f"{secrets.token_hex(12)}.webp"
+    logical = f"uploads/avatars/{user_id}/{filename}"
+    storage = get_media_storage()
+    if not isinstance(storage, LocalMediaStorage):
+        temporary_handle = tempfile.NamedTemporaryFile(suffix=".webp", delete=False)
+        temporary_handle.close()
+        temporary = Path(temporary_handle.name)
+        try:
+            temporary.write_bytes(output.getvalue())
+            await run_in_threadpool(storage.put_file, logical, temporary, content_type="image/webp")
+        except MediaStorageError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        finally:
+            temporary.unlink(missing_ok=True)
+        return f"/{logical}"
+
     root = AVATAR_ROOT.resolve()
     root.mkdir(parents=True, exist_ok=True)
     user_dir = (root / str(user_id)).resolve()
     if root not in user_dir.parents:
         raise HTTPException(status_code=422, detail="头像存储路径无效")
     user_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"{secrets.token_hex(12)}.webp"
     target = user_dir / filename
     temporary = user_dir / f".{filename}.tmp"
     try:

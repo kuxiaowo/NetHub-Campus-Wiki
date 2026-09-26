@@ -1,0 +1,4 @@
+.worker-build/
+.dev.vars
+.env
+node_modules/

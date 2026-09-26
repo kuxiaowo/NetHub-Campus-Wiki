@@ -167,11 +167,10 @@ def create_user(username: str, password: str, display_name: str | None = None) -
                     """
                     INSERT INTO users (username, password_hash, display_name, role)
                     VALUES (%s, %s, %s, 'user')
+                    RETURNING *
                     """,
                     (username, hash_password(password), clean_display_name),
                 )
-                user_id = cursor.lastrowid
-                cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
                 row = cursor.fetchone()
     except IntegrityError as exc:
         raise HTTPException(status_code=409, detail="昵称已存在") from exc
@@ -446,11 +445,10 @@ def provision_oidc_user(
                         INSERT INTO users
                           (username, password_hash, display_name, role, is_active, auth_sub)
                         VALUES (%s, '', %s, %s, 1, %s)
+                        RETURNING *
                         """,
                         (candidate, name, role, auth_sub),
                     )
-                    user_id = cursor.lastrowid
-                    cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
                     row = cursor.fetchone()
     except IntegrityError as exc:
         # Concurrent callbacks for the same central identity may both observe no

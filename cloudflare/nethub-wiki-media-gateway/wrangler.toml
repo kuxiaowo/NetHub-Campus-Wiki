@@ -1,0 +1,29 @@
+name = "nethub-wiki-media-gateway"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = false
+preview_urls = false
+routes = [{ pattern = "wiki-media.nethub.wiki", custom_domain = true }]
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "nethub-wiki-media"
+
+[[r2_buckets]]
+binding = "ACCOUNTS_AVATARS"
+bucket_name = "nethub-accounts-avatars"
+
+[vars]
+ALLOWED_KEY_PREFIXES = "Photos/,avatars/,project-media/,thumbnails/,yearbook-pages/,yearbook-pdfs/,documents/,video-thumbnails/,CAS/"
+PUBLIC_MEDIA_PREFIXES = "Photos/,avatars/,project-media/,thumbnails/,yearbook-pages/,video-thumbnails/,CAS/"
+ALLOWED_UPLOAD_EXTENSIONS = "jpg,jpeg,png,webp,gif,avif,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,md,zip"
+PUBLIC_MEDIA_EXTENSIONS = "jpg,jpeg,png,webp,gif,avif"
+MAX_CLOCK_SKEW_SECONDS = "300"
+MAX_DOWNLOAD_LIFETIME_SECONDS = "120"
+MAX_UPLOAD_BYTES = "26214400"
+PUBLIC_CORS_ORIGIN = "*"
+PUBLIC_CACHE_CONTROL = "public, max-age=86400"
+
+# Configure outside Git before deployment:
+#   wrangler secret put HMAC_SECRET
+#   wrangler secret put ACCOUNTS_AVATAR_HMAC_SECRET

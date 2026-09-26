@@ -8,6 +8,11 @@ import sqlite3
 import threading
 import re
 import json
+import hashlib
+import hmac
+import time
+import uuid
+import requests
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
@@ -37,14 +42,101 @@ def _translate_query(query: str) -> str:
     return query.replace("%s", "?")
 
 
-class Cursor:
-    """对 sqlite3.Cursor 的最小兼容封装。"""
+class D1GatewayError(RuntimeError):
+    """D1 gateway 请求失败或返回了数据库错误。"""
 
-    def __init__(self, cursor: sqlite3.Cursor) -> None:
-        self._cursor = cursor
+    def __init__(self, message: str, *, status: int | None = None, code: str = "") -> None:
+        super().__init__(message)
+        self.status = status
+        self.code = code
+
+
+class D1GatewayAdapter:
+    """通过内部 Worker 网关访问 D1。
+
+    网关协议故意保持很小：每次请求包含一个或多个参数化 SQL 语句，
+    网关负责将 batch 映射为 D1 ``db.batch``。
+    """
+
+    def __init__(self, url: str, secret: str, timeout: float) -> None:
+        if not url or not secret:
+            raise RuntimeError("DATABASE_BACKEND=d1 时必须配置 D1_GATEWAY_URL 和 D1_GATEWAY_HMAC_SECRET")
+        normalized_url = url.rstrip("/")
+        self.url = (
+            normalized_url
+            if normalized_url.endswith("/internal/db")
+            else normalized_url + "/internal/db"
+        )
+        self.secret, self.timeout = secret.encode(), timeout
+
+    def _request(self, statements: list[dict[str, Any]], mode: str) -> list[dict[str, Any]]:
+        request_id = str(uuid.uuid4())
+        timestamp = str(int(time.time()))
+        payload = json.dumps(
+            {"requestId": request_id, "timestamp": int(timestamp), "mode": mode, "statements": statements},
+            separators=(",", ":"), ensure_ascii=False,
+        ).encode("utf-8")
+        body_hash = hashlib.sha256(payload).hexdigest()
+        canonical = "\n".join(("v1", "POST", "/internal/db", request_id, timestamp, body_hash)).encode("utf-8")
+        digest = hmac.new(self.secret, canonical, hashlib.sha256).hexdigest()
+        try:
+            response = requests.post(
+                self.url, data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "User-Agent": "NetHub-D1-Client/1.0",
+                    "X-DB-Request-ID": request_id,
+                    "X-DB-Timestamp": timestamp,
+                    "X-DB-Signature": digest,
+                },
+                timeout=self.timeout,
+            )
+        except requests.RequestException as exc:
+            raise D1GatewayError(f"D1 gateway 请求失败: {exc}") from exc
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise D1GatewayError(
+                "D1 gateway 返回了无效 JSON", status=response.status_code
+            ) from exc
+        if not response.ok or body.get("error"):
+            message = body.get("message") or body.get("error") or "D1 gateway 请求失败"
+            if response.status_code == 409 or body.get("error") == "database_conflict":
+                raise sqlite3.IntegrityError(str(message))
+            raise D1GatewayError(
+                str(message),
+                status=response.status_code,
+                code=str(body.get("code") or body.get("error") or ""),
+            )
+        results = body.get("results")
+        if not isinstance(results, list):
+            raise D1GatewayError("D1 gateway 响应缺少 results")
+        if len(results) != len(statements) or not all(isinstance(item, dict) for item in results):
+            raise D1GatewayError("D1 gateway 响应的结果数量或格式无效")
+        return results
+
+    def execute(self, sql: str, params: Sequence[Any] = ()) -> dict[str, Any]:
+        return self._request([{"sql": _translate_query(sql), "params": list(params)}], "single")[0]
+
+    def batch(self, statements: Sequence[tuple[str, Sequence[Any]]]) -> list[dict[str, Any]]:
+        payload = [{"sql": _translate_query(sql), "params": list(params)} for sql, params in statements]
+        return self._request(payload, "batch")
+
+
+class Cursor:
+    """对 SQLite cursor 和 D1 gateway 结果的最小兼容封装。"""
+
+    def __init__(self, cursor: sqlite3.Cursor | None = None, adapter: D1GatewayAdapter | None = None) -> None:
+        self._cursor, self._adapter = cursor, adapter
+        self._result: dict[str, Any] = {}
 
     def execute(self, query: str, parameters: Sequence[Any] | None = None) -> "Cursor":
-        self._cursor.execute(_translate_query(query), tuple(parameters or ()))
+        if self._adapter is not None:
+            if query.strip().upper() in {"BEGIN IMMEDIATE", "BEGIN EXCLUSIVE", "BEGIN"}:
+                raise RuntimeError("D1 不支持连接级事务；多语句原子写必须使用 Connection.batch()")
+            self._result = self._adapter.execute(query, tuple(parameters or ()))
+        else:
+            self._cursor.execute(_translate_query(query), tuple(parameters or ()))
         return self
 
     def executemany(
@@ -52,25 +144,42 @@ class Cursor:
         query: str,
         parameters: Iterable[Sequence[Any]],
     ) -> "Cursor":
-        self._cursor.executemany(_translate_query(query), parameters)
+        if self._adapter is not None:
+            results = self._adapter.batch([(query, values) for values in parameters])
+            self._batch_results = results
+            changes = sum(int((item.get("meta") or {}).get("changes", 0)) for item in results)
+            last_id = (results[-1].get("meta") or {}).get("last_row_id") if results else None
+            self._result = {"rows": [], "meta": {"changes": changes, "last_row_id": last_id}}
+        else:
+            self._cursor.executemany(_translate_query(query), parameters)
         return self
 
     def fetchone(self) -> dict[str, Any] | None:
+        if self._adapter is not None:
+            rows = self._result.get("rows") or []
+            return rows[0] if rows else None
         return self._cursor.fetchone()
 
     def fetchall(self) -> list[dict[str, Any]]:
+        if self._adapter is not None:
+            return list(self._result.get("rows") or [])
         return self._cursor.fetchall()
 
     @property
     def lastrowid(self) -> int | None:
+        if self._adapter is not None:
+            return (self._result.get("meta") or {}).get("last_row_id")
         return self._cursor.lastrowid
 
     @property
     def rowcount(self) -> int:
+        if self._adapter is not None:
+            return int((self._result.get("meta") or {}).get("changes", 0))
         return self._cursor.rowcount
 
     def close(self) -> None:
-        self._cursor.close()
+        if self._cursor is not None:
+            self._cursor.close()
 
     def __enter__(self) -> "Cursor":
         return self
@@ -80,32 +189,52 @@ class Cursor:
 
 
 class Connection:
-    """提供与现有调用方式兼容的 SQLite 连接。"""
+    """提供现有路由使用的连接 facade；后端可为 SQLite 或 D1。"""
 
-    def __init__(self, connection: sqlite3.Connection) -> None:
-        self._connection = connection
+    def __init__(self, connection: sqlite3.Connection | None = None, adapter: D1GatewayAdapter | None = None) -> None:
+        self._connection, self._adapter = connection, adapter
 
     def cursor(self) -> Cursor:
-        return Cursor(self._connection.cursor())
+        return Cursor(self._connection.cursor() if self._connection is not None else None, self._adapter)
+
+    def batch(self, statements: Sequence[tuple[str, Sequence[Any]]]) -> list[dict[str, Any]]:
+        if self._adapter is not None:
+            return self._adapter.batch(statements)
+        cursor = self._connection.cursor()
+        try:
+            results = []
+            for query, params in statements:
+                cursor.execute(_translate_query(query), tuple(params))
+                results.append({"rows": cursor.fetchall(), "meta": {"changes": cursor.rowcount, "last_row_id": cursor.lastrowid}})
+            self._connection.commit()
+            return results
+        finally:
+            cursor.close()
 
     def commit(self) -> None:
+        if self._connection is None:
+            raise RuntimeError("D1 不支持 commit()；多语句原子写必须使用 Connection.batch()")
         self._connection.commit()
 
     def rollback(self) -> None:
+        if self._connection is None:
+            raise RuntimeError("D1 不支持 rollback()；多语句原子写必须使用 Connection.batch()")
         self._connection.rollback()
 
     def close(self) -> None:
-        self._connection.close()
+        if self._connection is not None:
+            self._connection.close()
 
     def __enter__(self) -> "Connection":
         return self
 
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
         try:
-            if exc_type is None:
-                self.commit()
-            else:
-                self.rollback()
+            if self._connection is not None:
+                if exc_type is None:
+                    self._connection.commit()
+                else:
+                    self._connection.rollback()
         finally:
             self.close()
 
@@ -281,7 +410,20 @@ def _initialize_database(database_path: Path) -> None:
 
 
 def get_db_connection() -> Connection:
-    """返回已启用外键、WAL 与自动初始化的 SQLite 连接。"""
+    """返回配置的数据库连接。
+
+    D1 生产路径不会创建本地文件、执行 WAL/busy_timeout 或运行 schema
+    初始化；schema 由后续独立的 D1 migration 流程管理。
+    """
+
+    if settings.database_backend == "d1":
+        return Connection(adapter=D1GatewayAdapter(
+            settings.d1_gateway_url,
+            settings.d1_gateway_hmac_secret,
+            settings.d1_request_timeout_seconds,
+        ))
+    if settings.database_backend != "sqlite":
+        raise RuntimeError(f"不支持的 DATABASE_BACKEND: {settings.database_backend!r}")
 
     database_path = get_database_path()
     _initialize_database(database_path)

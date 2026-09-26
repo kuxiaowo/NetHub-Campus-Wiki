@@ -6,6 +6,7 @@ from pathlib import PurePosixPath
 from urllib.parse import quote, unquote, urlsplit
 
 from backend.config import settings
+from backend.media_storage import LocalMediaStorage, get_media_storage, is_video_path
 
 
 # Documents and archives intentionally stay outside this allowlist. They are
@@ -88,6 +89,15 @@ def public_media_url(value: str | None) -> str | None:
     relative = local_public_path(raw_value)
     if relative is None or PurePosixPath(relative).suffix.casefold() not in PUBLIC_MEDIA_EXTENSIONS:
         return raw_value
+
+    if not is_video_path(relative):
+        try:
+            storage = get_media_storage()
+            cloud_url = None if isinstance(storage, LocalMediaStorage) else storage.public_url(relative)
+        except Exception:
+            cloud_url = None
+        if cloud_url:
+            return cloud_url
 
     media_base = _configured_media_base()
     if not media_base:

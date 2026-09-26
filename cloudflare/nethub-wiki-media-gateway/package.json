@@ -1,0 +1,12 @@
+{
+  "name": "nethub-wiki-media-gateway",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check": "wrangler deploy --dry-run --outdir .worker-build"
+  },
+  "devDependencies": {
+    "wrangler": "4.135.0"
+  }
+}

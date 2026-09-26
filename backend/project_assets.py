@@ -10,6 +10,7 @@ from typing import Any
 
 from backend.config import PROJECT_ROOT
 from backend.media import public_media_url
+from backend.media_storage import LocalMediaStorage, MediaStorageError, get_media_storage
 
 
 PUBLIC_DIR = PROJECT_ROOT / "public"
@@ -65,8 +66,18 @@ def normalize_asset_dir(value: Any, *, require_exists: bool = False) -> str:
     target = (public_root / Path(*path.parts)).resolve()
     if cas_root not in target.parents:
         raise ProjectAssetError("项目资源目录必须位于 public/CAS 下")
-    if require_exists and (not target.exists() or not target.is_dir()):
-        raise ProjectAssetError("项目资源目录不存在")
+    if require_exists:
+        storage = get_media_storage()
+        if isinstance(storage, LocalMediaStorage):
+            if not target.exists() or not target.is_dir():
+                raise ProjectAssetError("项目资源目录不存在")
+        else:
+            try:
+                page = storage.list_directory(path.as_posix(), limit=1, images=True)
+            except MediaStorageError as exc:
+                raise ProjectAssetError(str(exc)) from exc
+            if not page.objects:
+                raise ProjectAssetError("项目资源目录不存在或为空")
     return f"/{path.as_posix().rstrip('/')}/"
 
 
@@ -110,12 +121,23 @@ def normalize_relative_image_path(
     if relative.suffix.lower() not in IMAGE_SUFFIXES:
         raise ProjectAssetError("动态图片格式不支持")
 
-    root = asset_dir_path(normalized_dir, require_exists=require_exists)
+    root = asset_dir_path(normalized_dir, require_exists=False)
     target = (root / Path(*relative.parts)).resolve()
     if root not in target.parents:
         raise ProjectAssetError("动态图片路径不能离开项目资源目录")
-    if require_exists and (not target.exists() or not target.is_file()):
-        raise ProjectAssetError(f"动态图片不存在：{relative.as_posix()}")
+    if require_exists:
+        storage = get_media_storage()
+        if isinstance(storage, LocalMediaStorage):
+            if not target.exists() or not target.is_file():
+                raise ProjectAssetError(f"动态图片不存在：{relative.as_posix()}")
+        else:
+            logical = f"{normalized_dir.strip('/')}/{relative.as_posix()}"
+            try:
+                exists = storage.head(logical)
+            except MediaStorageError as exc:
+                raise ProjectAssetError(str(exc)) from exc
+            if not exists:
+                raise ProjectAssetError(f"动态图片不存在：{relative.as_posix()}")
     return relative.as_posix()
 
 
@@ -138,9 +160,11 @@ def project_icon_url(asset_dir: Any, legacy_icon: Any = None) -> str | None:
     if asset_dir:
         try:
             normalized_dir = normalize_asset_dir(asset_dir)
+            storage = get_media_storage()
             root = asset_dir_path(normalized_dir)
             for filename in ICON_FILENAMES:
-                if (root / filename).is_file():
+                exists = (root / filename).is_file() if isinstance(storage, LocalMediaStorage) else storage.head(f"{normalized_dir.strip('/')}/{filename}")
+                if exists:
                     local_url = f"{normalized_dir}{filename}"
                     return public_media_url(local_url) or local_url
         except ProjectAssetError:
