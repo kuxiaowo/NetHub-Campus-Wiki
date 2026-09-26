@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlsplit
 
 from authlib.jose import JsonWebKey, jwt
@@ -100,6 +100,25 @@ class AccountsOidcTest(unittest.TestCase):
         self.assertEqual(consumed["nonce"], query["nonce"][0])
         with self.assertRaises(OidcClientError):
             _consume_attempt(state, state)
+
+    def test_d1_login_attempt_is_consumed_without_returning(self) -> None:
+        state = "test-state"
+        attempt = {"return_to": "https://wiki.example.test/", "expires_at": int(time.time()) + 60}
+        connection = MagicMock()
+        connection._adapter = object()
+        connection.batch.return_value = [
+            {"rows": [attempt], "meta": {"changes": 0}},
+            {"rows": [], "meta": {"changes": 1}},
+        ]
+        connection.__enter__.return_value = connection
+        with patch("backend.oidc_client.get_db_connection", return_value=connection):
+            self.assertEqual(_consume_attempt(state, state), attempt)
+        statements = connection.batch.call_args.args[0]
+        self.assertEqual(len(statements), 2)
+        self.assertTrue(statements[0][0].strip().startswith("SELECT *"))
+        self.assertTrue(statements[1][0].strip().startswith("DELETE FROM"))
+        self.assertNotIn("RETURNING", statements[1][0])
+        self.assertEqual(statements[0][1], statements[1][1])
 
     def test_sub_creates_one_local_member_without_later_profile_sync(self) -> None:
         with patch("backend.auth.settings", self.fake_settings):

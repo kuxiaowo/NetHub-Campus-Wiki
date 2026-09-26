@@ -198,12 +198,23 @@ def _consume_attempt(state: str, cookie_state: str) -> dict[str, Any]:
         raise OidcClientError("登录 state 校验失败，请重新发起登录")
     now = int(time.time())
     with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                "DELETE FROM oidc_login_attempts WHERE state_hash = %s RETURNING *",
-                (_digest(state),),
-            )
-            attempt = cursor.fetchone()
+        state_hash = _digest(state)
+        if conn._adapter is not None:
+            results = conn.batch([
+                ("SELECT * FROM oidc_login_attempts WHERE state_hash = %s", (state_hash,)),
+                ("DELETE FROM oidc_login_attempts WHERE state_hash = %s", (state_hash,)),
+            ])
+            rows = results[0]["rows"]
+            attempt = rows[0] if rows else None
+            if attempt is not None and results[1]["meta"]["changes"] != 1:
+                raise OidcClientError("登录请求未能被安全消费，请重新发起登录")
+        else:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM oidc_login_attempts WHERE state_hash = %s RETURNING *",
+                    (state_hash,),
+                )
+                attempt = cursor.fetchone()
     if attempt is None or int(attempt["expires_at"]) <= now:
         raise OidcClientError("登录请求不存在或已过期，请重新发起登录")
     return attempt
