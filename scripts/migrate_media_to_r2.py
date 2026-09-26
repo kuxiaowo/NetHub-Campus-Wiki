@@ -30,6 +30,7 @@ from backend.media_storage import (  # noqa: E402
     IMAGE_SUFFIXES,
     VIDEO_SUFFIXES,
     MediaConflictError,
+    MediaObject,
     MediaStorageError,
     R2MediaStorage,
     build_image_thumbnail,
@@ -228,10 +229,11 @@ def migrate_object(
     digest: str,
     size: int,
     record: dict[str, Any],
+    remote_index: dict[str, MediaObject] | None = None,
 ) -> str:
     """Upload or accept an identical object; never replace an existing key."""
 
-    existing = storage.head_key(key)
+    existing = (remote_index or {}).get(key) or storage.head_key(key)
     if existing:
         if existing.size != size:
             raise MediaConflictError("云端同名对象大小不同，拒绝覆盖")
@@ -242,6 +244,25 @@ def migrate_object(
         verify_remote(storage, key, digest, size)
         record.update(status="verified", action="uploaded", etag=uploaded.etag)
     return str(record["action"])
+
+
+def prefetch_remote_index(storage: R2MediaStorage, keys: set[str]) -> dict[str, MediaObject]:
+    """Read verified Worker metadata in pages; missing keys still require HEAD."""
+
+    index: dict[str, MediaObject] = {}
+    for prefix in sorted({key.split("/", 1)[0] + "/" for key in keys}):
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        while True:
+            page = storage.list_key_prefix(prefix, cursor=cursor, limit=100)
+            index.update({item.key: item for item in page.objects})
+            if not page.has_more:
+                break
+            if not page.next_cursor or page.next_cursor in seen_cursors:
+                raise MediaStorageError("R2 分页游标无效", status_code=502, code="invalid_cursor")
+            seen_cursors.add(page.next_cursor)
+            cursor = page.next_cursor
+    return index
 
 
 def parse_args() -> argparse.Namespace:
@@ -256,6 +277,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--execute", action="store_true", help="实际上传；省略时仅 dry-run")
     parser.add_argument("--no-thumbnails", action="store_true", help="不为源图片生成缺失缩略图")
+    parser.add_argument("--prefetch-remote-index", action="store_true", help="分页读取 R2 对象元数据以减少逐项 HEAD 请求")
     return parser.parse_args()
 
 
@@ -317,6 +339,22 @@ def run(args: argparse.Namespace, public_root: Path, manifest_path: Path) -> int
             continue
         queue.append((source, key))
 
+    remote_index: dict[str, MediaObject] = {}
+    if args.execute and getattr(args, "prefetch_remote_index", False):
+        keys = {key for _, key in queue}
+        if not args.no_thumbnails:
+            for source, _ in queue:
+                if source.suffix.casefold() in IMAGE_SUFFIXES and ".thumbs" not in source.parts:
+                    logical = normalize_logical_path(source.relative_to(public_root).as_posix())
+                    keys.add(thumbnail_key_for_path(logical))
+        try:
+            assert storage is not None
+            remote_index = prefetch_remote_index(storage, keys)
+            print(f"R2 元数据清单：{len(remote_index)} 个对象", flush=True)
+        except (MediaStorageError, OSError) as exc:
+            print(f"WARN R2 清单读取失败，改用逐项 HEAD：{exc}", file=sys.stderr, flush=True)
+            remote_index = {}
+
     for source, key in queue:
         try:
             source = resolve_safe_source(source, public_root)
@@ -332,7 +370,7 @@ def run(args: argparse.Namespace, public_root: Path, manifest_path: Path) -> int
         if checkpoint_matches(checkpoint, key, digest, size) and args.execute:
             try:
                 assert storage is not None
-                existing = storage.head_key(key)
+                existing = remote_index.get(key) or storage.head_key(key)
                 if existing is not None:
                     if existing.size != size:
                         raise MediaConflictError("断点对象大小已变化，拒绝覆盖")
@@ -356,7 +394,7 @@ def run(args: argparse.Namespace, public_root: Path, manifest_path: Path) -> int
                 continue
             try:
                 assert storage is not None
-                action = migrate_object(storage, source, key, digest, size, record)
+                action = migrate_object(storage, source, key, digest, size, record, remote_index)
                 source_verified = True
                 print(f"OK {action} {relative}")
             except (MediaStorageError, OSError) as exc:
@@ -385,7 +423,7 @@ def run(args: argparse.Namespace, public_root: Path, manifest_path: Path) -> int
                     thumb_checkpoint, thumb_key, thumb_digest, thumb_size, source_digest=digest
                 ):
                     try:
-                        existing = storage.head_key(thumb_key)
+                        existing = remote_index.get(thumb_key) or storage.head_key(thumb_key)
                         if existing is not None:
                             if existing.size != thumb_size:
                                 raise MediaConflictError("断点缩略图大小已变化，拒绝覆盖")
@@ -417,7 +455,7 @@ def run(args: argparse.Namespace, public_root: Path, manifest_path: Path) -> int
                 thumb_size = thumbnail.stat().st_size
                 thumb_record.update(size=thumb_size, sha256=thumb_digest)
                 action = migrate_object(
-                    storage, thumbnail, thumb_key, thumb_digest, thumb_size, thumb_record
+                    storage, thumbnail, thumb_key, thumb_digest, thumb_size, thumb_record, remote_index
                 )
                 print(f"OK thumbnail {action} {relative}")
             except (MediaStorageError, OSError) as exc:

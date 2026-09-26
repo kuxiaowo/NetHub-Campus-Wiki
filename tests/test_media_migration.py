@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from PIL import Image
 
@@ -68,6 +68,40 @@ class ExistingObjectVerificationTest(unittest.TestCase):
                 migration.verify_existing_remote(FakeStorage({}), "CAS/example", digest, 7, "0" * 64)
         download.assert_not_called()
 
+
+class RemoteIndexTest(unittest.TestCase):
+    def test_paginated_verified_metadata_avoids_per_object_head(self) -> None:
+        payload = b"existing-photo"
+        digest = hashlib.sha256(payload).hexdigest()
+        key = "Photos/sample.jpg"
+        object_info = migration.MediaObject(key, len(payload), "etag", sha256=digest)
+        storage = SimpleNamespace(
+            list_key_prefix=Mock(side_effect=[
+                SimpleNamespace(objects=[object_info], has_more=True, next_cursor="next"),
+                SimpleNamespace(objects=[], has_more=False, next_cursor=None),
+            ]),
+            head_key=Mock(side_effect=AssertionError("HEAD should not be called")),
+        )
+        index = migration.prefetch_remote_index(storage, {key})
+        record: dict[str, object] = {}
+
+        with patch.object(migration, "verify_remote") as download:
+            action = migration.migrate_object(
+                storage, Path("unused"), key, digest, len(payload), record, index
+            )
+
+        self.assertEqual(action, "same-object-skip")
+        self.assertEqual(storage.list_key_prefix.call_count, 2)
+        self.assertEqual(storage.list_key_prefix.call_args_list[1].kwargs["cursor"], "next")
+        storage.head_key.assert_not_called()
+        download.assert_not_called()
+
+    def test_invalid_pagination_cursor_is_rejected(self) -> None:
+        storage = SimpleNamespace(list_key_prefix=Mock(return_value=SimpleNamespace(
+            objects=[], has_more=True, next_cursor=None,
+        )))
+        with self.assertRaises(migration.MediaStorageError):
+            migration.prefetch_remote_index(storage, {"Photos/sample.jpg"})
 
 class SafeDiscoveryTest(unittest.TestCase):
     def setUp(self) -> None:
