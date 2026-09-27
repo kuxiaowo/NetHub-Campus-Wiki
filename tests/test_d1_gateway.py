@@ -1,9 +1,12 @@
 import hashlib
 import hmac
 import json
+from contextlib import closing
+from pathlib import Path
+import tempfile
+import unittest
 from unittest.mock import Mock, patch
 
-import pytest
 from fastapi import HTTPException
 
 from backend.database import Connection, D1GatewayAdapter, D1GatewayError
@@ -139,11 +142,9 @@ class _SQLiteBackedGateway(D1GatewayAdapter):
             connection.close()
 
 
-@pytest.fixture
-def page_database(tmp_path):
-    path = tmp_path / "page-reads.db"
+def _create_page_database(path):
     database._initialize_database(path)
-    with database._open_connection(path) as connection:
+    with closing(database._open_connection(path)) as connection:
         connection.executescript("""
             INSERT INTO users (id, username, password_hash, display_name)
               VALUES (1, 'reader', 'test', 'Reader');
@@ -168,57 +169,62 @@ def page_database(tmp_path):
               VALUES (3, 'project', 1, 1, '', 'deleted'),
                      (4, 'project', 1, 1, 'Hidden', 'hidden');
         """)
-    return path
 
 
-def test_page_reads_match_sqlite_with_fewer_gateway_roundtrips(page_database, monkeypatch):
-    gateway = _SQLiteBackedGateway(page_database)
-    sqlite_factory = lambda: Connection(database._open_connection(page_database))
-    d1_factory = lambda: Connection(adapter=gateway)
-    calls = [
-        (projects, projects.list_meta, 1),
-        (projects, lambda: projects.get_project(1, track_view=False), 1),
-        (resources, resources.list_resource_meta, 1),
-        (resources, resources.list_photo_activities, 1),
-        (resources, lambda: resources.get_resource(1, track_view=False), 1),
-        (comments, lambda: comments.list_comments('project', 1, 'hot', 1, 10, None), 2),
-    ]
-    for module, call, expected_roundtrips in calls:
-        monkeypatch.setattr(module, 'get_db_connection', sqlite_factory)
-        expected = call()
-        monkeypatch.setattr(module, 'get_db_connection', d1_factory)
-        gateway.calls.clear()
-        assert call() == expected
-        assert len(gateway.calls) == expected_roundtrips
+class PageReadRoundtripTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.database_path = Path(temporary.name) / "page-reads.db"
+        _create_page_database(self.database_path)
+        self.gateway = _SQLiteBackedGateway(self.database_path)
 
-    monkeypatch.setattr(comments, 'get_db_connection', d1_factory)
-    gateway.calls.clear()
-    empty = comments.list_comments('resource', 1, 'hot', 1, 10, None)
-    assert empty['data'] == []
-    assert len(gateway.calls) == 1
-    with pytest.raises(HTTPException) as error:
-        comments.list_comments('project', 999, 'hot', 1, 10, None)
-    assert error.value.status_code == 404
+    def test_page_reads_match_sqlite_with_fewer_gateway_roundtrips(self):
+        sqlite_factory = lambda: Connection(database._open_connection(self.database_path))
+        d1_factory = lambda: Connection(adapter=self.gateway)
+        calls = [
+            (projects, projects.list_meta, 1),
+            (projects, lambda: projects.get_project(1, track_view=False), 1),
+            (resources, resources.list_resource_meta, 1),
+            (resources, resources.list_photo_activities, 1),
+            (resources, lambda: resources.get_resource(1, track_view=False), 1),
+            (comments, lambda: comments.list_comments('project', 1, 'hot', 1, 10, None), 2),
+        ]
+        for module, call, expected_roundtrips in calls:
+            with patch.object(module, 'get_db_connection', sqlite_factory):
+                expected = call()
+            with patch.object(module, 'get_db_connection', d1_factory):
+                self.gateway.calls.clear()
+                self.assertEqual(call(), expected)
+                self.assertEqual(len(self.gateway.calls), expected_roundtrips)
 
+        with patch.object(comments, 'get_db_connection', d1_factory):
+            self.gateway.calls.clear()
+            empty = comments.list_comments('resource', 1, 'hot', 1, 10, None)
+            self.assertEqual(empty['data'], [])
+            self.assertEqual(len(self.gateway.calls), 1)
+            with self.assertRaises(HTTPException) as error:
+                comments.list_comments('project', 999, 'hot', 1, 10, None)
+            self.assertEqual(error.exception.status_code, 404)
 
-def test_tracked_details_batch_write_and_read(page_database, monkeypatch):
-    gateway = _SQLiteBackedGateway(page_database)
-    monkeypatch.setattr(projects, 'get_db_connection', lambda: Connection(adapter=gateway))
-    monkeypatch.setattr(resources, 'get_db_connection', lambda: Connection(adapter=gateway))
+    def test_tracked_details_batch_write_and_read(self):
+        d1_factory = lambda: Connection(adapter=self.gateway)
+        with patch.object(projects, 'get_db_connection', d1_factory), patch.object(
+            resources, 'get_db_connection', d1_factory
+        ):
+            self.assertEqual(projects.get_project(1, track_view=True)['popularity'], 1)
+            self.assertEqual(len(self.gateway.calls), 1)
+            self.assertEqual(len(self.gateway.calls[0][1]), 3)
+            self.gateway.calls.clear()
+            self.assertEqual(resources.get_resource(1, track_view=True)['hot'], 1)
+            self.assertEqual(len(self.gateway.calls), 1)
+            self.assertEqual(len(self.gateway.calls[0][1]), 2)
 
-    assert projects.get_project(1, track_view=True)['popularity'] == 1
-    assert len(gateway.calls) == 1
-    assert len(gateway.calls[0][1]) == 3
-    gateway.calls.clear()
-    assert resources.get_resource(1, track_view=True)['hot'] == 1
-    assert len(gateway.calls) == 1
-    assert len(gateway.calls[0][1]) == 2
+            self.gateway.calls.clear()
+            activity = resources.get_activity_photo_detail(1, track_view=True)
+            self.assertEqual(activity['activity']['hot'], 1)
+            self.assertEqual(len(self.gateway.calls[0][1]), 2)
 
-    gateway.calls.clear()
-    activity = resources.get_activity_photo_detail(1, track_view=True)
-    assert activity['activity']['hot'] == 1
-    assert len(gateway.calls[0][1]) == 2
-
-    gateway.calls.clear()
-    assert projects.get_project(999, track_view=True) is None
-    assert len(gateway.calls) == 1
+            self.gateway.calls.clear()
+            self.assertIsNone(projects.get_project(999, track_view=True))
+            self.assertEqual(len(self.gateway.calls), 1)
