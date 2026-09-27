@@ -86,6 +86,17 @@ class FrontendServerTest(unittest.TestCase):
         self.assertIn(b"http://127.0.0.1:33100/api", body)
         self.assertIn(b"https://auth.nethub.wiki", body)
 
+    def test_production_static_cache_keeps_html_and_runtime_config_fresh(self) -> None:
+        with patch.dict(os.environ, {"WIKI_STATIC_CACHE_SECONDS": "300"}):
+            for path, expected in (
+                ("/js/api.js", "public, max-age=300"),
+                ("/css/styles.css", "public, max-age=300"),
+                ("/index.html", "no-store, max-age=0"),
+                ("/js/config.js", "no-store, max-age=0"),
+            ):
+                with urlopen(f"http://127.0.0.1:{self.port}{path}", timeout=3) as response:
+                    self.assertEqual(response.headers.get_all("Cache-Control"), [expected])
+
     def test_oidc_frontend_does_not_expose_session_credentials(self) -> None:
         _, shared_script, _ = self.fetch("/js/api.js")
         _, admin_page, _ = self.fetch("/admin.html")

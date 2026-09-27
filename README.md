@@ -106,7 +106,7 @@ systemd 用户服务默认在用户登录后运行。如果还需要“服务器
 所有需要随部署调整的运行参数都列在 `.env.example`，包括：
 
 - 初始化：`CONDA_ENV_NAME`、`PYTHON_VERSION`、`SYSTEMD_SERVICE_PREFIX`；
-- 服务：`API_HOST`、`API_PORT`、`API_RELOAD`、`FRONTEND_HOST`、`FRONTEND_PORT`；
+- 服务：`API_HOST`、`API_PORT`、`API_RELOAD`、`FRONTEND_HOST`、`FRONTEND_PORT`、`WIKI_STATIC_CACHE_SECONDS`；
 - 浏览器访问：`FRONTEND_API_BASE_URL`、`PUBLIC_MEDIA_BASE_URL`、`CORS_ORIGINS`；
 - SQLite：`DATABASE_PATH`、连接超时和 busy timeout；
 - 认证：Accounts Issuer/客户端信息、精确回调地址、Cookie 和本地会话有效期；
@@ -117,6 +117,8 @@ systemd 用户服务默认在用户登录后运行。如果还需要“服务器
 文件扩展名和导入格式版本属于程序/安全契约，不作为部署开关。
 
 `FRONTEND_HOST=0.0.0.0` 使前端监听所有网卡。`FRONTEND_API_BASE_URL` 是浏览器实际请求的后端 API 前缀，必须包含 `/api`，例如 `https://api.example.com/api`。使用 `frontend_server.py` 启动前端时，`/js/config.js` 会动态生成；如果不填写，API 地址会自动使用当前页面的主机名和 `API_PORT`，因此从其他设备通过局域网 IP 打开时无需再改 API 地址。
+
+`WIKI_STATIC_CACHE_SECONDS` 默认是 `0`，方便本地开发立即看到静态文件改动。生产环境可设为 `300`，让浏览器缓存 CSS、JS、图标等文件五分钟；HTML、运行时 `/js/config.js`、错误响应和视频仍不缓存。部署静态文件更新时，应保持页面资源 URL 中的版本参数同步更新。
 
 `PUBLIC_MEDIA_BASE_URL` 是后端公开图片和视频的浏览器访问前缀。分机部署时应设置为后端地址，例如 `https://api.example.com/media`。FastAPI 会直接从后端的 `public/` 目录发送这些媒体文件，相关接口也会返回该前缀下的绝对 URL。PDF、压缩包和 Office 文档不会通过 `/media` 公开，仍使用 `/api/files` 完成登录鉴权下载。
 

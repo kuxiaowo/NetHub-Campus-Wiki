@@ -23,6 +23,7 @@ PROTECTED_STATIC_EXTENSIONS = {
     ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
 }
 RANGE_COPY_CHUNK_SIZE = 64 * 1024
+CACHEABLE_STATIC_EXTENSIONS = {".css", ".js", ".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico", ".woff", ".woff2"}
 
 load_dotenv(BASE_DIR / ".env")
 
@@ -116,7 +117,6 @@ class FrontendHandler(SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/javascript; charset=utf-8")
             self.send_header("Content-Length", str(len(encoded_body)))
-            self.send_header("Cache-Control", "no-store, max-age=0")
             self.end_headers()
             self.wfile.write(encoded_body)
             return
@@ -189,11 +189,24 @@ class FrontendHandler(SimpleHTTPRequestHandler):
             remaining -= len(chunk)
 
     def end_headers(self):  # noqa: N802 - inherited method name from stdlib.
-        # 开发阶段避免浏览器缓存旧 HTML/JS/CSS，方便前端改动立即生效。
         if self._advertise_byte_ranges:
             self.send_header("Accept-Ranges", "bytes")
-        self.send_header("Cache-Control", "no-store, max-age=0")
+        path = urlsplit(self.path).path
+        cache_seconds = int(os.getenv("WIKI_STATIC_CACHE_SECONDS", "0"))
+        if (
+            cache_seconds > 0
+            and self._response_status in (HTTPStatus.OK, HTTPStatus.PARTIAL_CONTENT)
+            and path != "/js/config.js"
+            and Path(path).suffix.casefold() in CACHEABLE_STATIC_EXTENSIONS
+        ):
+            self.send_header("Cache-Control", f"public, max-age={cache_seconds}")
+        else:
+            self.send_header("Cache-Control", "no-store, max-age=0")
         super().end_headers()
+
+    def send_response(self, code, message=None):
+        self._response_status = code
+        return super().send_response(code, message)
 
 
 if __name__ == "__main__":
