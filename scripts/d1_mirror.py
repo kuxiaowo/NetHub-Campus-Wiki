@@ -19,7 +19,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 VERSION = 1
@@ -372,11 +372,7 @@ def status(db: sqlite3.Connection) -> dict:
     if row[2]:
         oldest_seconds = max(
             0,
-            int(
-                (
-                    datetime.now(UTC) - datetime.fromisoformat(row[2].replace("Z", "+00:00"))
-                ).total_seconds()
-            ),
+            int(time.time() - datetime.fromisoformat(row[2].replace("Z", "+00:00")).timestamp()),
         )
     return {
         "local_seq": clock,
