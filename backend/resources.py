@@ -592,6 +592,7 @@ def list_resources(
     year: int | None = None,
     search: str | None = None,
     sort: ResourceSort = "hot",
+    limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """按筛选条件查询资源列表。
 
@@ -621,6 +622,9 @@ def list_resources(
     }
     where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
     sql = f"SELECT * FROM resources {where_sql} ORDER BY {order_map[sort]}, id DESC"
+    if limit is not None:
+        sql += " LIMIT %s"
+        params.append(limit)
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
@@ -634,6 +638,7 @@ def list_photo_activities(
     year: int | None = None,
     search: str | None = None,
     sort: PhotoSort = "hot",
+    limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """查询活动照片活动列表，不加载完整照片数组。"""
 
@@ -686,6 +691,9 @@ def list_photo_activities(
           first_pi.id, first_pi.title, first_pi.image_url, first_pi.sort_order
         ORDER BY {order_map[sort]}, pa.id DESC
     """
+    if limit is not None:
+        sql += " LIMIT %s"
+        params.append(limit)
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:

@@ -229,6 +229,21 @@ class PageReadRoundtripTest(unittest.TestCase):
             self.assertEqual(projects.list_projects(sort='popular', limit=2), expected)
             self.assertEqual(len(self.gateway.calls), 1)
 
+    def test_popular_resource_limits_match_sqlite_and_use_one_gateway_call(self):
+        sqlite_factory = lambda: Connection(database._open_connection(self.database_path))
+        d1_factory = lambda: Connection(adapter=self.gateway)
+        calls = [
+            (resources, lambda: resources.list_resources(sort='hot', limit=1)),
+            (resources, lambda: resources.list_photo_activities(sort='hot', limit=1)),
+        ]
+        for module, call in calls:
+            with patch.object(module, 'get_db_connection', sqlite_factory):
+                expected = call()
+            with patch.object(module, 'get_db_connection', d1_factory):
+                self.gateway.calls.clear()
+                self.assertEqual(call(), expected)
+                self.assertEqual(len(self.gateway.calls), 1)
+
     def test_tracked_details_batch_write_and_read(self):
         d1_factory = lambda: Connection(adapter=self.gateway)
         with patch.object(projects, 'get_db_connection', d1_factory), patch.object(
