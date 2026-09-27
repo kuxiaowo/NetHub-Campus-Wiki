@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import re
 import secrets
+import threading
+import time
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -27,6 +29,9 @@ ICON_FILENAMES = (
     "icon.avif",
     "icon.gif",
 )
+_ICON_CACHE_TTL_SECONDS = 300
+_icon_cache: dict[str, tuple[float, str | None]] = {}
+_icon_cache_lock = threading.Lock()
 
 
 class ProjectAssetError(ValueError):
@@ -162,14 +167,38 @@ def project_icon_url(asset_dir: Any, legacy_icon: Any = None) -> str | None:
             normalized_dir = normalize_asset_dir(asset_dir)
             storage = get_media_storage()
             root = asset_dir_path(normalized_dir)
-            for filename in ICON_FILENAMES:
-                exists = (root / filename).is_file() if isinstance(storage, LocalMediaStorage) else storage.head(f"{normalized_dir.strip('/')}/{filename}")
-                if exists:
-                    local_url = f"{normalized_dir}{filename}"
-                    return public_media_url(local_url) or local_url
+            if isinstance(storage, LocalMediaStorage):
+                filename = next((name for name in ICON_FILENAMES if (root / name).is_file()), None)
+            else:
+                with _icon_cache_lock:
+                    cached = _icon_cache.get(normalized_dir)
+                if cached is not None and time.monotonic() - cached[0] < _ICON_CACHE_TTL_SECONDS:
+                    filename = cached[1]
+                else:
+                    filename = next(
+                        (name for name in ICON_FILENAMES if storage.head(f"{normalized_dir.strip('/')}/{name}")),
+                        None,
+                    )
+                    with _icon_cache_lock:
+                        if len(_icon_cache) >= 256:
+                            oldest = min(_icon_cache, key=lambda key: _icon_cache[key][0])
+                            _icon_cache.pop(oldest, None)
+                        _icon_cache[normalized_dir] = (time.monotonic(), filename)
+            if filename:
+                local_url = f"{normalized_dir}{filename}"
+                return public_media_url(local_url) or local_url
         except ProjectAssetError:
             pass
     return public_media_url(str(legacy_icon or "").strip())
+
+
+def invalidate_project_icon_cache(logical_path: str) -> None:
+    """Refresh a project's cached icon after an admin uploads an icon file."""
+    parts = PurePosixPath(logical_path.strip("/")).parts
+    if len(parts) != 3 or parts[0] != "CAS" or parts[2] not in ICON_FILENAMES:
+        return
+    with _icon_cache_lock:
+        _icon_cache.pop(f"/{parts[0]}/{parts[1]}/", None)
 
 
 def parse_updates(value: Any) -> list[Any]:

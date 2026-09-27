@@ -51,6 +51,7 @@ from backend.projects import (
 from backend.project_assets import (
     IMAGE_SUFFIXES as PROJECT_IMAGE_SUFFIXES,
     ProjectAssetError,
+    invalidate_project_icon_cache,
     new_update_id,
     normalize_asset_dir,
     normalize_project_updates,
@@ -277,6 +278,7 @@ def _put_media_with_thumbnail(logical_path: str, source: Path, content_type: str
         raise
     finally:
         thumbnail.unlink(missing_ok=True)
+    invalidate_project_icon_cache(logical_path)
 
 
 def _storage_http_error(error: MediaStorageError) -> HTTPException:
