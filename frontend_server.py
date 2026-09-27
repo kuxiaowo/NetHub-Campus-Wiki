@@ -9,10 +9,13 @@
 
 import os
 import json
+from http.cookies import SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from http import HTTPStatus
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
+from urllib.request import Request, urlopen
+from urllib.error import URLError
 
 from dotenv import load_dotenv
 
@@ -192,6 +195,22 @@ class FrontendHandler(SimpleHTTPRequestHandler):
         if self._advertise_byte_ranges:
             self.send_header("Accept-Ranges", "bytes")
         path = urlsplit(self.path).path
+        if path in {"/", "/index.html"} or path.endswith(".html"):
+            try:
+                cookie = SimpleCookie(self.headers.get("Cookie", ""))
+                session = cookie.get("campus_wiki_session")
+                if session:
+                    port = os.getenv("API_PORT", os.getenv("PORT", "3100"))
+                    lookup = Request(
+                        f"http://127.0.0.1:{port}/api/auth/analytics-sub",
+                        headers={"Cookie": f"campus_wiki_session={session.value}"},
+                    )
+                    with urlopen(lookup, timeout=0.5) as result:
+                        sub = result.headers.get("X-Nethub-User-Sub", "")
+                    if sub:
+                        self.send_header("X-Nethub-User-Sub", sub)
+            except (URLError, OSError, ValueError):
+                pass
         cache_seconds = int(os.getenv("WIKI_STATIC_CACHE_SECONDS", "0"))
         if (
             cache_seconds > 0
