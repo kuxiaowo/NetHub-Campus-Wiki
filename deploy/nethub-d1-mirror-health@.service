@@ -1,0 +1,14 @@
+[Unit]
+Description=Check NetHub %i D1 mirror lag
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=nethub
+Group=nethub
+EnvironmentFile=/srv/nethub/secrets/%i.production.env
+WorkingDirectory=/srv/nethub/apps/%i/current
+ExecStart=/srv/nethub/venvs/%i/bin/python /srv/nethub/apps/%i/current/scripts/d1_mirror.py health --site %i --db /srv/nethub/data/databases/%i.sqlite3 --max-age-seconds 120 --max-pending 10000
+NoNewPrivileges=true
+ProtectSystem=strict
