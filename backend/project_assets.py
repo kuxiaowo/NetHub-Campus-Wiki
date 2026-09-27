@@ -175,8 +175,17 @@ def project_icon_url(asset_dir: Any, legacy_icon: Any = None) -> str | None:
                 if cached is not None and time.monotonic() - cached[0] < _ICON_CACHE_TTL_SECONDS:
                     filename = cached[1]
                 else:
+                    icon_prefix = f"{normalized_dir.strip('/')}/icon."
+                    found = set()
+                    cursor = None
+                    while True:
+                        page = storage.list_key_prefix(icon_prefix, cursor=cursor, limit=100)
+                        found.update(item.key for item in page.objects)
+                        if not page.has_more or not page.next_cursor:
+                            break
+                        cursor = page.next_cursor
                     filename = next(
-                        (name for name in ICON_FILENAMES if storage.head(f"{normalized_dir.strip('/')}/{name}")),
+                        (name for name in ICON_FILENAMES if f"{normalized_dir.strip('/')}/{name}" in found),
                         None,
                     )
                     with _icon_cache_lock:
