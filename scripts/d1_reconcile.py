@@ -210,6 +210,11 @@ def reconcile(snapshot: Path, gateway: d1_mirror.Gateway, site: str, apply: bool
         if site == "todo":
             for table in ("operation_logs", "installer_download_logs"):
                 gateway.request([(f"UPDATE {d1_mirror.quote(table)} SET ip='' WHERE ip<>''", [])])
+                remaining = gateway.request(
+                    [(f"SELECT COUNT(*) AS n FROM {d1_mirror.quote(table)} WHERE ip<>''", [])]
+                )[0]["rows"][0]["n"]
+                if remaining:
+                    raise RuntimeError(f"{table}: old D1 IP values remain")
         _, _, after = differences(db, gateway, order)
         if any(any(count for count in row.values()) for row in after.values()):
             raise RuntimeError("D1 baseline verification failed")

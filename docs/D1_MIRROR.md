@@ -63,6 +63,9 @@ transactions roll back all statements when one fails.
 
 The worker uses current row images, so counters are set to their committed
 value rather than incremented again. Failed events stay at the queue head.
+Rows from one local multi-table transaction are delivered in order but may be
+visible in D1 one row at a time while the worker catches up. D1 must not serve
+reads or be used for failover during this stage.
 HTTP failures, schema mismatches, and oversized events are visible in
 `_sync_outbox.attempts` and `last_error_code`. The health service fails when
 the oldest pending event exceeds 120 seconds or the queue exceeds 10,000.

@@ -242,6 +242,49 @@ class MirrorTests(unittest.TestCase):
         self.assertEqual(d1_mirror.status(local)["pending"], 1)
         local.close()
 
+    def test_todo_baseline_clears_retired_ip_values(self):
+        root = Path(self.temp.name)
+        local_path = root / "todo-local.sqlite3"
+        remote_path = root / "todo-d1.sqlite3"
+        local = sqlite3.connect(local_path)
+        local.executescript(
+            """
+            CREATE TABLE operation_logs(id INTEGER PRIMARY KEY, action TEXT NOT NULL);
+            CREATE TABLE installer_download_logs(id INTEGER PRIMARY KEY, action TEXT NOT NULL);
+            INSERT INTO operation_logs VALUES(1,'edit');
+            INSERT INTO installer_download_logs VALUES(1,'download');
+            """
+        )
+        local.close()
+        remote = sqlite3.connect(remote_path)
+        remote.executescript(
+            """
+            CREATE TABLE operation_logs(
+                id INTEGER PRIMARY KEY, action TEXT NOT NULL, ip TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE installer_download_logs(
+                id INTEGER PRIMARY KEY, action TEXT NOT NULL, ip TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE visit_logs(id INTEGER PRIMARY KEY);
+            CREATE TABLE registration_attempt_logs(id INTEGER PRIMARY KEY);
+            INSERT INTO operation_logs VALUES(1,'edit','old-value');
+            INSERT INTO installer_download_logs VALUES(1,'download','old-value');
+            """
+            + D1_META
+        )
+        remote.close()
+        d1_mirror.install(local_path)
+        snapshot_path = root / "todo-snapshot.sqlite3"
+        d1_mirror.snapshot(local_path, snapshot_path)
+        gateway = LocalGateway(remote_path)
+        try:
+            result = d1_reconcile.reconcile(snapshot_path, gateway, "todo", apply=True)
+            self.assertTrue(result["applied"])
+            for table in ("operation_logs", "installer_download_logs"):
+                self.assertEqual(gateway.db.execute(f"SELECT ip FROM {table}").fetchone()[0], "")
+        finally:
+            gateway.db.close()
+
 
 if __name__ == "__main__":
     unittest.main()
