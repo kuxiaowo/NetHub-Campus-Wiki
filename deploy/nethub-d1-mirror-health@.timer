@@ -1,0 +1,10 @@
+[Unit]
+Description=Check NetHub %i D1 mirror every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+Unit=nethub-d1-mirror-health@%i.service
+
+[Install]
+WantedBy=timers.target

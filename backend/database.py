@@ -249,6 +249,7 @@ def _open_connection(database_path: Path) -> sqlite3.Connection:
     connection.row_factory = _dict_row_factory
     connection.execute("PRAGMA foreign_keys = ON")
     connection.execute("PRAGMA journal_mode = WAL")
+    connection.execute("PRAGMA synchronous = FULL")
     connection.execute(f"PRAGMA busy_timeout = {settings.database_busy_timeout_ms}")
     connection.execute("PRAGMA recursive_triggers = OFF")
     return connection
