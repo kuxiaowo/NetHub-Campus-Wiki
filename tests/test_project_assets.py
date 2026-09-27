@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import sqlite3
 import unittest
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -41,6 +42,31 @@ class ProjectAssetStorageTest(unittest.TestCase):
         )
         updates = [{"id": "a" * 32, "content": "测试", "images": ["activities/one.jpg"]}]
         self.assertEqual(public_updates(updates, asset_dir)[0]["images"], [f"{asset_dir}activities/one.jpg"])
+
+    def test_r2_icon_lookup_is_cached_and_upload_invalidates_it(self) -> None:
+        from backend.project_assets import invalidate_project_icon_cache, project_icon_url
+
+        class FakeR2:
+            def __init__(self):
+                self.objects = {"CAS/__cached_icon_test__/icon.png"}
+                self.head_calls = []
+
+            def head(self, path):
+                self.head_calls.append(path)
+                return object() if path in self.objects else None
+
+        storage = FakeR2()
+        asset_dir = "/CAS/__cached_icon_test__/"
+        with patch("backend.project_assets.get_media_storage", return_value=storage):
+            self.assertTrue(project_icon_url(asset_dir).endswith("/icon.png"))
+            self.assertEqual(len(storage.head_calls), 2)
+            self.assertTrue(project_icon_url(asset_dir).endswith("/icon.png"))
+            self.assertEqual(len(storage.head_calls), 2)
+
+            storage.objects.add("CAS/__cached_icon_test__/icon.webp")
+            invalidate_project_icon_cache("CAS/__cached_icon_test__/icon.webp")
+            self.assertTrue(project_icon_url(asset_dir).endswith("/icon.webp"))
+            self.assertEqual(len(storage.head_calls), 3)
 
     def test_paths_cannot_escape_cas_project_directory(self) -> None:
         from backend.project_assets import ProjectAssetError, normalize_asset_dir, normalize_relative_image_path
