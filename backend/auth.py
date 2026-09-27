@@ -373,6 +373,25 @@ def get_current_user_from_token(token: str) -> dict[str, Any]:
     return user
 
 
+def analytics_subject_from_token(token: str) -> str:
+    """Read a valid Accounts subject without extending the Wiki session."""
+    if not token:
+        return ""
+    now = int(time.time())
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """SELECT COALESCE(NULLIF(s.auth_sub,''), u.auth_sub) AS auth_sub
+                   FROM auth_sessions s JOIN users u ON u.id=s.user_id
+                   WHERE s.token_hash=%s AND s.revoked_at IS NULL
+                   AND s.idle_expires_at>%s AND s.absolute_expires_at>%s
+                   AND u.is_active=TRUE LIMIT 1""",
+                (_token_digest(token), now, now),
+            )
+            row = cursor.fetchone()
+    return str(row.get("auth_sub") or "") if row else ""
+
+
 def revoke_session(token: str) -> None:
     if not token:
         return
@@ -495,6 +514,7 @@ def get_current_user(
     user = format_user(row)
     if not user["isActive"]:
         raise HTTPException(status_code=403, detail="账号已被禁用")
+    request.state.analytics_user_sub = row.get("session_auth_sub") or row.get("auth_sub")
     return user
 
 
@@ -510,4 +530,5 @@ def get_optional_current_user(
     row = _session_record(token)
     if row is None or not row.get("is_active"):
         return None
+    request.state.analytics_user_sub = row.get("session_auth_sub") or row.get("auth_sub")
     return format_user(row)

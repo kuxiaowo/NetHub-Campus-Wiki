@@ -40,6 +40,7 @@ from backend.auth import (
     change_user_password,
     create_access_token,
     create_session,
+    analytics_subject_from_token,
     create_user,
     get_current_user,
     get_current_user_from_token,
@@ -166,6 +167,13 @@ async def cookie_session_security(request: Request, call_next):
         if origin not in settings.cors_origins:
             return HTMLResponse("CSRF origin validation failed", status_code=403)
     response = await call_next(request)
+    sub = getattr(request.state, "analytics_user_sub", None)
+    if (not sub and request.cookies.get(SESSION_COOKIE_NAME)
+            and request.url.path != "/api/auth/analytics-sub"):
+        user = get_optional_current_user(request, None)
+        sub = getattr(request.state, "analytics_user_sub", None) if user else None
+    if sub:
+        response.headers["X-Nethub-User-Sub"] = str(sub)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "same-origin")
@@ -307,6 +315,16 @@ def current_user(user: dict = Depends(get_current_user)):
     """Return the local member bound to the current HttpOnly session."""
 
     return user
+
+
+@app.get("/api/auth/analytics-sub", include_in_schema=False)
+def analytics_subject(request: Request):
+    sub = analytics_subject_from_token(request.cookies.get(SESSION_COOKIE_NAME, ""))
+    response = Response(status_code=204)
+    if sub:
+        response.headers["X-Nethub-User-Sub"] = sub
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.patch("/api/auth/me", response_model=User, tags=["auth"])
