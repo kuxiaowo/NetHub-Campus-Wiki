@@ -19,9 +19,8 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-
 
 VERSION = 1
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -67,7 +66,9 @@ def _json_object(prefix: str, names: list[str]) -> str:
     pieces = []
     for name in names:
         field = f"{prefix}.{quote(name)}"
-        pieces.extend((f"'{name}'", f"CASE WHEN typeof({field})='blob' THEN hex({field}) ELSE {field} END"))
+        pieces.extend(
+            (f"'{name}'", f"CASE WHEN typeof({field})='blob' THEN hex({field}) ELSE {field} END")
+        )
     return "json_object(" + ",".join(pieces) + ")"
 
 
@@ -78,7 +79,9 @@ def _types_object(prefix: str, names: list[str]) -> str:
     return "json_object(" + ",".join(pieces) + ")"
 
 
-def _trigger_sql(table: str, operation: str, names: list[str], pk: list[str], schema_hash: str) -> str:
+def _trigger_sql(
+    table: str, operation: str, names: list[str], pk: list[str], schema_hash: str
+) -> str:
     suffix = {"INSERT": "ai", "UPDATE": "au", "DELETE": "ad"}[operation]
     trigger = f"_sync_{table}_{suffix}"
     current = "OLD" if operation == "DELETE" else "NEW"
@@ -100,7 +103,9 @@ def expected_triggers(db: sqlite3.Connection) -> dict[str, str]:
     for table in tables(db):
         names, pk, schema_hash = columns(db, table)
         for operation, suffix in (("INSERT", "ai"), ("UPDATE", "au"), ("DELETE", "ad")):
-            result[f"_sync_{table}_{suffix}"] = _trigger_sql(table, operation, names, pk, schema_hash)
+            result[f"_sync_{table}_{suffix}"] = _trigger_sql(
+                table, operation, names, pk, schema_hash
+            )
     return result
 
 
@@ -117,7 +122,10 @@ def install(path: Path) -> None:
     db = connect(path, write=True)
     try:
         db.execute("BEGIN IMMEDIATE")
-        db.execute("CREATE TABLE IF NOT EXISTS _sync_clock (id INTEGER PRIMARY KEY CHECK(id=1), seq INTEGER NOT NULL)")
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS _sync_clock "
+            "(id INTEGER PRIMARY KEY CHECK(id=1), seq INTEGER NOT NULL)"
+        )
         db.execute("INSERT OR IGNORE INTO _sync_clock(id,seq) VALUES(1,0)")
         db.execute("""CREATE TABLE IF NOT EXISTS _sync_outbox (
             seq INTEGER PRIMARY KEY, event_id TEXT NOT NULL UNIQUE,
@@ -136,14 +144,18 @@ def install(path: Path) -> None:
         expected = expected_triggers(db)
         actual = {
             row[0]: row[1]
-            for row in db.execute("SELECT name,sql FROM sqlite_master WHERE type='trigger' AND name GLOB '_sync_*'")
+            for row in db.execute(
+                "SELECT name,sql FROM sqlite_master WHERE type='trigger' AND name GLOB '_sync_*'"
+            )
         }
         if actual and set(actual) != set(expected):
-            raise RuntimeError("capture trigger set differs from current schema; migration required")
+            raise RuntimeError(
+                "capture trigger set differs from current schema; migration required"
+            )
         for name, statement in expected.items():
             if name not in actual:
                 db.execute(statement)
-            elif "'" + columns(db, name[len("_sync_"):-3])[2] + "'" not in actual[name]:
+            elif "'" + columns(db, name[len("_sync_") : -3])[2] + "'" not in actual[name]:
                 raise RuntimeError(f"{name}: schema changed after capture installation")
         db.execute("COMMIT")
     except BaseException:
@@ -157,12 +169,14 @@ def verify_capture(db: sqlite3.Connection) -> None:
     expected = expected_triggers(db)
     actual = {
         row[0]: row[1]
-        for row in db.execute("SELECT name,sql FROM sqlite_master WHERE type='trigger' AND name GLOB '_sync_*'")
+        for row in db.execute(
+            "SELECT name,sql FROM sqlite_master WHERE type='trigger' AND name GLOB '_sync_*'"
+        )
     }
     if set(actual) != set(expected):
         raise RuntimeError("capture triggers missing or schema changed")
     for name, sql in actual.items():
-        table = name[len("_sync_"):-3]
+        table = name[len("_sync_") : -3]
         if "'" + columns(db, table)[2] + "'" not in sql:
             raise RuntimeError(f"{name}: captured schema differs from current table")
 
@@ -200,7 +214,8 @@ class Gateway:
         rid = str(uuid.uuid4())
         timestamp = int(time.time())
         payload = {
-            "requestId": rid, "timestamp": timestamp,
+            "requestId": rid,
+            "timestamp": timestamp,
             "mode": "single" if len(statements) == 1 else "batch",
             "statements": [{"sql": sql, "params": params} for sql, params in statements],
         }
@@ -211,7 +226,9 @@ class Gateway:
         message = f"v1\nPOST\n/internal/db\n{rid}\n{timestamp}\n{digest}".encode()
         signature = hmac.new(self.secret, message, hashlib.sha256).hexdigest()
         request = urllib.request.Request(
-            self.url, raw, method="POST",
+            self.url,
+            raw,
+            method="POST",
             headers={
                 "Content-Type": "application/json",
                 "User-Agent": "NetHub-D1-Client/1.0",
@@ -229,15 +246,31 @@ class Gateway:
 
 
 def event_hash(event: sqlite3.Row) -> str:
-    fields = ["seq", "event_id", "table_name", "operation", "pk_json", "old_pk_json", "row_json", "types_json", "schema_hash"]
-    return hashlib.sha256(json.dumps([event[field] for field in fields], separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+    fields = [
+        "seq",
+        "event_id",
+        "table_name",
+        "operation",
+        "pk_json",
+        "old_pk_json",
+        "row_json",
+        "types_json",
+        "schema_hash",
+    ]
+    return hashlib.sha256(
+        json.dumps(
+            [event[field] for field in fields], separators=(",", ":"), ensure_ascii=False
+        ).encode()
+    ).hexdigest()
 
 
 def _predicate(pk: dict, *, prefix: str = "") -> tuple[str, list]:
     return " AND ".join(f"{prefix}{quote(name)} IS ?" for name in pk), list(pk.values())
 
 
-def event_statements(event: sqlite3.Row, schema: dict[str, tuple[list[str], list[str], str]]) -> list[tuple[str, list]]:
+def event_statements(
+    event: sqlite3.Row, schema: dict[str, tuple[list[str], list[str], str]]
+) -> list[tuple[str, list]]:
     seq = event["seq"]
     table = event["table_name"]
     if table not in schema or schema[table][2] != event["schema_hash"]:
@@ -246,13 +279,18 @@ def event_statements(event: sqlite3.Row, schema: dict[str, tuple[list[str], list
     pk = json.loads(event["pk_json"])
     if list(pk) != pk_names:
         raise RuntimeError("invalid primary key payload")
-    gate = "(SELECT seq FROM _sync_watermark WHERE id=1)=? AND NOT EXISTS (SELECT 1 FROM _sync_events WHERE seq=?)"
+    gate = (
+        "(SELECT seq FROM _sync_watermark WHERE id=1)=? "
+        "AND NOT EXISTS (SELECT 1 FROM _sync_events WHERE seq=?)"
+    )
     result = []
     old_pk = json.loads(event["old_pk_json"]) if event["old_pk_json"] else None
     if event["operation"] == "delete" or (old_pk is not None and old_pk != pk):
         target = old_pk if old_pk is not None and event["operation"] != "delete" else pk
         where, values = _predicate(target)
-        result.append((f"DELETE FROM {quote(table)} WHERE {where} AND {gate}", values + [seq - 1, seq]))
+        result.append(
+            (f"DELETE FROM {quote(table)} WHERE {where} AND {gate}", values + [seq - 1, seq])
+        )
     if event["operation"] in ("insert", "update"):
         row = json.loads(event["row_json"])
         types = json.loads(event["types_json"])
@@ -261,12 +299,16 @@ def event_statements(event: sqlite3.Row, schema: dict[str, tuple[list[str], list
         if any(value == "blob" for value in types.values()):
             raise RuntimeError("binary row requires gateway BLOB support")
         values = [row[name] for name in names]
-        if any(value is not None and not isinstance(value, (str, int, float, bool)) for value in values):
+        if any(
+            value is not None and not isinstance(value, (str, int, float, bool)) for value in values
+        ):
             raise RuntimeError("invalid row value")
         updates = [name for name in names if name not in pk_names]
         conflict = (
-            " DO UPDATE SET " + ",".join(f"{quote(name)}=excluded.{quote(name)}" for name in updates)
-            if updates else " DO NOTHING"
+            " DO UPDATE SET "
+            + ",".join(f"{quote(name)}=excluded.{quote(name)}" for name in updates)
+            if updates
+            else " DO NOTHING"
         )
         sql = (
             f"INSERT INTO {quote(table)} ({','.join(map(quote, names))}) "
@@ -277,17 +319,21 @@ def event_statements(event: sqlite3.Row, schema: dict[str, tuple[list[str], list
     if not result:
         raise RuntimeError("unsupported outbox operation")
     digest = event_hash(event)
-    result.append((
-        "INSERT INTO _sync_events(seq,event_id,payload_hash) "
-        "SELECT ?,?,? WHERE (SELECT seq FROM _sync_watermark WHERE id=1)=? "
-        "AND NOT EXISTS (SELECT 1 FROM _sync_events WHERE seq=?)",
-        [seq, event["event_id"], digest, seq - 1, seq],
-    ))
-    result.append((
-        "UPDATE _sync_watermark SET seq=? WHERE id=1 AND seq=? "
-        "AND EXISTS (SELECT 1 FROM _sync_events WHERE seq=? AND event_id=? AND payload_hash=?)",
-        [seq, seq - 1, seq, event["event_id"], digest],
-    ))
+    result.append(
+        (
+            "INSERT INTO _sync_events(seq,event_id,payload_hash) "
+            "SELECT ?,?,? WHERE (SELECT seq FROM _sync_watermark WHERE id=1)=? "
+            "AND NOT EXISTS (SELECT 1 FROM _sync_events WHERE seq=?)",
+            [seq, event["event_id"], digest, seq - 1, seq],
+        )
+    )
+    result.append(
+        (
+            "UPDATE _sync_watermark SET seq=? WHERE id=1 AND seq=? "
+            "AND EXISTS (SELECT 1 FROM _sync_events WHERE seq=? AND event_id=? AND payload_hash=?)",
+            [seq, seq - 1, seq, event["event_id"], digest],
+        )
+    )
     result.append(("SELECT event_id,payload_hash FROM _sync_events WHERE seq=?", [seq]))
     if len(result) > 100 or any(len(sql) > 10_000 or len(params) > 100 for sql, params in result):
         raise RuntimeError("event exceeds D1 gateway statement limits")
@@ -303,7 +349,9 @@ def deliver(db: sqlite3.Connection, gateway: Gateway, event: sqlite3.Row, schema
     db.execute("BEGIN IMMEDIATE")
     try:
         db.execute(
-            "UPDATE _sync_outbox SET acked_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_error_code=NULL WHERE seq=? AND acked_at IS NULL",
+            "UPDATE _sync_outbox "
+            "SET acked_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_error_code=NULL "
+            "WHERE seq=? AND acked_at IS NULL",
             (seq,),
         )
         db.execute("COMMIT")
@@ -317,40 +365,63 @@ def status(db: sqlite3.Connection) -> dict:
     control = db.execute("SELECT ready,baseline_seq FROM _sync_control WHERE id=1").fetchone()
     row = db.execute(
         "SELECT COUNT(*), MIN(seq), MIN(captured_at), COALESCE(SUM(attempts),0) "
-        "FROM _sync_outbox WHERE seq>? AND acked_at IS NULL", (control["baseline_seq"],)
+        "FROM _sync_outbox WHERE seq>? AND acked_at IS NULL",
+        (control["baseline_seq"],),
     ).fetchone()
     oldest_seconds = None
     if row[2]:
-        oldest_seconds = max(0, int((datetime.now(timezone.utc) - datetime.fromisoformat(row[2].replace("Z", "+00:00"))).total_seconds()))
-    return {"local_seq": clock, "ready": bool(control["ready"]), "baseline_seq": control["baseline_seq"],
-            "pending": row[0], "oldest_pending_seq": row[1], "oldest_wait_seconds": oldest_seconds, "failure_attempts": row[3]}
+        oldest_seconds = max(
+            0,
+            int(
+                (
+                    datetime.now(UTC) - datetime.fromisoformat(row[2].replace("Z", "+00:00"))
+                ).total_seconds()
+            ),
+        )
+    return {
+        "local_seq": clock,
+        "ready": bool(control["ready"]),
+        "baseline_seq": control["baseline_seq"],
+        "pending": row[0],
+        "oldest_pending_seq": row[1],
+        "oldest_wait_seconds": oldest_seconds,
+        "failure_attempts": row[3],
+    }
 
 
-def worker(path: Path, gateway: Gateway, once: bool, poll_seconds: float, until_seq: int | None = None) -> None:
+def worker(
+    path: Path, gateway: Gateway, once: bool, poll_seconds: float, until_seq: int | None = None
+) -> None:
     db = connect(path, write=True)
     try:
         verify_capture(db)
         schema = {table: columns(db, table) for table in tables(db)}
         backoff = 1.0
         while True:
-            control = db.execute("SELECT ready,baseline_seq FROM _sync_control WHERE id=1").fetchone()
+            control = db.execute(
+                "SELECT ready,baseline_seq FROM _sync_control WHERE id=1"
+            ).fetchone()
             if not control["ready"]:
                 raise RuntimeError("baseline not reconciled; delivery is disarmed")
             if until_seq is not None:
                 if until_seq < control["baseline_seq"]:
                     raise ValueError("stop sequence precedes baseline")
                 event = db.execute(
-                    "SELECT * FROM _sync_outbox WHERE seq>? AND seq<=? AND acked_at IS NULL ORDER BY seq LIMIT 1",
+                    "SELECT * FROM _sync_outbox WHERE seq>? AND seq<=? "
+                    "AND acked_at IS NULL ORDER BY seq LIMIT 1",
                     (control["baseline_seq"], until_seq),
                 ).fetchone()
             else:
                 event = db.execute(
-                    "SELECT * FROM _sync_outbox WHERE seq>? AND acked_at IS NULL ORDER BY seq LIMIT 1",
+                    "SELECT * FROM _sync_outbox WHERE seq>? "
+                    "AND acked_at IS NULL ORDER BY seq LIMIT 1",
                     (control["baseline_seq"],),
                 ).fetchone()
             if event is None:
                 if until_seq is not None:
-                    remote = gateway.request([("SELECT seq FROM _sync_watermark WHERE id=1", [])])[0]["rows"]
+                    remote = gateway.request([("SELECT seq FROM _sync_watermark WHERE id=1", [])])[
+                        0
+                    ]["rows"]
                     if len(remote) != 1 or remote[0]["seq"] != until_seq:
                         raise RuntimeError("D1 watermark did not reach requested stop sequence")
                 if once or until_seq is not None:
@@ -360,12 +431,25 @@ def worker(path: Path, gateway: Gateway, once: bool, poll_seconds: float, until_
             try:
                 deliver(db, gateway, event, schema)
                 backoff = 1.0
-            except (RuntimeError, ValueError, urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+            except (
+                RuntimeError,
+                ValueError,
+                urllib.error.HTTPError,
+                urllib.error.URLError,
+                TimeoutError,
+            ) as exc:
                 code = type(exc).__name__
                 if isinstance(exc, urllib.error.HTTPError):
                     code += "_" + str(exc.code)
-                db.execute("UPDATE _sync_outbox SET attempts=attempts+1,last_error_code=? WHERE seq=?", (code, event["seq"]))
-                print(f"D1 delivery blocked: seq={event['seq']} code={code}", file=sys.stderr, flush=True)
+                db.execute(
+                    "UPDATE _sync_outbox SET attempts=attempts+1,last_error_code=? WHERE seq=?",
+                    (code, event["seq"]),
+                )
+                print(
+                    f"D1 delivery blocked: seq={event['seq']} code={code}",
+                    file=sys.stderr,
+                    flush=True,
+                )
                 if once:
                     raise RuntimeError("D1 delivery blocked") from None
                 time.sleep(backoff)
@@ -376,7 +460,9 @@ def worker(path: Path, gateway: Gateway, once: bool, poll_seconds: float, until_
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("install", "verify", "snapshot", "status", "health", "arm", "worker"))
+    parser.add_argument(
+        "command", choices=("install", "verify", "snapshot", "status", "health", "arm", "worker")
+    )
     parser.add_argument("--db", type=Path, required=True)
     parser.add_argument("--snapshot", type=Path)
     parser.add_argument("--baseline-seq", type=int)
@@ -407,15 +493,20 @@ def main() -> None:
                 if not args.url_env or not args.secret_env:
                     parser.error("health requires --site or gateway environment variable names")
                 gateway = Gateway(os.environ[args.url_env], os.environ[args.secret_env])
-                remote = gateway.request([("SELECT seq FROM _sync_watermark WHERE id=1", [])])[0]["rows"]
+                remote = gateway.request([("SELECT seq FROM _sync_watermark WHERE id=1", [])])[0][
+                    "rows"
+                ]
                 if len(remote) != 1:
                     raise RuntimeError("D1 watermark missing")
                 state["d1_seq"] = remote[0]["seq"]
                 state["lag_sequences"] = state["local_seq"] - state["d1_seq"]
-                healthy = (state["ready"] and state["lag_sequences"] >= 0
-                           and state["pending"] <= args.max_pending
-                           and (state["oldest_wait_seconds"] or 0) <= args.max_age_seconds
-                           and (state["pending"] > 0 or state["lag_sequences"] == 0))
+                healthy = (
+                    state["ready"]
+                    and state["lag_sequences"] >= 0
+                    and state["pending"] <= args.max_pending
+                    and (state["oldest_wait_seconds"] or 0) <= args.max_age_seconds
+                    and (state["pending"] > 0 or state["lag_sequences"] == 0)
+                )
                 state["healthy"] = healthy
                 print(json.dumps(state, sort_keys=True))
                 if not healthy:
@@ -432,13 +523,17 @@ def main() -> None:
         snapshot_db = connect(args.snapshot)
         try:
             verify_capture(snapshot_db)
-            snapshot_seq = snapshot_db.execute("SELECT seq FROM _sync_clock WHERE id=1").fetchone()[0]
+            snapshot_seq = snapshot_db.execute("SELECT seq FROM _sync_clock WHERE id=1").fetchone()[
+                0
+            ]
             if snapshot_seq != args.baseline_seq:
                 raise RuntimeError("snapshot sequence differs from requested baseline")
         finally:
             snapshot_db.close()
         gateway = Gateway(os.environ[args.url_env], os.environ[args.secret_env])
-        remote_rows = gateway.request([("SELECT seq FROM _sync_watermark WHERE id=1", [])])[0]["rows"]
+        remote_rows = gateway.request([("SELECT seq FROM _sync_watermark WHERE id=1", [])])[0][
+            "rows"
+        ]
         if len(remote_rows) != 1 or remote_rows[0]["seq"] != args.baseline_seq:
             raise RuntimeError("D1 has not confirmed the baseline watermark")
         db = connect(args.db, write=True)
@@ -457,7 +552,8 @@ def main() -> None:
                     raise RuntimeError("capture already armed")
                 db.execute(
                     "UPDATE _sync_outbox SET acked_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') "
-                    "WHERE seq<=? AND acked_at IS NULL", (args.baseline_seq,),
+                    "WHERE seq<=? AND acked_at IS NULL",
+                    (args.baseline_seq,),
                 )
                 db.execute("COMMIT")
             except BaseException:

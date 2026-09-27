@@ -10,7 +10,6 @@ from urllib.error import URLError
 
 from scripts import d1_mirror, d1_reconcile
 
-
 D1_META = """
 CREATE TABLE _sync_events (
   seq INTEGER PRIMARY KEY, event_id TEXT NOT NULL UNIQUE,
@@ -37,7 +36,9 @@ class LocalGateway:
             results = []
             for sql, params in statements:
                 cursor = self.db.execute(sql, params)
-                results.append({"rows": [dict(row) for row in cursor.fetchall()] if cursor.description else []})
+                results.append(
+                    {"rows": [dict(row) for row in cursor.fetchall()] if cursor.description else []}
+                )
             self.db.execute("COMMIT")
         except BaseException:
             self.db.execute("ROLLBACK")
@@ -58,14 +59,25 @@ class MirrorTests(unittest.TestCase):
         db.executescript("""
             PRAGMA foreign_keys=ON;
             CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT NOT NULL);
-            CREATE TABLE views(id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, count INTEGER NOT NULL);
+            CREATE TABLE views(
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                count INTEGER NOT NULL
+            );
         """)
         db.close()
         remote = sqlite3.connect(self.remote)
-        remote.executescript("""
+        remote.executescript(
+            """
             CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT NOT NULL);
-            CREATE TABLE views(id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, count INTEGER NOT NULL);
-        """ + D1_META)
+            CREATE TABLE views(
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                count INTEGER NOT NULL
+            );
+        """
+            + D1_META
+        )
         remote.close()
         d1_mirror.install(self.local)
         self.gateway = LocalGateway(self.remote)
@@ -81,7 +93,9 @@ class MirrorTests(unittest.TestCase):
 
     def _event(self):
         db = d1_mirror.connect(self.local)
-        event = db.execute("SELECT * FROM _sync_outbox WHERE acked_at IS NULL ORDER BY seq LIMIT 1").fetchone()
+        event = db.execute(
+            "SELECT * FROM _sync_outbox WHERE acked_at IS NULL ORDER BY seq LIMIT 1"
+        ).fetchone()
         db.close()
         return event
 
@@ -101,7 +115,9 @@ class MirrorTests(unittest.TestCase):
         self._arm()
         d1_mirror.worker(self.local, self.gateway, once=True, poll_seconds=0)
         self.assertEqual(self.gateway.db.execute("SELECT count FROM views").fetchone()[0], 1)
-        self.assertEqual(self.gateway.db.execute("SELECT seq FROM _sync_watermark").fetchone()[0], 3)
+        self.assertEqual(
+            self.gateway.db.execute("SELECT seq FROM _sync_watermark").fetchone()[0], 3
+        )
         db = d1_mirror.connect(self.local)
         self.assertEqual(d1_mirror.status(db)["pending"], 0)
         db.close()
@@ -116,7 +132,9 @@ class MirrorTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             d1_mirror.worker(self.local, self.gateway, once=True, poll_seconds=0)
         self.assertEqual(self.gateway.db.execute("SELECT count(*) FROM users").fetchone()[0], 1)
-        self.assertEqual(self.gateway.db.execute("SELECT count(*) FROM _sync_events").fetchone()[0], 1)
+        self.assertEqual(
+            self.gateway.db.execute("SELECT count(*) FROM _sync_events").fetchone()[0], 1
+        )
         d1_mirror.worker(self.local, self.gateway, once=True, poll_seconds=0)
         self.assertEqual(self.gateway.db.execute("SELECT count(*) FROM users").fetchone()[0], 1)
         db = d1_mirror.connect(self.local)
@@ -141,7 +159,9 @@ class MirrorTests(unittest.TestCase):
         db.close()
         d1_mirror.worker(self.local, self.gateway, once=True, poll_seconds=0)
         self.assertEqual(self.gateway.db.execute("SELECT count(*) FROM users").fetchone()[0], 0)
-        self.assertEqual(self.gateway.db.execute("SELECT seq FROM _sync_watermark").fetchone()[0], 2)
+        self.assertEqual(
+            self.gateway.db.execute("SELECT seq FROM _sync_watermark").fetchone()[0], 2
+        )
 
     def test_cascaded_delete_and_primary_key_change(self):
         db = sqlite3.connect(self.local)
@@ -186,13 +206,19 @@ class MirrorTests(unittest.TestCase):
         db.close()
         result = d1_reconcile.reconcile(snapshot_path, self.gateway, "accounts", apply=True)
         self.assertTrue(result["applied"])
-        self.assertEqual(self.gateway.db.execute("SELECT name FROM users").fetchone()[0], "at snapshot")
+        self.assertEqual(
+            self.gateway.db.execute("SELECT name FROM users").fetchone()[0], "at snapshot"
+        )
         local = d1_mirror.connect(self.local, write=True)
         local.execute("UPDATE _sync_control SET ready=1,baseline_seq=? WHERE id=1", (seq,))
         local.close()
         d1_mirror.worker(self.local, self.gateway, once=True, poll_seconds=0)
-        self.assertEqual(self.gateway.db.execute("SELECT name FROM users").fetchone()[0], "after snapshot")
-        self.assertEqual(self.gateway.db.execute("SELECT seq FROM _sync_watermark").fetchone()[0], 2)
+        self.assertEqual(
+            self.gateway.db.execute("SELECT name FROM users").fetchone()[0], "after snapshot"
+        )
+        self.assertEqual(
+            self.gateway.db.execute("SELECT seq FROM _sync_watermark").fetchone()[0], 2
+        )
 
     def test_bounded_replay_stops_at_snapshot_watermark(self):
         db = sqlite3.connect(self.local)
@@ -208,7 +234,9 @@ class MirrorTests(unittest.TestCase):
         self._arm()
         d1_mirror.worker(self.local, self.gateway, once=False, poll_seconds=0, until_seq=2)
         self.assertEqual(self.gateway.db.execute("SELECT name FROM users").fetchone()[0], "second")
-        self.assertEqual(self.gateway.db.execute("SELECT seq FROM _sync_watermark").fetchone()[0], 2)
+        self.assertEqual(
+            self.gateway.db.execute("SELECT seq FROM _sync_watermark").fetchone()[0], 2
+        )
         self.assertTrue(d1_reconcile.verify(snapshot_path, self.gateway, "accounts")["matches"])
         local = d1_mirror.connect(self.local)
         self.assertEqual(d1_mirror.status(local)["pending"], 1)
