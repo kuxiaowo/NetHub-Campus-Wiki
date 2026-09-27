@@ -38,8 +38,7 @@ async function loadResourceDetail() {
   }
   const media = isTeacherVideo
     ? `<div class="resource-detail-video-frame">
-        <video id="resourceDetailVideo" class="resource-detail-video" controls preload="metadata" playsinline ${image && image !== '#' ? `poster="${escapeHtml(image)}"` : ''} aria-label="${escapeHtml(resource.title)}">
-          <source src="${videoUrl}">
+        <video id="resourceDetailVideo" class="resource-detail-video" controls preload="auto" playsinline src="${escapeHtml(videoUrl)}" ${image && image !== '#' ? `poster="${escapeHtml(image)}"` : ''} aria-label="${escapeHtml(resource.title)}">
           您的浏览器不支持 HTML5 视频。
         </video>
         <a id="resourceDetailVideoFallback" class="resource-video-fallback is-hidden" href="${videoUrl}" target="_blank" rel="noopener noreferrer">无法播放？打开视频</a>
@@ -61,8 +60,17 @@ async function loadResourceDetail() {
   resourceDetail.classList.toggle('is-video-resource', isTeacherVideo);
   const detailVideo = document.querySelector('#resourceDetailVideo');
   const detailVideoFallback = document.querySelector('#resourceDetailVideoFallback');
+  let videoLoadRetried = false;
   const showVideoFallback = () => detailVideoFallback?.classList.remove('is-hidden');
-  detailVideo?.addEventListener('error', showVideoFallback);
+  detailVideo?.addEventListener('error', () => {
+    if (!videoLoadRetried) {
+      videoLoadRetried = true;
+      detailVideo.preload = 'auto';
+      detailVideo.load();
+      return;
+    }
+    showVideoFallback();
+  });
   if (detailVideo?.error) showVideoFallback();
   const openFile = document.querySelector('#openResourceFile');
   openFile?.addEventListener('click', (event) => {
