@@ -160,30 +160,28 @@ def list_comments(
     select_fields, select_params = _select_fields(viewer_id)
     order_by = "like_count DESC, c.created_at DESC, c.id DESC" if sort == "hot" else "c.created_at DESC, c.id DESC"
     offset = (page - 1) * page_size
+    table = TARGET_TABLES.get(target_type)
+    if table is None:
+        raise HTTPException(status_code=422, detail="留言目标类型无效")
+    target_extra = (
+        " AND status = 'published' AND published_at <= CURRENT_TIMESTAMP"
+        if target_type == "announcement" else ""
+    )
     with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            _validate_target(cursor, target_type, target_id)
-            cursor.execute(
+        target_result, counts_result, roots_result = conn.batch([
+            (f"SELECT id FROM {table} WHERE id = %s{target_extra} LIMIT 1", (target_id,)),
+            (
                 """
-                SELECT COUNT(*) AS total
+                SELECT
+                  COUNT(CASE WHEN status = 'visible' THEN 1 END) AS total,
+                  COUNT(CASE WHEN parent_id IS NULL AND status <> 'hidden'
+                    THEN 1 END) AS root_total
                 FROM comments
                 WHERE target_type = %s AND target_id = %s
-                  AND status = 'visible'
                 """,
                 (target_type, target_id),
-            )
-            total = cursor.fetchone()["total"]
-            cursor.execute(
-                """
-                SELECT COUNT(*) AS total
-                FROM comments
-                WHERE target_type = %s AND target_id = %s
-                  AND parent_id IS NULL AND status <> 'hidden'
-                """,
-                (target_type, target_id),
-            )
-            root_total = cursor.fetchone()["total"]
-            cursor.execute(
+            ),
+            (
                 f"""
                 SELECT {select_fields},
                   (
@@ -201,11 +199,17 @@ def list_comments(
                 LIMIT %s OFFSET %s
                 """,
                 [*select_params, target_type, target_id, page_size, offset],
-            )
-            roots = cursor.fetchall()
-            root_ids = [row["id"] for row in roots]
-            replies_by_root: dict[int, list[dict[str, Any]]] = {root_id: [] for root_id in root_ids}
-            if root_ids:
+            ),
+        ])
+        if not target_result["rows"]:
+            raise HTTPException(status_code=404, detail="留言目标不存在")
+        counts = counts_result["rows"][0]
+        total, root_total = counts["total"], counts["root_total"]
+        roots = roots_result["rows"]
+        root_ids = [row["id"] for row in roots]
+        replies_by_root: dict[int, list[dict[str, Any]]] = {root_id: [] for root_id in root_ids}
+        if root_ids:
+            with conn.cursor() as cursor:
                 placeholders = ", ".join(["%s"] * len(root_ids))
                 reply_fields, reply_params = _select_fields(viewer_id)
                 cursor.execute(

@@ -101,37 +101,33 @@ def split_member_names(leader: str, members: str) -> list[str]:
     return result
 
 
-def list_project_members(project_id: int) -> list[dict[str, Any]]:
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT
-                  pm.person_id,
-                  pm.display_name_snapshot,
-                  pm.role,
-                  pm.sort_order,
-                  pm.contact_type,
-                  pm.contact_value,
-                  p.avatar_url AS person_avatar_url,
-                  p.user_id,
-                  u.username,
-                  u.display_name,
-                  u.avatar_url AS user_avatar_url,
-                  u.auth_sub AS user_auth_sub,
-                  u.is_active
-                FROM project_members pm
-                JOIN people p ON p.id = pm.person_id
-                LEFT JOIN users u ON u.id = p.user_id
-                WHERE pm.project_id = %s
-                ORDER BY
-                  CASE pm.role WHEN 'leader' THEN 0 ELSE 1 END,
-                  pm.sort_order ASC,
-                  pm.person_id ASC
-                """,
-                (project_id,),
-            )
-            rows = cursor.fetchall()
+_PROJECT_MEMBERS_SQL = """
+    SELECT
+      pm.person_id,
+      pm.display_name_snapshot,
+      pm.role,
+      pm.sort_order,
+      pm.contact_type,
+      pm.contact_value,
+      p.avatar_url AS person_avatar_url,
+      p.user_id,
+      u.username,
+      u.display_name,
+      u.avatar_url AS user_avatar_url,
+      u.auth_sub AS user_auth_sub,
+      u.is_active
+    FROM project_members pm
+    JOIN people p ON p.id = pm.person_id
+    LEFT JOIN users u ON u.id = p.user_id
+    WHERE pm.project_id = %s
+    ORDER BY
+      CASE pm.role WHEN 'leader' THEN 0 ELSE 1 END,
+      pm.sort_order ASC,
+      pm.person_id ASC
+"""
+
+
+def _format_project_members(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         {
             "personId": row["person_id"],
@@ -148,6 +144,13 @@ def list_project_members(project_id: int) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+def list_project_members(project_id: int) -> list[dict[str, Any]]:
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(_PROJECT_MEMBERS_SQL, (project_id,))
+            return _format_project_members(cursor.fetchall())
 
 
 def project_update_publisher(
@@ -512,21 +515,22 @@ def list_meta() -> dict[str, list[str] | list[int]]:
     """查询项目分类和年份，用于项目库筛选器。"""
 
     with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
+        categories_result, years_result = conn.batch([
+            (
                 """
                 SELECT name
                 FROM project_categories
                 WHERE is_active = 1
                 ORDER BY sort_order ASC, id ASC
-                """
-            )
-            categories = [row["name"] for row in cursor.fetchall()]
+                """, (),
+            ),
+            ("SELECT DISTINCT year FROM projects ORDER BY year DESC", ()),
+        ])
 
-            cursor.execute("SELECT DISTINCT year FROM projects ORDER BY year DESC")
-            years = [row["year"] for row in cursor.fetchall()]
-
-    return {"categories": categories, "years": years}
+    return {
+        "categories": [row["name"] for row in categories_result["rows"]],
+        "years": [row["year"] for row in years_result["rows"]],
+    }
 
 
 def list_projects(
@@ -576,16 +580,17 @@ def get_project(
 ) -> dict[str, Any] | None:
     """按 ID 查询单个项目，并可累计公开详情浏览热度。"""
 
+    should_track = track_view and can_track_view("project", project_id, viewer_user_id)
+    statements = []
+    if should_track:
+        statements.append(("UPDATE projects SET popularity = popularity + 1 WHERE id = %s", (project_id,)))
+    statements.extend([
+        ("SELECT * FROM projects WHERE id = %s LIMIT 1", (project_id,)),
+        (_PROJECT_MEMBERS_SQL, (project_id,)),
+    ])
     with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            if track_view and can_track_view("project", project_id, viewer_user_id):
-                cursor.execute(
-                    "UPDATE projects SET popularity = popularity + 1 WHERE id = %s",
-                    (project_id,),
-                )
-                if cursor.rowcount:
-                    mark_view_tracked("project", project_id, viewer_user_id)
-            cursor.execute("SELECT * FROM projects WHERE id = %s LIMIT 1", (project_id,))
-            row = cursor.fetchone()
-
-    return None if row is None else format_project(row, list_project_members(project_id))
+        results = conn.batch(statements)
+    if should_track and results[0]["meta"]["changes"]:
+        mark_view_tracked("project", project_id, viewer_user_id)
+    row = results[-2]["rows"]
+    return None if not row else format_project(row[0], _format_project_members(results[-1]["rows"]))
