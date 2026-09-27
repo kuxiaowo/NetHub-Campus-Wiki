@@ -421,6 +421,28 @@ def format_resource(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _resource_row(
+    resource_id: int,
+    *,
+    track_view: bool = False,
+    viewer_user_id: int | None = None,
+) -> dict[str, Any] | None:
+    """Read a resource, batching a view increment with the following read."""
+    should_track = track_view and can_track_view("resource", resource_id, viewer_user_id)
+    with get_db_connection() as conn:
+        if should_track:
+            updated, selected = conn.batch([
+                ("UPDATE resources SET hot = hot + 1 WHERE id = %s", (resource_id,)),
+                ("SELECT * FROM resources WHERE id = %s LIMIT 1", (resource_id,)),
+            ])
+            if updated["meta"]["changes"]:
+                mark_view_tracked("resource", resource_id, viewer_user_id)
+            return selected["rows"][0] if selected["rows"] else None
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM resources WHERE id = %s LIMIT 1", (resource_id,))
+            return cursor.fetchone()
+
+
 def get_resource(
     resource_id: int,
     *,
@@ -429,14 +451,7 @@ def get_resource(
 ) -> dict[str, Any] | None:
     """读取单个普通资源，并可按前台浏览行为自动累计热度。"""
 
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            if track_view and can_track_view("resource", resource_id, viewer_user_id):
-                cursor.execute("UPDATE resources SET hot = hot + 1 WHERE id = %s", (resource_id,))
-                if cursor.rowcount:
-                    mark_view_tracked("resource", resource_id, viewer_user_id)
-            cursor.execute("SELECT * FROM resources WHERE id = %s LIMIT 1", (resource_id,))
-            row = cursor.fetchone()
+    row = _resource_row(resource_id, track_view=track_view, viewer_user_id=viewer_user_id)
     return format_resource(row) if row else None
 
 
@@ -486,14 +501,7 @@ def get_yearbook_detail(
 ) -> dict[str, Any]:
     """Return the scanned image pages and first PDF for a yearbook resource directory."""
 
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            if track_view and can_track_view("resource", resource_id, viewer_user_id):
-                cursor.execute("UPDATE resources SET hot = hot + 1 WHERE id = %s", (resource_id,))
-                if cursor.rowcount:
-                    mark_view_tracked("resource", resource_id, viewer_user_id)
-            cursor.execute("SELECT * FROM resources WHERE id = %s LIMIT 1", (resource_id,))
-            row = cursor.fetchone()
+    row = _resource_row(resource_id, track_view=track_view, viewer_user_id=viewer_user_id)
 
     if row is None:
         raise YearbookResourceError("资源不存在", status_code=404)
@@ -567,14 +575,16 @@ def list_resource_meta() -> dict[str, list[dict[str, Any]] | list[int]]:
     """Return fixed resource types and the years currently present in data."""
 
     with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT DISTINCT year FROM resources ORDER BY year DESC")
-            years = [row["year"] for row in cursor.fetchall()]
+        resources_result, photos_result = conn.batch([
+            ("SELECT DISTINCT year FROM resources ORDER BY year DESC", ()),
+            ("SELECT DISTINCT year FROM photo_activities ORDER BY year DESC", ()),
+        ])
 
-            cursor.execute("SELECT DISTINCT year FROM photo_activities ORDER BY year DESC")
-            photo_years = [row["year"] for row in cursor.fetchall()]
-
-    return {"categories": resource_type_options(), "years": years, "photoYears": photo_years}
+    return {
+        "categories": resource_type_options(),
+        "years": [row["year"] for row in resources_result["rows"]],
+        "photoYears": [row["year"] for row in photos_result["rows"]],
+    }
 
 
 def list_resources(
@@ -658,11 +668,22 @@ def list_photo_activities(
           pa.photo_dir,
           pa.cover_image,
           pa.created_at,
-          COUNT(pi.id) AS photo_count
+          COUNT(pi.id) AS photo_count,
+          first_pi.id AS first_photo_id,
+          first_pi.title AS first_photo_title,
+          first_pi.image_url AS first_photo_url,
+          first_pi.sort_order AS first_photo_sort_order
         FROM photo_activities pa
         LEFT JOIN photo_items pi ON pi.activity_id = pa.id
+        LEFT JOIN photo_items first_pi ON first_pi.id = (
+          SELECT candidate.id FROM photo_items candidate
+          WHERE candidate.activity_id = pa.id
+          ORDER BY candidate.sort_order ASC, candidate.id ASC LIMIT 1
+        )
         {where_sql}
-        GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads, pa.sort_order, pa.photo_dir, pa.cover_image, pa.created_at
+        GROUP BY pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads,
+          pa.sort_order, pa.photo_dir, pa.cover_image, pa.created_at,
+          first_pi.id, first_pi.title, first_pi.image_url, first_pi.sort_order
         ORDER BY {order_map[sort]}, pa.id DESC
     """
 
@@ -670,36 +691,17 @@ def list_photo_activities(
         with conn.cursor() as cursor:
             cursor.execute(sql, params)
             activities = cursor.fetchall()
-            activity_ids = [row["id"] for row in activities]
 
-            if not activity_ids:
-                return []
-
-            placeholders = ", ".join(["%s"] * len(activity_ids))
-            cursor.execute(
-                f"""
-                SELECT id, activity_id, title, image_url, sort_order
-                FROM photo_items
-                WHERE activity_id IN ({placeholders})
-                ORDER BY activity_id ASC, sort_order ASC, id ASC
-                """,
-                activity_ids,
-            )
-            photo_rows = cursor.fetchall()
-
-    photos_by_activity: dict[int, list[dict[str, Any]]] = {activity_id: [] for activity_id in activity_ids}
-    for row in photo_rows:
-        photos_by_activity[row["activity_id"]].append(
-            {
-                "id": row["id"],
-                "title": row["title"],
-                "src": public_media_url(row["image_url"]) or row["image_url"],
-                "thumbSrc": None,
-                "sortOrder": row["sort_order"],
-            }
-        )
-
-    result = [format_photo_activity(row, photos_by_activity[row["id"]]) for row in activities]
+    result = [
+        format_photo_activity(row, [{
+            "id": row.get("first_photo_id"),
+            "title": row.get("first_photo_title"),
+            "src": public_media_url(row.get("first_photo_url")) or row.get("first_photo_url"),
+            "thumbSrc": None,
+            "sortOrder": row.get("first_photo_sort_order"),
+        }] if row.get("first_photo_id") is not None else [])
+        for row in activities
+    ]
     if sort in {"photoCount", "download"}:
         result.sort(
             key=lambda item: (
@@ -709,6 +711,17 @@ def list_photo_activities(
             )
         )
     return result
+
+
+_ACTIVITY_DETAIL_SQL = """
+    SELECT pa.*, COUNT(pi.id) AS photo_count
+    FROM photo_activities pa
+    LEFT JOIN photo_items pi ON pi.activity_id = pa.id
+    WHERE pa.id = %s
+    GROUP BY
+      pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads,
+      pa.sort_order, pa.photo_dir, pa.cover_image, pa.created_at, pa.updated_at
+"""
 
 
 def get_activity_photo_detail(
@@ -725,28 +738,22 @@ def get_activity_photo_detail(
         raise MediaStorageError("分页大小必须在 1-100 之间", status_code=422, code="invalid_limit")
     state = decode_page_cursor(cursor)
 
+    should_track = track_view and can_track_view("photo_activity", activity_id, viewer_user_id)
     with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            if track_view and can_track_view("photo_activity", activity_id, viewer_user_id):
-                cursor.execute("UPDATE photo_activities SET hot = hot + 1 WHERE id = %s", (activity_id,))
-                if cursor.rowcount:
-                    mark_view_tracked("photo_activity", activity_id, viewer_user_id)
-
-            cursor.execute(
-                """
-                SELECT pa.*, COUNT(pi.id) AS photo_count
-                FROM photo_activities pa
-                LEFT JOIN photo_items pi ON pi.activity_id = pa.id
-                WHERE pa.id = %s
-                GROUP BY
-                  pa.id, pa.activity, pa.description, pa.year, pa.hot, pa.downloads,
-                  pa.sort_order, pa.photo_dir, pa.cover_image, pa.created_at, pa.updated_at
-                """,
-                (activity_id,),
-            )
-            activity = cursor.fetchone()
-            if activity is None:
-                return None
+        if should_track:
+            updated, selected = conn.batch([
+                ("UPDATE photo_activities SET hot = hot + 1 WHERE id = %s", (activity_id,)),
+                (_ACTIVITY_DETAIL_SQL, (activity_id,)),
+            ])
+            if updated["meta"]["changes"]:
+                mark_view_tracked("photo_activity", activity_id, viewer_user_id)
+            activity = selected["rows"][0] if selected["rows"] else None
+        else:
+            with conn.cursor() as db_cursor:
+                db_cursor.execute(_ACTIVITY_DETAIL_SQL, (activity_id,))
+                activity = db_cursor.fetchone()
+    if activity is None:
+        return None
 
     photos: list[dict[str, Any]] = []
     next_cursor: str | None = None
@@ -806,7 +813,7 @@ def get_activity_photo_detail(
                     "stage": "videos", "videoOffset": video_offset, "seen": seen,
                 })
 
-    if not logical_dir or (not photos and cursor is None and next_cursor is None):
+    if not logical_dir:
         offset = int(state.get("legacyOffset") or 0)
         with get_db_connection() as conn:
             with conn.cursor() as db_cursor:
