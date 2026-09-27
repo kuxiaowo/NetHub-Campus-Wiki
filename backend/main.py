@@ -10,6 +10,7 @@
 
 from contextlib import asynccontextmanager
 from html import escape
+import logging
 import mimetypes
 import re
 import sys
@@ -20,6 +21,8 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Respo
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 import uvicorn
+
+logger = logging.getLogger(__name__)
 
 if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[1]))
@@ -380,21 +383,26 @@ def oidc_callback(
         return response
     if not code or not state:
         return HTMLResponse("登录回调缺少 code 或 state，请重新登录。", status_code=400)
+    phase = "identity"
     try:
         identity = complete_login(
             code,
             state,
             request.cookies.get(OIDC_STATE_COOKIE, ""),
         )
+        phase = "member"
         user = provision_oidc_user(
             auth_sub=identity["sub"],
             preferred_username=identity["preferred_username"],
             display_name=identity["name"],
         )
+        phase = "session"
         token = create_session(user["id"], auth_sub=identity["sub"], sid=identity["sid"])
     except OidcClientError as exc:
+        logger.warning("OIDC callback failed during %s: %s", phase, exc)
         return HTMLResponse(f"登录未完成：{escape(str(exc))}", status_code=502)
     except HTTPException as exc:
+        logger.warning("OIDC callback rejected during %s: status=%s", phase, exc.status_code)
         return HTMLResponse(
             f"登录未完成：{escape(str(exc.detail))}", status_code=exc.status_code
         )

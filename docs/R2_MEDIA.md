@@ -24,6 +24,17 @@ PUBLIC_MEDIA_BASE_URL=https://<API 域名>/media
 校验会拒绝本地存储。视频本体无论何种生产配置都保留在 `public/`，由后端
 `/media/...` 流式响应；视频缩略图进入 R2。
 
+反向代理必须把 `/media/*` 转发到 Wiki API 服务，保持路径不变。例如 Caddy：
+
+```caddyfile
+handle /media/* {
+    reverse_proxy 127.0.0.1:3100
+}
+```
+
+若误转发给静态前端，页面生成的 `/media/<视频路径>` 会返回 404。上线时用
+`Range: bytes=0-1023` 请求真实视频，确认返回 `206` 和 `Content-Range`。
+
 ## 对象布局
 
 - `Photos/`：活动图片。
