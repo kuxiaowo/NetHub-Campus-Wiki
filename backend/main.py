@@ -517,10 +517,11 @@ def resources(
     year: int | None = Query(default=None, description="按资源年份筛选。"),
     search: str | None = Query(default=None, description="搜索资源名称、简介和分类。"),
     sort: str = Query(default="hot", pattern="^(hot|new|old|download)$", description="排序方式。"),
+    limit: int | None = Query(default=None, ge=1, le=100, description="最多返回的资源数。"),
 ):
     """返回资源中心普通资源列表。"""
 
-    return {"data": list_resources(category=category, year=year, search=search, sort=sort)}
+    return {"data": list_resources(category=category, year=year, search=search, sort=sort, limit=limit)}
 
 
 @app.get("/api/resources/{resource_id}", response_model=ResourceDetailResponse, tags=["resources"])
@@ -574,10 +575,11 @@ def photo_activities(
     year: int | None = Query(default=None, description="按活动年份筛选。"),
     search: str | None = Query(default=None, description="搜索活动名称。"),
     sort: str = Query(default="hot", pattern="^(hot|new|old|photoCount|download)$", description="排序方式。"),
+    limit: int | None = Query(default=None, ge=1, le=100, description="最多返回的活动数。"),
 ):
     """返回活动照片活动列表，不包含完整照片数组。"""
 
-    return {"data": list_photo_activities(year=year, search=search, sort=sort)}
+    return {"data": list_photo_activities(year=year, search=search, sort=sort, limit=limit)}
 
 
 @app.post("/api/photo-activities/{activity_id}/download", response_model=PhotoActivityDetailResponse, tags=["resources"])

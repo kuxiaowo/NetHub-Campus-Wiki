@@ -117,8 +117,8 @@ async function loadPopularProjects() {
 
 async function loadPopularResources() {
   const [resourceResult, photoResult] = await Promise.all([
-    request('/resources?sort=hot'),
-    request('/photo-activities?sort=hot'),
+    request('/resources?sort=hot&limit=3'),
+    request('/photo-activities?sort=hot&limit=3'),
   ]);
   const resources = [
     ...resourceResult.data,
