@@ -476,13 +476,14 @@ def projects(
     year: int | None = Query(default=None, description="按项目年份筛选。"),
     search: str | None = Query(default=None, description="搜索项目名称、负责人和简介。"),
     sort: str = Query(default="latest", pattern="^(latest|popular)$", description="排序方式：latest 或 popular。"),
+    limit: int | None = Query(default=None, ge=1, le=100, description="最多返回的项目数。"),
 ):
     """返回项目列表。
 
     前端项目库页面会把分类、年份、搜索词和排序方式转换为查询参数传入这里。
     """
 
-    return {"data": list_projects(category=category, year=year, search=search, sort=sort)}
+    return {"data": list_projects(category=category, year=year, search=search, sort=sort, limit=limit)}
 
 
 @app.get("/api/projects/{project_id}", response_model=ProjectDetailResponse, tags=["projects"])

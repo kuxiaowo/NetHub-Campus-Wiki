@@ -108,8 +108,8 @@ async function loadNotifications() {
 }
 
 async function loadPopularProjects() {
-  const result = await request('/projects?sort=popular');
-  const projects = result.data.slice(0, 3);
+  const result = await request('/projects?sort=popular&limit=3');
+  const projects = result.data;
   popularProjectList.innerHTML = projects.length
     ? projects.map(popularProjectCard).join('')
     : '<div class="empty">还没有项目。</div>';

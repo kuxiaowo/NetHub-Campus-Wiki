@@ -7,6 +7,7 @@
 import json
 import re
 import secrets
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Literal
 
 from backend.auth import central_avatar_url
@@ -538,6 +539,7 @@ def list_projects(
     year: int | None = None,
     search: str | None = None,
     sort: ProjectSort = "latest",
+    limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """按筛选条件查询项目列表。
 
@@ -563,12 +565,20 @@ def list_projects(
     order_by = "popularity DESC, created_at DESC" if sort == "popular" else "created_at DESC, id DESC"
     where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
     sql = f"SELECT * FROM projects {where_sql} ORDER BY {order_by}"
+    if limit is not None:
+        sql += " LIMIT %s"
+        params.append(limit)
 
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(sql, params)
             rows = cursor.fetchall()
 
+    if limit is not None and len(rows) > 1:
+        # Each icon lookup can make several R2 requests; resolve the small home
+        # page selection concurrently while preserving SQL ordering.
+        with ThreadPoolExecutor(max_workers=min(len(rows), 3)) as executor:
+            return list(executor.map(format_project, rows))
     return [format_project(row) for row in rows]
 
 

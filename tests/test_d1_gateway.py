@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import sqlite3
 from contextlib import closing
 from pathlib import Path
 import tempfile
@@ -206,6 +207,27 @@ class PageReadRoundtripTest(unittest.TestCase):
             with self.assertRaises(HTTPException) as error:
                 comments.list_comments('project', 999, 'hot', 1, 10, None)
             self.assertEqual(error.exception.status_code, 404)
+
+    def test_popular_project_limit_matches_sqlite_and_uses_one_gateway_call(self):
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            connection.executemany(
+                """
+                INSERT INTO projects (id, name, leader, members, category, year, description, popularity)
+                VALUES (?, ?, 'Reader', 'Reader', 'CAS', 2026, 'Description', ?)
+                """,
+                [(2, 'Second', 20), (3, 'First', 30)],
+            )
+            connection.commit()
+
+        sqlite_factory = lambda: Connection(database._open_connection(self.database_path))
+        d1_factory = lambda: Connection(adapter=self.gateway)
+        with patch.object(projects, 'get_db_connection', sqlite_factory):
+            expected = projects.list_projects(sort='popular', limit=2)
+        self.assertEqual([item['id'] for item in expected], [3, 2])
+        with patch.object(projects, 'get_db_connection', d1_factory):
+            self.gateway.calls.clear()
+            self.assertEqual(projects.list_projects(sort='popular', limit=2), expected)
+            self.assertEqual(len(self.gateway.calls), 1)
 
     def test_tracked_details_batch_write_and_read(self):
         d1_factory = lambda: Connection(adapter=self.gateway)

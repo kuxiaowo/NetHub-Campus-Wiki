@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import sqlite3
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from PIL import Image
@@ -49,24 +50,43 @@ class ProjectAssetStorageTest(unittest.TestCase):
         class FakeR2:
             def __init__(self):
                 self.objects = {"CAS/__cached_icon_test__/icon.png"}
-                self.head_calls = []
+                self.list_calls = []
 
-            def head(self, path):
-                self.head_calls.append(path)
-                return object() if path in self.objects else None
+            def list_key_prefix(self, prefix, *, cursor=None, limit=100):
+                self.list_calls.append((prefix, cursor, limit))
+                return SimpleNamespace(
+                    objects=[SimpleNamespace(key=key) for key in self.objects if key.startswith(prefix)],
+                    has_more=False,
+                    next_cursor=None,
+                )
 
         storage = FakeR2()
         asset_dir = "/CAS/__cached_icon_test__/"
         with patch("backend.project_assets.get_media_storage", return_value=storage):
             self.assertTrue(project_icon_url(asset_dir).endswith("/icon.png"))
-            self.assertEqual(len(storage.head_calls), 2)
+            self.assertEqual(len(storage.list_calls), 1)
             self.assertTrue(project_icon_url(asset_dir).endswith("/icon.png"))
-            self.assertEqual(len(storage.head_calls), 2)
+            self.assertEqual(len(storage.list_calls), 1)
 
             storage.objects.add("CAS/__cached_icon_test__/icon.webp")
             invalidate_project_icon_cache("CAS/__cached_icon_test__/icon.webp")
             self.assertTrue(project_icon_url(asset_dir).endswith("/icon.webp"))
-            self.assertEqual(len(storage.head_calls), 3)
+            self.assertEqual(len(storage.list_calls), 2)
+
+    def test_r2_icon_priority_across_list_pages(self) -> None:
+        from backend.project_assets import project_icon_url
+
+        class PagedR2:
+            def list_key_prefix(self, _prefix, *, cursor=None, limit=100):
+                key = "CAS/__paged_icon_test__/icon.png" if cursor is None else "CAS/__paged_icon_test__/icon.webp"
+                return SimpleNamespace(
+                    objects=[SimpleNamespace(key=key)],
+                    has_more=cursor is None,
+                    next_cursor="next" if cursor is None else None,
+                )
+
+        with patch("backend.project_assets.get_media_storage", return_value=PagedR2()):
+            self.assertTrue(project_icon_url("/CAS/__paged_icon_test__/").endswith("/icon.webp"))
 
     def test_paths_cannot_escape_cas_project_directory(self) -> None:
         from backend.project_assets import ProjectAssetError, normalize_asset_dir, normalize_relative_image_path
