@@ -109,6 +109,8 @@ class Settings:
     frontend_base_url: str = os.getenv(
         "FRONTEND_BASE_URL", "http://127.0.0.1:3200"
     ).strip().rstrip("/")
+    turnstile_site_key: str = os.getenv("TURNSTILE_SITE_KEY", "").strip()
+    turnstile_secret_key: str = os.getenv("TURNSTILE_SECRET_KEY", "").strip()
     auth_cookie_secure: bool = _env_bool("AUTH_COOKIE_SECURE", True)
     auth_session_idle_seconds: int = _env_int(
         "AUTH_SESSION_IDLE_SECONDS", 7 * 24 * 60 * 60, minimum=300
@@ -193,6 +195,10 @@ def validate_runtime_settings() -> None:
         raise RuntimeError("API_PORT 必须在 1-65535 之间")
     if settings.app_environment not in {"production", "development", "test"}:
         raise RuntimeError("APP_ENV 必须是 production、development 或 test")
+    if settings.app_environment == "production" and (
+        not settings.turnstile_site_key or not settings.turnstile_secret_key
+    ):
+        raise RuntimeError("生产环境必须配置 TURNSTILE_SITE_KEY 和 TURNSTILE_SECRET_KEY")
     if settings.media_storage_backend not in {"r2", "local"}:
         raise RuntimeError("MEDIA_STORAGE_BACKEND 必须是 r2 或 local")
     if settings.media_storage_backend == "local" and settings.app_environment == "production":

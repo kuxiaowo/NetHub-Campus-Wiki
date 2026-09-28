@@ -31,6 +31,10 @@ from backend.view_tracking import clear_tracked_views  # noqa: E402
 class SocialMessagingFlowTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        cls.turnstile_comment_patcher = patch("backend.comments.verify_turnstile")
+        cls.turnstile_message_patcher = patch("backend.messaging.verify_turnstile")
+        cls.turnstile_comment_patcher.start()
+        cls.turnstile_message_patcher.start()
         cls.database_path = Path(_TEMP_DIR.name) / "campus_wiki_test.db"
         cls.database_path_patcher = patch(
             "backend.database.get_database_path", return_value=cls.database_path
@@ -126,6 +130,8 @@ class SocialMessagingFlowTest(unittest.TestCase):
         shutil.rmtree(cls.project_asset_dir, ignore_errors=True)
         cls.client.close()
         cls.database_path_patcher.stop()
+        cls.turnstile_comment_patcher.stop()
+        cls.turnstile_message_patcher.stop()
 
     @classmethod
     def _register(cls, username: str, display_name: str) -> dict:

@@ -44,6 +44,70 @@ async function request(path, options = {}) {
   return response.json();
 }
 
+let turnstileScriptPromise;
+let turnstileSiteKeyPromise;
+
+function loadTurnstileScript() {
+  if (!turnstileScriptPromise) {
+    turnstileScriptPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+      script.async = true;
+      script.onload = resolve;
+      script.onerror = () => reject(new Error('人机验证组件加载失败，请重试'));
+      document.head.append(script);
+    }).catch((error) => {
+      turnstileScriptPromise = null;
+      throw error;
+    });
+  }
+  return turnstileScriptPromise;
+}
+
+async function getTurnstileToken(action) {
+  if (!turnstileSiteKeyPromise) {
+    turnstileSiteKeyPromise = request('/turnstile/config')
+      .then((config) => config.siteKey)
+      .catch((error) => {
+        turnstileSiteKeyPromise = null;
+        throw error;
+      });
+  }
+  const siteKey = await turnstileSiteKeyPromise;
+  if (!siteKey) throw new Error('人机验证暂不可用');
+  await loadTurnstileScript();
+  return new Promise((resolve, reject) => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    let widgetId;
+    let settled = false;
+    const finish = (token, error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (widgetId !== undefined) window.turnstile.remove(widgetId);
+      host.remove();
+      if (error) reject(new Error(error));
+      else resolve(token);
+    };
+    const timer = setTimeout(() => finish(null, '人机验证超时，请重试'), 120000);
+    try {
+      widgetId = window.turnstile.render(host, {
+        sitekey: siteKey,
+        action,
+        size: 'invisible',
+        execution: 'execute',
+        callback: (token) => finish(token),
+        'error-callback': () => finish(null, '人机验证失败，请重试'),
+        'expired-callback': () => finish(null, '人机验证已过期，请重试'),
+      });
+      window.turnstile.execute(widgetId);
+    } catch {
+      finish(null, '人机验证组件无法启动，请重试');
+    }
+  });
+}
+
 function getAuthToken() {
   // Compatibility name used by page modules. The real credential is an
   // HttpOnly cookie and is deliberately unavailable to JavaScript.

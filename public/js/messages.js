@@ -402,6 +402,7 @@ async function sendCurrentMessage() {
   submit.disabled = true;
   messageEls.status.textContent = '正在发送...';
   try {
+    const turnstileToken = await getTurnstileToken('message');
     const result = await request(`/conversations/${encodeURIComponent(messageState.active.id)}/messages`, {
       method: 'POST',
       body: JSON.stringify({
@@ -409,6 +410,7 @@ async function sendCurrentMessage() {
         body,
         projectId: messageState.sharedProject?.id,
         clientMessageId: `${Date.now()}-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`,
+        turnstileToken,
       }),
     });
     messageEls.input.value = '';
@@ -528,9 +530,10 @@ function bindMessageEvents() {
       if (reportButton) {
         const reason = window.prompt('请简要说明举报原因。', '');
         if (reason === null || !reason.trim()) return;
+        const turnstileToken = await getTurnstileToken('message-report');
         await request(`/messages/${encodeURIComponent(reportButton.dataset.reportMessage)}/reports`, {
           method: 'POST',
-          body: JSON.stringify({ reason: reason.trim() }),
+          body: JSON.stringify({ reason: reason.trim(), turnstileToken }),
         });
         messageEls.status.textContent = '举报已提交';
       }
