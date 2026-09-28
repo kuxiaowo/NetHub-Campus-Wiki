@@ -64,6 +64,7 @@ from backend.database import get_db_connection
 from backend.oidc_client import (
     OIDC_STATE_COOKIE,
     OidcClientError,
+    OidcLoginAttemptError,
     begin_login,
     cancel_login,
     complete_login,
@@ -420,6 +421,9 @@ def oidc_callback(
         )
         phase = "session"
         token = create_session(user["id"], auth_sub=identity["sub"], sid=identity["sid"])
+    except OidcLoginAttemptError as exc:
+        logger.warning("OIDC callback rejected during %s: %s", phase, exc)
+        return HTMLResponse(f"登录未完成：{escape(str(exc))}", status_code=400)
     except OidcClientError as exc:
         logger.warning("OIDC callback failed during %s: %s", phase, exc)
         return HTMLResponse(f"登录未完成：{escape(str(exc))}", status_code=502)

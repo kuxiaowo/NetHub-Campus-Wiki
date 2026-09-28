@@ -32,6 +32,10 @@ class OidcClientError(RuntimeError):
     """An identity-provider response could not be trusted or completed."""
 
 
+class OidcLoginAttemptError(OidcClientError):
+    """A browser login attempt is invalid, expired or already consumed."""
+
+
 def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
@@ -195,7 +199,7 @@ def cancel_login(state: str, cookie_state: str) -> str:
 
 def _consume_attempt(state: str, cookie_state: str) -> dict[str, Any]:
     if not state or not cookie_state or not hmac.compare_digest(state, cookie_state):
-        raise OidcClientError("登录 state 校验失败，请重新发起登录")
+        raise OidcLoginAttemptError("登录 state 校验失败，请重新发起登录")
     now = int(time.time())
     with get_db_connection() as conn:
         state_hash = _digest(state)
@@ -206,7 +210,7 @@ def _consume_attempt(state: str, cookie_state: str) -> dict[str, Any]:
                 if attempt is not None:
                     cursor.execute("DELETE FROM oidc_login_attempts WHERE state_hash = %s", (state_hash,))
                     if cursor.rowcount != 1:
-                        raise OidcClientError("登录请求未能被安全消费，请重新发起登录")
+                        raise OidcLoginAttemptError("登录请求未能被安全消费，请重新发起登录")
         else:
             with conn.cursor() as cursor:
                 cursor.execute(
@@ -215,7 +219,7 @@ def _consume_attempt(state: str, cookie_state: str) -> dict[str, Any]:
                 )
                 attempt = cursor.fetchone()
     if attempt is None or int(attempt["expires_at"]) <= now:
-        raise OidcClientError("登录请求不存在或已过期，请重新发起登录")
+        raise OidcLoginAttemptError("登录请求不存在或已过期，请重新发起登录")
     return attempt
 
 

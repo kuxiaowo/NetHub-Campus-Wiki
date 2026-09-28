@@ -30,6 +30,7 @@ from backend.main import app
 from backend.oidc_client import (
     OIDC_STATE_COOKIE,
     OidcClientError,
+    OidcLoginAttemptError,
     _consume_attempt,
     _validate_id_token,
     begin_login,
@@ -98,7 +99,7 @@ class AccountsOidcTest(unittest.TestCase):
         )
         consumed = _consume_attempt(state, state)
         self.assertEqual(consumed["nonce"], query["nonce"][0])
-        with self.assertRaises(OidcClientError):
+        with self.assertRaises(OidcLoginAttemptError):
             _consume_attempt(state, state)
 
     def test_d1_login_attempt_is_consumed_without_returning(self) -> None:
@@ -355,6 +356,77 @@ class AccountsOidcTest(unittest.TestCase):
                 )
                 self.assertEqual(logged_out.status_code, 204)
                 self.assertEqual(client.get("/api/auth/me").status_code, 401)
+
+    def test_duplicate_callback_is_400_and_preserves_first_session(self) -> None:
+        identity = {
+            "sub": "central-duplicate-user",
+            "sid": "central-duplicate-sid",
+            "preferred_username": "duplicate_user",
+            "name": "Duplicate User",
+            "return_to": "https://wiki.example.test/",
+        }
+        with (
+            patch("backend.oidc_client.settings", self.fake_settings),
+            patch("backend.oidc_client.discovery", return_value={
+                "authorization_endpoint": "https://accounts.example.test/oauth/authorize"
+            }),
+        ):
+            _, state = begin_login("/")
+
+        def complete_once(code, received_state, cookie_state):
+            _consume_attempt(received_state, cookie_state)
+            return identity
+
+        with (
+            patch("backend.main.settings", self.fake_settings),
+            patch("backend.auth.settings", self.fake_settings),
+            patch("backend.main.complete_login", side_effect=complete_once),
+            patch("backend.main.validate_runtime_settings"),
+        ):
+            with TestClient(app, base_url="https://wiki.example.test") as client:
+                client.cookies.set(OIDC_STATE_COOKIE, state, path="/api/auth")
+                first = client.get(
+                    f"/api/auth/callback?code=first-code&state={state}",
+                    follow_redirects=False,
+                )
+                self.assertEqual(first.status_code, 303, first.text)
+                # A racing navigation may already carry the original flow cookie.
+                client.cookies.set(OIDC_STATE_COOKIE, state, path="/api/auth")
+                duplicate = client.get(
+                    f"/api/auth/callback?code=second-code&state={state}",
+                    follow_redirects=False,
+                )
+                self.assertEqual(duplicate.status_code, 400, duplicate.text)
+                self.assertIn("登录请求不存在或已过期", duplicate.text)
+                self.assertNotIn(SESSION_COOKIE_NAME, duplicate.headers.get("set-cookie", ""))
+                self.assertEqual(client.get("/api/auth/me").status_code, 200)
+
+    def test_invalid_callback_state_is_400_before_provider_requests(self) -> None:
+        with (
+            patch("backend.main.settings", self.fake_settings),
+            patch("backend.main.validate_runtime_settings"),
+            patch("backend.oidc_client.OAuth2Session") as provider,
+        ):
+            with TestClient(app, base_url="https://wiki.example.test") as client:
+                for cookie in ("", "different-state", "unknown-state"):
+                    with self.subTest(cookie=cookie):
+                        client.cookies.set(OIDC_STATE_COOKIE, cookie, path="/api/auth")
+                        response = client.get(
+                            "/api/auth/callback?code=code&state=unknown-state",
+                            follow_redirects=False,
+                        )
+                        self.assertEqual(response.status_code, 400, response.text)
+                provider.assert_not_called()
+
+    def test_provider_callback_failure_remains_502(self) -> None:
+        with (
+            patch("backend.main.settings", self.fake_settings),
+            patch("backend.main.validate_runtime_settings"),
+            patch("backend.main.complete_login", side_effect=OidcClientError("账号中心通信失败")),
+        ):
+            with TestClient(app, base_url="https://wiki.example.test") as client:
+                response = client.get("/api/auth/callback?code=code&state=state")
+        self.assertEqual(response.status_code, 502, response.text)
 
     def test_local_password_endpoints_are_closed_with_oidc(self) -> None:
         with (
