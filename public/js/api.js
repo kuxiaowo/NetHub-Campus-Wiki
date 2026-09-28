@@ -77,8 +77,14 @@ async function getTurnstileToken(action) {
   if (!siteKey) throw new Error('人机验证暂不可用');
   await loadTurnstileScript();
   return new Promise((resolve, reject) => {
+    const previousFocus = document.activeElement;
     const host = document.createElement('div');
+    host.className = 'turnstile-overlay';
+    host.innerHTML = '<div class="turnstile-dialog" role="dialog" aria-modal="true" aria-label="人机验证"><p>请完成人机验证后继续提交</p><div class="turnstile-widget"></div><button type="button" class="turnstile-cancel">取消</button></div>';
     document.body.append(host);
+    const cancel = host.querySelector('.turnstile-cancel');
+    cancel.addEventListener('click', () => finish(null, '已取消人机验证'));
+    cancel.focus();
     let widgetId;
     let settled = false;
     const finish = (token, error) => {
@@ -87,21 +93,22 @@ async function getTurnstileToken(action) {
       clearTimeout(timer);
       if (widgetId !== undefined) window.turnstile.remove(widgetId);
       host.remove();
+      if (previousFocus?.isConnected) previousFocus.focus();
       if (error) reject(new Error(error));
       else resolve(token);
     };
-    const timer = setTimeout(() => finish(null, '人机验证超时，请重试'), 120000);
+    const timer = setTimeout(() => finish(null, '人机验证超时，请重试'), 240000);
     try {
-      widgetId = window.turnstile.render(host, {
+      widgetId = window.turnstile.render(host.querySelector('.turnstile-widget'), {
         sitekey: siteKey,
         action,
-        size: 'invisible',
-        execution: 'execute',
+        size: 'normal',
+        appearance: 'always',
+        execution: 'render',
         callback: (token) => finish(token),
         'error-callback': () => finish(null, '人机验证失败，请重试'),
         'expired-callback': () => finish(null, '人机验证已过期，请重试'),
       });
-      window.turnstile.execute(widgetId);
     } catch {
       finish(null, '人机验证组件无法启动，请重试');
     }
