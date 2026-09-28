@@ -207,7 +207,18 @@ class Worker:
                 and config["effort"] not in efforts
             ):
                 raise ProviderError("reasoning_effort_unavailable")
-            self.ready, self.message = True, "审核服务运行中"
+            if config["provider"] == "codex" and exhausted_windows(
+                models.get("quota", {})
+            ):
+                self.ready, self.message = (
+                    False,
+                    "Codex 额度已耗尽，等待恢复，不启用额外计费",
+                )
+                self.paused_until = max(quota_reset(models["quota"]), time.time() + 60)
+            else:
+                self.ready, self.message = True, "审核服务运行中"
+                if config["provider"] == "codex":
+                    self.paused_until = 0
         except (ProviderError, ValueError, KeyError) as exc:
             self.ready, self.message = False, getattr(
                 exc, "code", "model_discovery_failed"
@@ -302,18 +313,24 @@ class Worker:
         await self.http.aclose()
 
 
-def quota_reset(quota):
+def exhausted_windows(quota):
     windows = []
     if isinstance(quota.get("rateLimits"), dict):
         windows.append(quota["rateLimits"])
     windows.extend((quota.get("rateLimitsByLimitId") or {}).values())
-    resets = [
-        float(window.get("resetsAt") or 0)
+    return [
+        window
         for bucket in windows
         for window in [bucket.get("primary"), bucket.get("secondary")]
         if isinstance(window, dict) and float(window.get("usedPercent") or 0) >= 100
     ]
-    return max(resets, default=0)
+
+
+def quota_reset(quota):
+    return max(
+        (float(window.get("resetsAt") or 0) for window in exhausted_windows(quota)),
+        default=0,
+    )
 
 
 def create_app(directory=None, sites=None, token=None):
@@ -387,6 +404,10 @@ def create_app(directory=None, sites=None, token=None):
         try:
             config = store.merged(patch)
             data = await providers.models(config)
+            if config["provider"] == "codex" and exhausted_windows(
+                data.get("quota", {})
+            ):
+                raise HTTPException(429, "Codex 额度耗尽，未启动生成测试，请等待恢复")
             if not any(
                 (m.get("model") or m.get("id")) == config["model"] for m in data["data"]
             ):
