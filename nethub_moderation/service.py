@@ -181,6 +181,12 @@ class Worker:
             )
             return False
         if (
+            time.time() < self.paused_until
+            and self.checked_version == config["version"]
+        ):
+            self.ready, self.message = False, "审核额度或余额暂不可用，等待恢复"
+            return False
+        if (
             self.checked_version == config["version"]
             and time.time() - self.checked_at < 60
         ):
