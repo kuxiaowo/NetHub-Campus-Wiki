@@ -2437,6 +2437,7 @@ body.modal-open { overflow: hidden; }
 }
 .message-center-nav-item:hover { background: #eef5ff; color: var(--primary); }
 .message-center-nav-item.active { background: var(--primary-soft); color: var(--primary); }
+.message-center-nav-item > span { white-space: nowrap; }
 .message-center-nav-item svg {
   width: 20px;
   height: 20px;
@@ -2825,7 +2826,7 @@ a.message-activity-item:hover { background: #f8fbff; }
 @media (max-width: 1050px) and (min-width: 761px) {
   .messages-app { grid-template-columns: 142px minmax(0, 1fr); }
   .direct-messages-view { grid-template-columns: 275px minmax(0, 1fr); }
-  .message-center-nav-item { padding-left: 8px; padding-right: 8px; }
+  .message-center-nav-item { padding-left: 8px; padding-right: 8px; gap: 4px; }
   .message-list { padding-left: 20px; padding-right: 20px; }
 }
 
@@ -2835,7 +2836,7 @@ a.message-activity-item:hover { background: #f8fbff; }
   .messages-app { height: calc(100vh - 126px); min-height: 500px; grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); border-radius: 0; border-left: 0; border-right: 0; }
   .message-center-nav { border-right: 0; border-bottom: 1px solid var(--border); }
   .message-center-brand { display: none; }
-  .message-center-nav nav { padding: 7px 8px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+  .message-center-nav nav { padding: 7px 8px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
   .message-center-nav-item { min-height: 42px; padding: 7px 5px; display: flex; justify-content: center; gap: 5px; text-align: center; }
   .message-center-nav-item svg { width: 17px; height: 17px; }
   .message-center-nav-item b { position: static; flex: 0 0 auto; }
