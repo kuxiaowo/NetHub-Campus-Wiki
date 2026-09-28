@@ -463,6 +463,11 @@ def backchannel_logout(logout_token: str = Form(...)):
     return {"ok": True, "revoked": revoked}
 
 
+@app.get("/api/turnstile/config", tags=["system"])
+def turnstile_config():
+    return {"siteKey": settings.turnstile_site_key}
+
+
 @app.get("/api/meta", response_model=MetaResponse, tags=["projects"])
 def meta():
     """返回项目库筛选器需要的分类和年份。"""

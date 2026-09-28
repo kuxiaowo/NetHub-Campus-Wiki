@@ -187,6 +187,7 @@
   }
 
   async function submitComment(state, content, parentId = null) {
+    const turnstileToken = await getTurnstileToken('comment');
     await request('/comments', {
       method: 'POST',
       body: JSON.stringify({
@@ -194,6 +195,7 @@
         targetId: state.targetId,
         content,
         parentId,
+        turnstileToken,
       }),
     });
     state.page = 1;
@@ -308,9 +310,10 @@
         if (action.dataset.commentAction === 'report') {
           const reason = window.prompt('请填写举报理由。', '');
           if (reason === null || !reason.trim()) return;
+          const turnstileToken = await getTurnstileToken('comment-report');
           await request(`/comments/${encodeURIComponent(commentId)}/reports`, {
             method: 'POST',
-            body: JSON.stringify({ reason: reason.trim() }),
+            body: JSON.stringify({ reason: reason.trim(), turnstileToken }),
           });
           window.alert('举报已提交');
         }

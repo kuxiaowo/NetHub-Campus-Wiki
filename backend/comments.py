@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from backend.auth import get_current_user, get_optional_current_user, public_user_identity
 from backend.config import settings
 from backend.database import get_db_connection
+from backend.turnstile import verify_turnstile
 
 router = APIRouter(prefix="/api", tags=["comments"])
 
@@ -494,6 +495,7 @@ def create_comment(
     payload: dict[str, Any],
     user: dict[str, Any] = Depends(get_current_user),
 ):
+    verify_turnstile(payload.get("turnstileToken"), "comment")
     target_type = str(payload.get("targetType") or "")
     try:
         target_id = int(payload.get("targetId"))
@@ -771,6 +773,7 @@ def report_comment(
     payload: dict[str, Any],
     user: dict[str, Any] = Depends(get_current_user),
 ):
+    verify_turnstile(payload.get("turnstileToken"), "comment-report")
     reason = str(payload.get("reason") or "").strip()
     if not reason or len(reason) > 300:
         raise HTTPException(status_code=422, detail="举报理由长度应为 1-300 字")

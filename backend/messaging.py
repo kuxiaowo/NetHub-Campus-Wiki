@@ -9,11 +9,13 @@ import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.concurrency import run_in_threadpool
 
 from backend.auth import get_current_user, public_user_identity
 from backend.config import settings
 from backend.database import get_db_connection
 from backend.project_assets import project_icon_url
+from backend.turnstile import verify_turnstile
 
 router = APIRouter(prefix="/api", tags=["messages"])
 
@@ -445,6 +447,7 @@ async def send_message(
     payload: dict[str, Any],
     user: dict[str, Any] = Depends(get_current_user),
 ):
+    await run_in_threadpool(verify_turnstile, payload.get("turnstileToken"), "message")
     message_type = str(payload.get("type") or "text")
     if message_type not in {"text", "project"}:
         raise HTTPException(status_code=422, detail="消息类型无效")
@@ -882,6 +885,7 @@ def report_message(
     payload: dict[str, Any],
     user: dict[str, Any] = Depends(get_current_user),
 ):
+    verify_turnstile(payload.get("turnstileToken"), "message-report")
     reason = str(payload.get("reason") or "").strip()
     if not reason or len(reason) > 300:
         raise HTTPException(status_code=422, detail="举报理由长度应为 1-300 字")
