@@ -45,7 +45,12 @@
   }
 
   function renderCommentActions(state, comment) {
-    if (comment.status !== 'visible') return '';
+    if (comment.status !== 'visible') {
+      if (comment.status === 'hidden' && String(state.currentUser?.id) === String(comment.author.id)) {
+        return `<div class="comment-actions"><button type="button" data-comment-action="delete" data-comment-id="${escapeHtml(comment.id)}" data-comment-owner="${escapeHtml(comment.author.id)}">删除自己的留言</button></div>`;
+      }
+      return '';
+    }
     const likeLabel = comment.liked ? '取消点赞' : '点赞';
     return `
       <div class="comment-actions">
