@@ -36,13 +36,31 @@ def select_rows(
     fields = ",".join(map(d1_mirror.quote, names))
     order = ",".join(map(d1_mirror.quote, pk))
     rows = {}
-    offset = 0
+    last_key = None
     while True:
+        where = ""
+        params = []
+        if last_key is not None:
+            # Match SQLite's ascending NULL order and avoid rescanning every
+            # earlier page of large tables with OFFSET.
+            after = []
+            for index, name in enumerate(pk):
+                prefix = []
+                for earlier, value in zip(pk[:index], last_key[:index], strict=True):
+                    prefix.append(f"{d1_mirror.quote(earlier)} IS ?")
+                    params.append(value)
+                if last_key[index] is None:
+                    greater = f"{d1_mirror.quote(name)} IS NOT NULL"
+                else:
+                    greater = f"{d1_mirror.quote(name)} > ?"
+                    params.append(last_key[index])
+                after.append("(" + " AND ".join([*prefix, greater]) + ")")
+            where = " WHERE " + " OR ".join(after)
         sql = (
-            f"SELECT {fields} FROM {d1_mirror.quote(table)} "
-            f"ORDER BY {order} LIMIT 200 OFFSET {offset}"
+            f"SELECT {fields} FROM {d1_mirror.quote(table)}{where} "
+            f"ORDER BY {order} LIMIT 200"
         )
-        page = gateway.request([(sql, [])])[0]["rows"]
+        page = gateway.request([(sql, params)])[0]["rows"]
         for row in page:
             key = tuple(row[name] for name in pk)
             if key in rows:
@@ -50,7 +68,7 @@ def select_rows(
             rows[key] = row
         if len(page) < 200:
             break
-        offset += 200
+        last_key = tuple(page[-1][name] for name in pk)
     return rows
 
 

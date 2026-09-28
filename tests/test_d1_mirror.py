@@ -285,6 +285,42 @@ class MirrorTests(unittest.TestCase):
         finally:
             gateway.db.close()
 
+    def test_reconcile_keyset_pages_large_and_nullable_composite_keys(self):
+        remote = self.gateway.db
+        remote.executescript("""
+            CREATE TABLE bulk(id INTEGER PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE composite(a TEXT, b INTEGER, value TEXT NOT NULL,
+                                   PRIMARY KEY(a,b));
+        """)
+        remote.execute("BEGIN")
+        remote.executemany(
+            "INSERT INTO bulk VALUES(?,?)", ((i, str(i)) for i in range(451))
+        )
+        remote.executemany(
+            "INSERT INTO composite VALUES(?,?,?)",
+            ((a, i, str(i)) for a in (None, "x") for i in range(201)),
+        )
+        remote.execute("COMMIT")
+
+        queries = []
+        request = self.gateway.request
+
+        def record(statements):
+            queries.append(statements[0][0])
+            return request(statements)
+
+        self.gateway.request = record
+        bulk = d1_reconcile.select_rows(self.gateway, "bulk", ["id", "value"], ["id"])
+        composite = d1_reconcile.select_rows(
+            self.gateway, "composite", ["a", "b", "value"], ["a", "b"]
+        )
+        self.assertEqual(len(bulk), 451)
+        self.assertEqual(len(composite), 402)
+        self.assertEqual(len(queries), 6)
+        self.assertTrue(all("OFFSET" not in sql for sql in queries))
+        self.assertIn('"id" > ?', queries[1])
+        self.assertIn('"a" IS NOT NULL', queries[4])
+
 
 if __name__ == "__main__":
     unittest.main()
