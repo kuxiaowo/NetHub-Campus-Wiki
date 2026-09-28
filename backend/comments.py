@@ -122,6 +122,23 @@ def _comment_dict(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _display_replies(replies: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep deleted ancestors only while they provide context for visible replies."""
+    by_id = {reply["id"]: reply for reply in replies}
+    retained: set[int] = set()
+    for reply in replies:
+        if reply["status"] != "visible":
+            continue
+        current = reply
+        while current["id"] not in retained:
+            retained.add(current["id"])
+            parent = by_id.get(current["parentId"])
+            if parent is None:
+                break
+            current = parent
+    return [reply for reply in replies if reply["id"] in retained]
+
+
 def _select_fields(viewer_id: int | None) -> tuple[str, list[Any]]:
     viewer = int(viewer_id or 0)
     return (
@@ -176,7 +193,12 @@ def list_comments(
                 SELECT
                   COUNT(CASE WHEN status = 'visible' THEN 1 END) AS total,
                   COUNT(CASE WHEN parent_id IS NULL AND status <> 'hidden'
-                    THEN 1 END) AS root_total
+                    AND (status <> 'deleted' OR EXISTS (
+                      SELECT 1 FROM comments child
+                      WHERE child.root_id = comments.id
+                        AND child.parent_id IS NOT NULL
+                        AND child.status = 'visible'
+                    )) THEN 1 END) AS root_total
                 FROM comments
                 WHERE target_type = %s AND target_id = %s
                 """,
@@ -195,7 +217,17 @@ def list_comments(
                 JOIN users u ON u.id = c.user_id
                 LEFT JOIN users reply_user ON reply_user.id = c.reply_to_user_id
                 WHERE c.target_type = %s AND c.target_id = %s
-                  AND c.parent_id IS NULL AND c.status <> 'hidden'
+                  AND c.parent_id IS NULL
+                  AND c.status <> 'hidden'
+                  AND (
+                    c.status <> 'deleted'
+                    OR EXISTS (
+                      SELECT 1 FROM comments child
+                      WHERE child.root_id = c.id
+                        AND child.parent_id IS NOT NULL
+                        AND child.status = 'visible'
+                    )
+                  )
                 ORDER BY {order_by}
                 LIMIT %s OFFSET %s
                 """,
@@ -232,7 +264,8 @@ def list_comments(
     data = []
     for root in roots:
         item = _comment_dict(root)
-        item["replies"] = replies_by_root.get(root["id"], [])
+        item["replies"] = _display_replies(replies_by_root.get(root["id"], []))
+        item["replyCount"] = len(item["replies"])
         data.append(item)
     return {
         "data": data,
@@ -306,7 +339,8 @@ def get_comment_context(
             replies = [_comment_dict(row) for row in cursor.fetchall()]
 
     data = _comment_dict(root)
-    data["replies"] = replies
+    data["replies"] = _display_replies(replies)
+    data["replyCount"] = len(data["replies"])
     return {"data": data, "focusCommentId": comment_id}
 
 

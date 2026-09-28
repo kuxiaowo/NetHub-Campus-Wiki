@@ -248,6 +248,8 @@ class FrontendServerTest(unittest.TestCase):
         self.assertIn(b"data-view-message-report", admin_script)
         self.assertIn(b"data-delete-reported-comment", admin_script)
         self.assertIn(b"data-delete-reported-message", admin_script)
+        self.assertNotIn(b"data-review-comment-report", admin_script)
+        self.assertNotIn("隐藏并处理".encode("utf-8"), admin_script)
         self.assertIn(b"data-bind-project-member", admin_script)
         self.assertIn(b"members/${encodeURIComponent(member.personId)}/binding", admin_script)
         self.assertIn(b"data-admin-combobox", admin_script)

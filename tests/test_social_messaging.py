@@ -2071,13 +2071,79 @@ class SocialMessagingFlowTest(unittest.TestCase):
         )
         self.assertEqual(deleted_comment.status_code, 200, deleted_comment.text)
         comments = self.client.get("/api/comments?targetType=project&targetId=1").json()["data"]
-        removed_comment = next(row for row in comments if row["id"] == comment_id)
-        self.assertEqual(removed_comment["status"], "deleted")
-        self.assertEqual(removed_comment["content"], "")
+        self.assertFalse(any(row["id"] == comment_id for row in comments))
         with get_db_connection() as connection:
             with connection.cursor() as cursor:
-                cursor.execute("SELECT content FROM comments WHERE id = %s", (comment_id,))
-                self.assertEqual(cursor.fetchone()["content"], "")
+                cursor.execute("SELECT content, status FROM comments WHERE id = %s", (comment_id,))
+                deleted_row = cursor.fetchone()
+                self.assertEqual(deleted_row["content"], "")
+                self.assertEqual(deleted_row["status"], "deleted")
+
+    def test_14b_existing_deleted_comments_and_reply_chains(self) -> None:
+        # Seed historical records directly: listing must apply the new rule without migration.
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO resources
+                    (title, year, category, label, image, resource_url)
+                    VALUES ('Deleted comment fixtures', 2026, 'other', 'Other', '', '')"""
+                )
+                target_id = cursor.lastrowid
+
+                def seed(status, parent_id=None, root_id=None):
+                    cursor.execute(
+                        """INSERT INTO comments
+                        (target_type, target_id, user_id, content, status, parent_id, root_id)
+                        VALUES ('resource', %s, %s, %s, %s, %s, %s)""",
+                        (target_id, self.alice["id"], "" if status == "deleted" else "fixture",
+                         status, parent_id, root_id),
+                    )
+                    comment_id = cursor.lastrowid
+                    if parent_id is None:
+                        cursor.execute("UPDATE comments SET root_id = %s WHERE id = %s", (comment_id, comment_id))
+                    return comment_id
+
+                lone = seed("deleted")
+                dead_root = seed("deleted")
+                seed("deleted", dead_root, dead_root)
+                root = seed("deleted")
+                middle = seed("deleted", root, root)
+                leaf = seed("visible", middle, root)
+                dead_sibling = seed("deleted", root, root)
+                seed("hidden", root, root)
+                other = seed("visible")
+
+        query = f"/api/comments?targetType=resource&targetId={target_id}&pageSize=1"
+        for sort in ("latest", "hot"):
+            first = self.client.get(f"{query}&sort={sort}").json()
+            self.assertEqual([row["id"] for row in first["data"]], [other])
+            self.assertEqual(first["total"], 2)
+            self.assertTrue(first["hasMore"])
+            second = self.client.get(f"{query}&sort={sort}&page=2").json()
+            self.assertFalse(second["hasMore"])
+            thread = second["data"][0]
+            self.assertEqual(thread["id"], root)
+            self.assertEqual(thread["status"], "deleted")
+            self.assertEqual(thread["content"], "")
+            self.assertEqual([row["id"] for row in thread["replies"]], [middle, leaf])
+            self.assertEqual(thread["replyCount"], 2)
+
+        context = self.client.get(f"/api/comments/{leaf}/context")
+        self.assertEqual(context.status_code, 200, context.text)
+        self.assertEqual([row["id"] for row in context.json()["data"]["replies"]], [middle, leaf])
+        for comment_id in (lone, dead_root, dead_sibling):
+            self.assertEqual(self.client.get(f"/api/comments/{comment_id}/context").status_code, 404)
+
+        deleted = self.client.delete(f"/api/comments/{leaf}", headers=self._headers(self.admin_token))
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        remaining = self.client.get(query).json()
+        self.assertEqual([row["id"] for row in remaining["data"]], [other])
+        self.assertFalse(remaining["hasMore"])
+        self.assertEqual(remaining["total"], 1)
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) AS total FROM comments WHERE target_type = 'resource' AND target_id = %s", (target_id,))
+                self.assertEqual(cursor.fetchone()["total"], 9)
 
     def test_15_bound_project_members_can_publish_updates(self) -> None:
         publisher = self._register("project_update_publisher", "Project Publisher")
