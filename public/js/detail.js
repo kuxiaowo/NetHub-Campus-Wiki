@@ -75,6 +75,34 @@ function normalizeMedia(items) {
     .filter(Boolean);
 }
 
+function firstProjectImage(project) {
+  const explicitImage = project.introImage || project.intro_image || project.coverImage || project.cover || project.image;
+  const mediaImage = normalizeMedia(project.media).find((item) => item.type === 'image')?.url;
+  const imageUrl = explicitImage || mediaImage || '';
+  const safeUrl = safeExternalUrl(imageUrl);
+  return safeUrl === '#' ? '' : safeUrl;
+}
+
+function renderHeroIcon(project) {
+  return `
+    <div class="project-hero-icon" aria-hidden="true">
+      <div class="project-hero-icon-mark">
+        <span>${escapeHtml(avatarInitial(project.name))}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderIntroImage(project) {
+  const imageUrl = firstProjectImage(project);
+  if (!imageUrl) return '';
+  return `
+    <figure class="project-intro-media">
+      <img src="${imageUrl}" alt="${escapeHtml(project.name)} 项目图片" loading="lazy">
+    </figure>
+  `;
+}
+
 function normalizeUpdates(project, members) {
   const rawUpdates = parseFlexibleJson(project.updates, []);
   const legacyMedia = normalizeMedia(project.media);
@@ -223,7 +251,7 @@ function renderProjectDetail(project) {
   document.title = `${project.name} - 项目详情`;
   projectDetail.innerHTML = `
     <section class="card project-hero">
-      ${projectIconImage(project)}
+      ${renderHeroIcon(project)}
       <div class="project-hero-body">
         <h1>${escapeHtml(project.name)}</h1>
         <div class="meta">
@@ -234,9 +262,12 @@ function renderProjectDetail(project) {
       </div>
     </section>
 
-    <section class="card project-intro">
-      <h2>项目简介</h2>
-      <p>${escapeHtml(project.description)}</p>
+    <section class="card project-intro ${firstProjectImage(project) ? 'has-media' : ''}">
+      <div class="project-intro-copy">
+        <h2>项目简介</h2>
+        <p>${escapeHtml(project.description)}</p>
+      </div>
+      ${renderIntroImage(project)}
     </section>
 
     <div class="project-detail-layout">
