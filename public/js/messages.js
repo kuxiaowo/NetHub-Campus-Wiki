@@ -98,7 +98,7 @@ function activityTime(value) {
 }
 
 function activityTitle(kind) {
-  return kind === 'reply' ? '回复我的' : '收到的赞';
+  return kind === 'system' ? '系统消息' : kind === 'reply' ? '回复我的' : '收到的赞';
 }
 
 function activityEmptyText(kind) {
@@ -148,12 +148,21 @@ async function loadActivity(kind, { append = false } = {}) {
     page: String(messageState.activityPage),
     pageSize: '20',
   });
-  const result = await request(`/comment-notifications?${query}`);
+  const result = await request(kind === 'system' ? `/system-notifications?page=${messageState.activityPage}` : `/comment-notifications?${query}`);
   messageState.activityItems = append
     ? [...messageState.activityItems, ...(result.data || [])]
     : (result.data || []);
   messageState.activityHasMore = Boolean(result.hasMore);
   messageState.activityLatestId = Number(result.latestId || 0);
+  if (kind === 'system') {
+    window.NetHubModeration.renderNotifications(messageEls.activityList, {data: messageState.activityItems});
+    messageEls.activityMore.classList.toggle('is-hidden', !result.hasMore);
+    try {
+      await request('/system-notifications/read', {method:'POST', body:JSON.stringify({throughId: result.latestId})});
+    } catch { /* Keep loaded cards visible; retry marking read on the next visit. */ }
+    await loadUnreadCounts();
+    return;
+  }
   renderActivityList();
 
   if (!append && messageState.activityLatestId) {
@@ -172,7 +181,7 @@ async function loadActivity(kind, { append = false } = {}) {
 }
 
 async function setMessageView(view, { updateHistory = true } = {}) {
-  const normalized = ['messages', 'replies', 'likes'].includes(view) ? view : 'messages';
+  const normalized = ['messages', 'replies', 'likes', 'system'].includes(view) ? view : 'messages';
   messageState.view = normalized;
   messageEls.viewButtons.forEach((button) => {
     const active = button.dataset.messageView === normalized;
@@ -195,7 +204,7 @@ async function setMessageView(view, { updateHistory = true } = {}) {
   }
 
   if (!direct) {
-    const kind = normalized === 'replies' ? 'reply' : 'like';
+    const kind = normalized === 'system' ? 'system' : normalized === 'replies' ? 'reply' : 'like';
     messageEls.activityTitle.textContent = activityTitle(kind);
     try {
       await loadActivity(kind);

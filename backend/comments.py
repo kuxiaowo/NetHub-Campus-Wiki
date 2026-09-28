@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, Request
+from nethub_moderation.site import enqueue
 
 from backend.auth import get_current_user, get_optional_current_user, mark_turnstile_session_verified, public_user_identity, turnstile_session_is_fresh
 from backend.config import settings
@@ -82,7 +83,7 @@ def _validate_target(cursor: Any, target_type: str, target_id: int) -> None:
 
 
 def _comment_dict(row: dict[str, Any]) -> dict[str, Any]:
-    deleted = row["status"] == "deleted"
+    deleted = row["status"] != "visible"
     return {
         "id": row["id"],
         "targetType": row["target_type"],
@@ -192,8 +193,8 @@ def list_comments(
                 """
                 SELECT
                   COUNT(CASE WHEN status = 'visible' THEN 1 END) AS total,
-                  COUNT(CASE WHEN parent_id IS NULL AND status <> 'hidden'
-                    AND (status <> 'deleted' OR EXISTS (
+                  COUNT(CASE WHEN parent_id IS NULL
+                    AND (status = 'visible' OR EXISTS (
                       SELECT 1 FROM comments child
                       WHERE child.root_id = comments.id
                         AND child.parent_id IS NOT NULL
@@ -218,9 +219,8 @@ def list_comments(
                 LEFT JOIN users reply_user ON reply_user.id = c.reply_to_user_id
                 WHERE c.target_type = %s AND c.target_id = %s
                   AND c.parent_id IS NULL
-                  AND c.status <> 'hidden'
                   AND (
-                    c.status <> 'deleted'
+                    c.status = 'visible'
                     OR EXISTS (
                       SELECT 1 FROM comments child
                       WHERE child.root_id = c.id
@@ -253,7 +253,6 @@ def list_comments(
                     LEFT JOIN users reply_user ON reply_user.id = c.reply_to_user_id
                     WHERE c.root_id IN ({placeholders})
                       AND c.parent_id IS NOT NULL
-                      AND c.status <> 'hidden'
                     ORDER BY c.created_at ASC, c.id ASC
                     """,
                     [*reply_params, *root_ids],
@@ -313,7 +312,7 @@ def get_comment_context(
                 JOIN users u ON u.id = c.user_id
                 LEFT JOIN users reply_user ON reply_user.id = c.reply_to_user_id
                 WHERE c.id = %s AND c.target_type = %s AND c.target_id = %s
-                  AND c.parent_id IS NULL AND c.status <> 'hidden'
+                  AND c.parent_id IS NULL
                 LIMIT 1
                 """,
                 [*select_params, root_id, focus["target_type"], focus["target_id"]],
@@ -331,7 +330,6 @@ def get_comment_context(
                 LEFT JOIN users reply_user ON reply_user.id = c.reply_to_user_id
                 WHERE c.root_id = %s
                   AND c.parent_id IS NOT NULL
-                  AND c.status <> 'hidden'
                 ORDER BY c.created_at ASC, c.id ASC
                 """,
                 [*reply_params, root_id],
@@ -516,8 +514,11 @@ def message_center_unread_count(user: dict[str, Any] = Depends(get_current_user)
     messages = int(row.get("messages") or 0)
     replies = int(row.get("replies") or 0)
     likes = int(row.get("likes") or 0)
+    from backend.moderation import site
+    system = site.unread(user["id"]) if settings.database_backend == "sqlite" else 0
     return {
-        "total": messages + replies + likes,
+        "total": messages + replies + likes + system,
+        "system": system,
         "messages": messages,
         "replies": replies,
         "likes": likes,
@@ -528,6 +529,7 @@ def message_center_unread_count(user: dict[str, Any] = Depends(get_current_user)
 def create_comment(
     request: Request,
     payload: dict[str, Any],
+    background_tasks: BackgroundTasks,
     user: dict[str, Any] = Depends(get_current_user),
 ):
     session_id = getattr(request.state, "auth_session_id", None)
@@ -709,13 +711,17 @@ def create_comment(
                         target_type=target_type,
                         target_id=target_id,
                     )
+                enqueue(conn._connection, comment_id)
+    if not is_d1:
+        from backend.moderation import site
+        background_tasks.add_task(site.release, comment_id)
     if payload.get("turnstileToken"):
         mark_turnstile_session_verified(session_id)
-    return {"data": {"id": comment_id}}
+    return {"data": {"id": comment_id, "moderationStatus": "pending"}}
 
 
 @router.delete("/comments/{comment_id}")
-def delete_comment(comment_id: int, user: dict[str, Any] = Depends(get_current_user)):
+def delete_comment(comment_id: int, payload: dict[str, Any] = Body(default={}), user: dict[str, Any] = Depends(get_current_user)):
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute("SELECT user_id, status FROM comments WHERE id = %s LIMIT 1", (comment_id,))
@@ -724,6 +730,16 @@ def delete_comment(comment_id: int, user: dict[str, Any] = Depends(get_current_u
                 raise HTTPException(status_code=404, detail="留言不存在")
             if comment["user_id"] != user["id"] and user["role"] != "admin":
                 raise HTTPException(status_code=403, detail="只能删除自己的留言")
+            if comment["user_id"] != user["id"] and user["role"] == "admin":
+                from backend.moderation import site
+                try:
+                    site.delete(comment_id, user["id"], payload.get("reasons", []), payload.get("note", ""), conn._connection)
+                except ValueError as exc:
+                    raise HTTPException(422, str(exc)) from None
+                return {"ok": True}
+            if conn._connection is not None:
+                from backend.moderation import site
+                site.cancel(conn._connection, comment_id)
             if comment["status"] != "deleted":
                 cursor.execute(
                     "UPDATE comments SET status = 'deleted', content = '' WHERE id = %s",
@@ -925,45 +941,14 @@ def admin_review_comment_report(
 
 
 @router.delete("/admin/comment-reports/{report_id}/content")
-def admin_delete_reported_comment(
-    report_id: int,
-    admin: dict[str, Any] = Depends(_require_admin),
-):
-    """软删除被举报留言并处理该留言的全部待审举报。"""
-
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT comment_id
-                FROM comment_reports
-                WHERE id = %s AND status = 'pending'
-                LIMIT 1
-                """,
-                (report_id,),
-            )
-            report = cursor.fetchone()
-            if report is None:
-                raise HTTPException(status_code=404, detail="待处理举报不存在")
-            conn.batch([
-                (
-                    """
-                    UPDATE comments SET content = '', status = 'deleted'
-                    WHERE id = %s
-                      AND EXISTS (
-                        SELECT 1 FROM comment_reports
-                        WHERE id = %s AND status = 'pending'
-                      )
-                    """,
-                    (report["comment_id"], report_id),
-                ),
-                (
-                    """
-                    UPDATE comment_reports
-                    SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP, resolved_by = %s
-                    WHERE comment_id = %s AND status = 'pending'
-                    """,
-                    (admin["id"], report["comment_id"]),
-                ),
-            ])
+def admin_delete_reported_comment(report_id: int, payload: dict[str, Any] = Body(default={}), admin: dict[str, Any] = Depends(_require_admin)):
+    from backend.moderation import site
+    with site.db(True) as conn:
+        report = conn.execute("SELECT comment_id FROM comment_reports WHERE id=? AND status='pending'", (report_id,)).fetchone()
+        if report is None:
+            raise HTTPException(404, "待处理举报不存在")
+        try:
+            site.delete(report["comment_id"], admin["id"], payload.get("reasons", []), payload.get("note", ""), conn)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
     return {"ok": True, "commentId": report["comment_id"]}

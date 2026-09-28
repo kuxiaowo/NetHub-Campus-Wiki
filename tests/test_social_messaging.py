@@ -416,7 +416,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         with get_db_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("PRAGMA user_version")
-                self.assertEqual(cursor.fetchone()["user_version"], 16)
+                self.assertEqual(cursor.fetchone()["user_version"], 17)
                 cursor.execute("PRAGMA table_info(conversation_members)")
                 member_columns = {column["name"] for column in cursor.fetchall()}
                 self.assertNotIn("request_status", member_columns)
@@ -1300,7 +1300,8 @@ class SocialMessagingFlowTest(unittest.TestCase):
         item = next(row for row in remaining.json()["data"] if row["id"] == root_id)
         self.assertEqual(item["status"], "deleted")
         self.assertEqual(item["content"], "")
-        self.assertEqual(len(item["replies"]), 1)
+        self.assertEqual(len(item["replies"]), 2)
+        self.assertEqual(next(reply for reply in item["replies"] if reply["status"] == "hidden")["content"], "")
         deleted_like_notification = self.client.get(
             "/api/comment-notifications?kind=like",
             headers=self._headers(self.bob_token),
@@ -2065,8 +2066,9 @@ class SocialMessagingFlowTest(unittest.TestCase):
             headers=self._headers(self.admin_token),
         ).json()["data"]
         comment_report = next(row for row in pending_comments if row["commentId"] == comment_id)
-        deleted_comment = self.client.delete(
+        deleted_comment = self.client.request("DELETE",
             f"/api/admin/comment-reports/{comment_report['id']}/content",
+            json={"reasons": ["harassment"]},
             headers=self._headers(self.admin_token),
         )
         self.assertEqual(deleted_comment.status_code, 200, deleted_comment.text)
@@ -2134,7 +2136,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         for comment_id in (lone, dead_root, dead_sibling):
             self.assertEqual(self.client.get(f"/api/comments/{comment_id}/context").status_code, 404)
 
-        deleted = self.client.delete(f"/api/comments/{leaf}", headers=self._headers(self.admin_token))
+        deleted = self.client.request("DELETE", f"/api/comments/{leaf}", headers=self._headers(self.admin_token), json={"reasons": ["spam"]})
         self.assertEqual(deleted.status_code, 200, deleted.text)
         remaining = self.client.get(query).json()
         self.assertEqual([row["id"] for row in remaining["data"]], [other])

@@ -34,6 +34,7 @@
   }
 
   function renderCommentBody(comment) {
+    if (comment.status === 'hidden') return '<p class="comment-deleted">该留言正在复核</p>';
     if (comment.status === 'deleted') return '<p class="comment-deleted">该留言已删除</p>';
     const replyTo = comment.replyToUser
       ? comment.replyToUser.deleted
@@ -44,7 +45,7 @@
   }
 
   function renderCommentActions(state, comment) {
-    if (comment.status === 'deleted') return '';
+    if (comment.status !== 'visible') return '';
     const likeLabel = comment.liked ? '取消点赞' : '点赞';
     return `
       <div class="comment-actions">
@@ -59,7 +60,7 @@
         </button>
         <button type="button" data-comment-action="reply" data-comment-id="${escapeHtml(comment.id)}" data-comment-author="${escapeHtml(commentDisplayName(comment.author))}">回复</button>
         ${canDeleteComment(state, comment)
-          ? `<button type="button" data-comment-action="delete" data-comment-id="${escapeHtml(comment.id)}">删除</button>`
+          ? `<button type="button" data-comment-action="delete" data-comment-id="${escapeHtml(comment.id)}" data-comment-owner="${escapeHtml(comment.author.id)}">删除</button>`
           : `<button type="button" data-comment-action="report" data-comment-id="${escapeHtml(comment.id)}">举报</button>`}
       </div>
     `;
@@ -307,8 +308,12 @@
           });
         }
         if (action.dataset.commentAction === 'delete') {
-          if (!window.confirm('确认删除这条留言？回复关系会保留。')) return;
-          await request(`/comments/${encodeURIComponent(commentId)}`, { method: 'DELETE' });
+          if (state.currentUser?.role === 'admin' && String(state.currentUser.id) !== action.dataset.commentOwner) {
+            if (!await window.NetHubModeration.deleteComment(commentId)) return;
+          } else {
+            if (!window.confirm('确认删除这条留言？回复关系会保留。')) return;
+            await request(`/comments/${encodeURIComponent(commentId)}`, { method: 'DELETE' });
+          }
         }
         if (action.dataset.commentAction === 'report') {
           const reason = window.prompt('请填写举报理由。', '');
@@ -344,6 +349,33 @@
         return Number.isInteger(raw) && raw > 0 ? raw : null;
       })(),
     };
+    state.polling = false;
+    const draftShelf = document.createElement('div');
+    draftShelf.className = 'comment-draft-shelf';
+    element.after(draftShelf);
+    window.setInterval(async () => {
+      if (document.hidden || state.polling || !element.isConnected || !element.getClientRects().length) return;
+      state.polling = true;
+      try {
+        const loaded = [];
+        for (let page = 1; page <= state.page; page++) {
+          const query = new URLSearchParams({targetType:state.targetType,targetId:String(state.targetId),sort:state.sort,page:String(page),pageSize:'10'});
+          loaded.push(await request(`/comments?${query}`));
+        }
+        const drafts = [...element.querySelectorAll('[data-inline-reply]'), ...draftShelf.querySelectorAll('[data-inline-reply]')];
+        const focused = document.activeElement;
+        drafts.forEach(form => form.remove());
+        const last = loaded[loaded.length-1];
+        renderComments(state, {...last,data:loaded.flatMap(result=>result.data)}, false);
+        drafts.forEach(form => {
+          const slot = element.querySelector(`[data-reply-slot-for="${CSS.escape(form.dataset.parentId)}"]`);
+          (slot || draftShelf).append(form);
+          form.querySelector('[type="submit"]').disabled = !slot || !slot.closest('article').querySelector('[data-comment-action="reply"]');
+        });
+        if (focused && drafts.some(form => form.contains(focused))) focused.focus({preventScroll:true});
+      } catch { /* A transient polling failure does not discard drafts. */ }
+      finally { state.polling = false; }
+    }, 10000);
     mountedSections.set(element, state);
     activeStates.add(state);
     renderShell(state);
