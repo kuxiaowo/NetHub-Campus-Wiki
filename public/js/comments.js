@@ -187,7 +187,9 @@
   }
 
   async function submitComment(state, content, parentId = null) {
-    const turnstileToken = await getTurnstileToken('comment');
+    const verifiedKey = 'campusWikiTurnstileVerifiedUntil';
+    const verifiedUntil = Number(sessionStorage.getItem(verifiedKey) || 0);
+    const turnstileToken = verifiedUntil > Date.now() ? null : await getTurnstileToken('comment');
     await request('/comments', {
       method: 'POST',
       body: JSON.stringify({
@@ -198,6 +200,7 @@
         turnstileToken,
       }),
     });
+    sessionStorage.setItem(verifiedKey, String(Date.now() + 15 * 60 * 1000));
     state.page = 1;
     await loadComments(state);
   }

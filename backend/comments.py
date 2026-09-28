@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from backend.auth import get_current_user, get_optional_current_user, public_user_identity
+from backend.auth import get_current_user, get_optional_current_user, mark_turnstile_session_verified, public_user_identity, turnstile_session_is_fresh
 from backend.config import settings
 from backend.database import get_db_connection
 from backend.turnstile import verify_turnstile
@@ -526,10 +526,13 @@ def message_center_unread_count(user: dict[str, Any] = Depends(get_current_user)
 
 @router.post("/comments")
 def create_comment(
+    request: Request,
     payload: dict[str, Any],
     user: dict[str, Any] = Depends(get_current_user),
 ):
-    verify_turnstile(payload.get("turnstileToken"), "comment")
+    session_id = getattr(request.state, "auth_session_id", None)
+    if not turnstile_session_is_fresh(session_id):
+        verify_turnstile(payload.get("turnstileToken"), "comment")
     target_type = str(payload.get("targetType") or "")
     try:
         target_id = int(payload.get("targetId"))
@@ -706,6 +709,8 @@ def create_comment(
                         target_type=target_type,
                         target_id=target_id,
                     )
+    if payload.get("turnstileToken"):
+        mark_turnstile_session_verified(session_id)
     return {"data": {"id": comment_id}}
 
 
