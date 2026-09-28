@@ -27,6 +27,7 @@ PASSWORD_ITERATIONS = 260_000
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]{3,32}$")
 bearer_scheme = HTTPBearer(auto_error=False)
 SESSION_COOKIE_NAME = "campus_wiki_session"
+TURNSTILE_SESSION_WINDOW_SECONDS = 15 * 60
 
 
 def _base64url_encode(data: bytes) -> str:
@@ -305,7 +306,7 @@ def _session_record(token: str) -> dict[str, Any] | None:
                 """
                 SELECT s.id AS auth_session_id, s.auth_sub AS session_auth_sub,
                        s.sid AS auth_sid, s.idle_expires_at, s.absolute_expires_at,
-                       s.revoked_at, u.*,
+                       s.revoked_at, s.turnstile_verified_at, u.*,
                        (SELECT MIN(p.id) FROM people p WHERE p.user_id = u.id) AS person_id
                 FROM auth_sessions s
                 JOIN users u ON u.id = s.user_id
@@ -335,6 +336,30 @@ def _session_record(token: str) -> dict[str, Any] | None:
                 (now, next_idle, row["auth_session_id"]),
             )
     return row
+
+
+def turnstile_session_is_fresh(session_id: int | None) -> bool:
+    if not session_id:
+        return False
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT turnstile_verified_at FROM auth_sessions WHERE id = %s",
+                (session_id,),
+            )
+            row = cursor.fetchone()
+    return bool(row and row.get("turnstile_verified_at") and int(row["turnstile_verified_at"]) > int(time.time()) - TURNSTILE_SESSION_WINDOW_SECONDS)
+
+
+def mark_turnstile_session_verified(session_id: int | None) -> None:
+    if not session_id:
+        return
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "UPDATE auth_sessions SET turnstile_verified_at = %s WHERE id = %s AND revoked_at IS NULL",
+                (int(time.time()), session_id),
+            )
 
 
 def decode_access_token(token: str) -> dict[str, Any]:
@@ -515,6 +540,7 @@ def get_current_user(
     if not user["isActive"]:
         raise HTTPException(status_code=403, detail="账号已被禁用")
     request.state.analytics_user_sub = row.get("session_auth_sub") or row.get("auth_sub")
+    request.state.auth_session_id = row.get("auth_session_id")
     return user
 
 
