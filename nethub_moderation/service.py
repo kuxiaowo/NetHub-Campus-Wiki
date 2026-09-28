@@ -445,16 +445,24 @@ def create_app(directory=None, sites=None, token=None):
         }
 
     @app.post("/codex/login")
-    async def login():
+    async def login(payload: dict = Body(default={})):
+        login_type = payload.get("type", "chatgptDeviceCode")
+        if login_type not in {"chatgptDeviceCode", "chatgpt"}:
+            raise HTTPException(422, "仅支持 ChatGPT 账号登录")
         providers.codex.command = store.read()["codexCommand"]
         try:
             data = await providers.codex.rpc(
-                "account/login/start", {"type": "chatgptDeviceCode"}
+                "account/login/start", {"type": login_type}
             )
             worker.checked_at = 0
-            return data
+            return {**data, "requiresSshTunnel": login_type == "chatgpt"}
         except ProviderError as exc:
-            raise HTTPException(503, exc.code) from None
+            detail = (
+                "设备登录申请失败，可使用浏览器登录（先转发服务器 1455 端口）"
+                if login_type == "chatgptDeviceCode"
+                else exc.code
+            )
+            raise HTTPException(503, detail) from None
 
     return app
 
