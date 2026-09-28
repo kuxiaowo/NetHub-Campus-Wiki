@@ -3,24 +3,38 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>资源中心</title>
+  <title>资源中心｜Campus Wiki · NetHub</title>
+  <meta name="description" content="在 Campus Wiki 资源中心查找 Yearbook 年鉴、校园资料与活动影像，并按分类、年份和关键词筛选。" />
+  <meta property="og:title" content="资源中心｜Campus Wiki" />
+  <meta property="og:description" content="CAS 项目、校园资料与活动影像，一处查找。" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://nethub.wiki/resources.html" />
+  <link rel="canonical" href="https://nethub.wiki/resources.html" />
   <link rel="stylesheet" href="/css/styles.css" />
 </head>
 <body>
   <header class="site-header">
-    <nav class="navbar container">
-      <a class="brand" href="/index.html">校园论坛</a>
-      <div class="nav-links" aria-label="主导航">
+    <nav class="navbar container" aria-label="主导航">
+      <a class="brand" href="/index.html">NetHub <span class="brand-context">/ Campus Wiki</span></a>
+      <div class="nav-links">
         <a href="/index.html">首页</a>
         <a href="/projects.html">CAS 项目库</a>
         <a class="active" href="/resources.html">资源中心</a>
+        <a href="/about.html">关于</a>
       </div>
     </nav>
   </header>
 
-  <section class="container resource-filter-bar">
+  <main class="container library-page">
+    <section class="card library-intro">
+      <p class="eyebrow">Campus Wiki</p>
+      <h1>资源中心</h1>
+      <p>查找 Yearbook 年鉴、校园资料与活动影像。资源内容可公开浏览，文件下载需要登录。</p>
+    </section>
+
+  <section class="resource-filter-bar" aria-labelledby="resourceFilterTitle">
     <div class="card resource-filter-card">
-      <h1>资源筛选</h1>
+      <h2 id="resourceFilterTitle">资源筛选</h2>
       <div class="resource-filter-grid">
         <label>
           <span>关键词</span>
@@ -48,14 +62,14 @@
     </div>
   </section>
 
-  <main class="container library-layout">
+  <div class="library-layout">
     <aside class="card sidebar resource-sidebar">
       <h2>资源类型</h2>
-      <div id="resourceCategoryList" class="category-list"></div>
+      <div id="resourceCategoryList" class="category-list" aria-live="polite"></div>
 
       <section id="photoFilters" class="photo-filters" aria-label="照片筛选">
         <h3>选择活动</h3>
-        <div id="activityList" class="category-list"></div>
+        <div id="activityList" class="category-list" aria-live="polite"></div>
       </section>
     </aside>
 
@@ -63,17 +77,21 @@
       <div id="resourceView">
         <div class="section-title">
           <div>
-            <h1>资源中心</h1>
-            <span id="resourceCount">加载中...</span>
+            <h2>资源列表</h2>
+            <span id="resourceCount">查看全部资源</span>
           </div>
         </div>
-        <div id="resourceGrid" class="resource-grid"></div>
+        <div id="resourceGrid" class="resource-grid" aria-live="polite">
+          <!-- SEO_RESOURCES_START -->
+          <div class="empty seo-fallback">资源中心包含 Yearbook 年鉴、活动照片与其他校园资料。启用 JavaScript 后可使用搜索、筛选和排序。</div>
+          <!-- SEO_RESOURCES_END -->
+        </div>
       </div>
 
       <div id="photoView" class="photo-view">
         <div class="section-title with-control">
           <div>
-            <h1 id="photoTitle">活动照片</h1>
+            <h2 id="photoTitle">活动照片</h2>
             <span id="photoMeta">选择活动查看照片</span>
           </div>
           <button id="downloadActivity" class="button secondary" type="button">下载压缩文件</button>
@@ -84,8 +102,8 @@
       <div id="yearbookView" class="yearbook-view">
         <div class="section-title with-control">
           <div>
-            <h1 id="yearbookTitle">Yearbook</h1>
-            <span id="yearbookMeta">正在加载 Yearbook...</span>
+            <h2 id="yearbookTitle">Yearbook 年鉴</h2>
+            <span id="yearbookMeta">正在加载 Yearbook 年鉴...</span>
           </div>
           <div class="yearbook-actions">
             <button id="backToResources" class="button secondary" type="button">返回资源列表</button>
@@ -99,9 +117,10 @@
         </div>
       </div>
     </section>
+  </div>
   </main>
 
-  <div id="photoModal" class="photo-modal" aria-hidden="true" role="dialog" aria-label="照片详情">
+  <div id="photoModal" class="photo-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="photo-modal-backdrop" data-close-modal></div>
     <section class="photo-modal-panel">
       <div class="photo-modal-head">
@@ -122,7 +141,7 @@
     </section>
   </div>
 
-  <footer class="footer">资源中心支持年鉴、活动照片和常用资料筛选</footer>
+  <footer class="footer">Campus Wiki · 由 NetHub 开发和维护</footer>
   <script src="/js/config.js"></script>
   <script src="/js/api.js?v=auth-ui8"></script>
   <script src="/js/resources.js"></script>

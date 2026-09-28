@@ -294,10 +294,18 @@ async function loadDetail() {
   renderProjectDetail(result.data);
 }
 
-loadDetail().catch((error) => {
-  projectDetail.innerHTML = `
-    <div class="card detail-card">
-      <div class="empty error">${escapeHtml(error.message)}。请确认后端和数据库已启动。</div>
-    </div>
-  `;
+function loadDetailSafely() {
+  loadDetail().catch((error) => {
+    projectDetail.innerHTML = `
+      <div class="card detail-card">
+        <div class="empty error">${escapeHtml(error.message)}<br><button class="button secondary compact" type="button" data-retry-detail>重新加载</button></div>
+      </div>
+    `;
+  });
+}
+
+projectDetail.addEventListener('click', (event) => {
+  if (event.target.closest('[data-retry-detail]')) loadDetailSafely();
 });
+
+loadDetailSafely();

@@ -55,6 +55,10 @@ const photoSortOptions = [
   { value: 'old', label: '最早' },
 ];
 
+function displayResourceLabel(resource) {
+  return resource.category === 'yearbook' ? 'Yearbook 年鉴' : resource.label;
+}
+
 function setPhotoMode(enabled) {
   photoFilters.classList.toggle('is-visible', enabled);
   photoView.classList.toggle('is-visible', enabled);
@@ -148,7 +152,7 @@ function resourceCard(resource) {
   const thumb = `
     <span class="resource-thumb">
       <img src="${image}" alt="${escapeHtml(resource.title)}" loading="lazy">
-      <span class="badge">${escapeHtml(resource.label)}</span>
+      <span class="badge">${escapeHtml(displayResourceLabel(resource))}</span>
     </span>
   `;
 
@@ -158,7 +162,7 @@ function resourceCard(resource) {
         ? `<button class="resource-card-link" type="button" data-yearbook-resource-id="${escapeHtml(resource.id)}">${thumb}</button>`
         : `<a class="resource-card-link" href="${resourceUrl}" target="_blank" rel="noopener noreferrer" data-resource-download-id="${escapeHtml(resource.id)}" data-resource-url="${escapeHtml(resource.resourceUrl)}">${thumb}</a>`}
       <div class="resource-body">
-        <h2>${escapeHtml(resource.title)}</h2>
+        <h3>${escapeHtml(resource.title)}</h3>
         <p>${escapeHtml(resource.description)}</p>
         <div class="meta">
           <span>${escapeHtml(resource.year)}</span>
@@ -227,7 +231,7 @@ function activityResourceCard(activity) {
         <span class="badge">活动照片</span>
       </span>
       <span class="resource-body">
-        <h2>${escapeHtml(activity.activity)}</h2>
+        <h3>${escapeHtml(activity.activity)}</h3>
         <p>${escapeHtml(activity.description)}</p>
         <span class="meta">
           <span>${escapeHtml(activity.year)}</span>
@@ -278,26 +282,13 @@ async function loadResourceMeta() {
     '<button class="category-button active" type="button" data-resource-category="">全部资源</button>',
     ...meta.categories.map((category) => `
       <button class="category-button" type="button" data-resource-category="${escapeHtml(category.value)}">
-        ${escapeHtml(category.label)}
+        ${escapeHtml(category.value === 'yearbook' ? 'Yearbook 年鉴' : category.label)}
       </button>
     `),
   ].join('');
 
   updateFilterScope();
 
-  resourceCategoryList.addEventListener('click', (event) => {
-    const button = event.target.closest('.category-button');
-    if (!button) return;
-
-    selectedResourceCategory = button.dataset.resourceCategory;
-    resourceCategoryList.querySelectorAll('.category-button').forEach((item) => item.classList.remove('active'));
-    button.classList.add('active');
-    setPhotoMode(selectedResourceCategory === 'photos');
-    updateFilterScope();
-    selectedActivityId = null;
-    currentYearbook = null;
-    loadCurrentView();
-  });
 }
 
 async function loadResources() {
@@ -317,7 +308,7 @@ async function loadResources() {
   resourceCount.textContent = `共 ${result.data.length} 个资源`;
   resourceGrid.innerHTML = result.data.length
     ? result.data.map(resourceCard).join('')
-    : '<div class="empty">没有找到匹配的资源，换个筛选条件试试。</div>';
+    : '<div class="empty">暂时还没有相关资源，换个筛选条件试试。</div>';
   bindYearbookCards();
   bindResourceDownloadLinks();
 }
@@ -375,7 +366,7 @@ function photoActivityCard(activity) {
         <span class="badge">${escapeHtml(activity.year)}</span>
       </span>
       <span class="resource-body">
-        <h2>${escapeHtml(activity.activity)}</h2>
+        <h3>${escapeHtml(activity.activity)}</h3>
         <p>${escapeHtml(activity.description)}</p>
         <span class="meta">
           <span>${escapeHtml(activity.photoCount)} 张照片</span>
@@ -431,8 +422,8 @@ function renderPhotos(activities) {
   photoMeta.textContent = `${current.year} · ${current.photoCount} 张照片 · 热度 ${current.hot} · 下载 ${current.downloads || 0}`;
   activePhotoItems = [];
   photoGrid.innerHTML = '<div class="empty">正在加载活动照片...</div>';
-  loadActivityPhotos(current).catch((error) => {
-    photoGrid.innerHTML = `<div class="empty error">${escapeHtml(error.message)}</div>`;
+  loadActivityPhotos(current).catch(() => {
+    photoGrid.innerHTML = '<div class="empty error">暂时无法加载活动照片。<br><button class="button secondary compact" type="button" data-retry-activity>重新加载</button></div>';
   });
 }
 
@@ -474,9 +465,9 @@ async function openYearbook(resourceId) {
   setYearbookMode(true);
   currentYearbook = null;
   currentYearbookPage = 0;
-  yearbookTitle.textContent = 'Yearbook';
-  yearbookMeta.textContent = '正在加载 Yearbook...';
-  yearbookPages.innerHTML = '<div class="empty">正在加载 Yearbook...</div>';
+  yearbookTitle.textContent = 'Yearbook 年鉴';
+  yearbookMeta.textContent = '正在加载 Yearbook 年鉴...';
+  yearbookPages.innerHTML = '<div class="empty">正在加载 Yearbook 年鉴...</div>';
   setYearbookDownload(null);
   updateYearbookControls();
 
@@ -485,9 +476,9 @@ async function openYearbook(resourceId) {
     currentYearbook = result.data;
     currentYearbookPage = 0;
     renderYearbook();
-  } catch (error) {
-    yearbookMeta.textContent = 'Yearbook 加载失败';
-    yearbookPages.innerHTML = `<div class="empty error">${escapeHtml(error.message)}</div>`;
+  } catch {
+    yearbookMeta.textContent = 'Yearbook 年鉴加载失败';
+    yearbookPages.innerHTML = `<div class="empty error">暂时无法加载 Yearbook 年鉴。<br><button class="button secondary compact" type="button" data-retry-yearbook="${escapeHtml(resourceId)}">重新加载</button></div>`;
   }
 }
 
@@ -651,16 +642,41 @@ async function downloadCurrentActivityArchive() {
   link.remove();
 }
 
-[resourceYear, resourceSort].forEach((control) => control.addEventListener('change', loadCurrentView));
-resourceSearchButton.addEventListener('click', loadCurrentView);
+function renderCurrentViewError() {
+  const target = selectedResourceCategory === 'photos' ? photoGrid : resourceGrid;
+  target.innerHTML = '<div class="empty error">暂时无法加载资源。<br><button class="button secondary compact" type="button" data-retry-resources>重新加载</button></div>';
+}
+
+function loadCurrentViewSafely() {
+  loadCurrentView().catch(renderCurrentViewError);
+}
+
+resourceCategoryList.addEventListener('click', (event) => {
+  const button = event.target.closest('.category-button');
+  if (!button) return;
+
+  selectedResourceCategory = button.dataset.resourceCategory;
+  resourceCategoryList.querySelectorAll('.category-button').forEach((item) => item.classList.remove('active'));
+  button.classList.add('active');
+  setPhotoMode(selectedResourceCategory === 'photos');
+  updateFilterScope();
+  selectedActivityId = null;
+  currentYearbook = null;
+  loadCurrentViewSafely();
+});
+
+[resourceYear, resourceSort].forEach((control) => control.addEventListener('change', loadCurrentViewSafely));
+resourceSearchButton.addEventListener('click', loadCurrentViewSafely);
 resourceSearch.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') {
     event.preventDefault();
-    loadCurrentView();
+    loadCurrentViewSafely();
   }
 });
 
-downloadActivity.addEventListener('click', downloadCurrentActivityArchive);
+downloadActivity.addEventListener('click', () => {
+  downloadCurrentActivityArchive().catch(() => window.alert('暂时无法下载，请稍后重试。'));
+});
 yearbookPrev.addEventListener('click', () => shiftYearbook(-1));
 yearbookNext.addEventListener('click', () => shiftYearbook(1));
 backToResources.addEventListener('click', closeYearbook);
@@ -678,10 +694,23 @@ downloadYearbook.addEventListener('click', (event) => {
   const resourceId = currentYearbook?.resource?.id;
   trackResourceDownload(resourceId).then(updateCurrentYearbookDownloads);
 });
-modalDownload.addEventListener('click', downloadModalPhoto);
+modalDownload.addEventListener('click', () => {
+  downloadModalPhoto().catch(() => window.alert('暂时无法下载，请稍后重试。'));
+});
 modalPrev.addEventListener('click', () => shiftPhotoModal(-1));
 modalNext.addEventListener('click', () => shiftPhotoModal(1));
 document.querySelectorAll('[data-close-modal]').forEach((item) => item.addEventListener('click', closePhotoModal));
+document.addEventListener('click', (event) => {
+  if (event.target.closest('[data-retry-resources]')) loadCurrentViewSafely();
+  if (event.target.closest('[data-retry-activity]') && currentActivity) {
+    currentActivity.loadedImages = null;
+    loadActivityPhotos(currentActivity).catch(() => {
+      photoGrid.innerHTML = '<div class="empty error">暂时无法加载活动照片。<br><button class="button secondary compact" type="button" data-retry-activity>重新加载</button></div>';
+    });
+  }
+  const yearbookRetry = event.target.closest('[data-retry-yearbook]');
+  if (yearbookRetry) openYearbook(Number(yearbookRetry.dataset.retryYearbook));
+});
 document.addEventListener('keydown', (event) => {
   if (!photoModal.classList.contains('is-open') && yearbookView.classList.contains('is-visible')) {
     if (event.key === 'ArrowLeft') {
@@ -709,8 +738,12 @@ document.addEventListener('keydown', (event) => {
 });
 
 loadResourceMeta()
-  .then(loadCurrentView)
-  .catch((error) => {
-    resourceGrid.innerHTML = `<div class="empty error">${escapeHtml(error.message)}。请确认后端和数据库已启动。</div>`;
+  .then(loadCurrentViewSafely)
+  .catch(() => {
+    resourceGrid.innerHTML = '<div class="empty error">暂时无法加载资源分类。<br><button class="button secondary compact" type="button" data-retry-resource-page>重新加载页面</button></div>';
     photoGrid.innerHTML = '';
   });
+
+document.addEventListener('click', (event) => {
+  if (event.target.closest('[data-retry-resource-page]')) window.location.reload();
+});

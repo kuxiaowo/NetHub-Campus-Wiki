@@ -37,6 +37,7 @@ a { color: inherit; text-decoration: none; }
 
 .navbar { display: flex; align-items: center; justify-content: flex-start; gap: 28px; height: 68px; }
 .brand { flex: 0 0 auto; font-weight: 800; font-size: 22px; letter-spacing: 0; }
+.brand-context { color: var(--muted); font-size: 14px; font-weight: 700; }
 .nav-links { display: flex; gap: 10px; }
 .nav-links a { padding: 9px 14px; border-radius: 8px; color: var(--muted); font-weight: 600; }
 .nav-links a.active, .nav-links a:hover { color: var(--primary); background: #eef3ff; }
@@ -76,6 +77,7 @@ a { color: inherit; text-decoration: none; }
 .page-grid { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 22px; padding: 34px 0; }
 .full-width { grid-column: 1 / -1; }
 .hero { min-height: 260px; display: flex; flex-direction: column; justify-content: center; }
+.hero-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .eyebrow { color: var(--primary); font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; font-size: 12px; }
 h1, h2, h3, p { margin-top: 0; }
 h1 { font-size: clamp(34px, 6vw, 58px); line-height: 1; letter-spacing: 0; margin-bottom: 16px; }
@@ -91,7 +93,10 @@ p { color: var(--muted); line-height: 1.8; }
   border-radius: 8px;
   background: var(--primary);
   color: white;
+  font: inherit;
   font-weight: 800;
+  border: 0;
+  cursor: pointer;
   box-shadow: 0 12px 24px rgba(56, 103, 255, 0.24);
 }
 .button:hover { background: var(--primary-dark); }
@@ -108,6 +113,19 @@ p { color: var(--muted); line-height: 1.8; }
 .section-title { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
 .section-title span { color: var(--muted); font-size: 14px; }
 .with-control { align-items: center; }
+.section-note { margin: 18px 0 0; }
+.product-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.product-item { padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.product-item h3, .product-item p { margin-bottom: 0; }
+.product-item p { margin-top: 8px; }
+.cta-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+.cta-card { display: flex; flex-direction: column; align-items: flex-start; }
+.cta-card .button { margin-top: auto; }
+.about-stack { display: grid; gap: 22px; padding: 34px 0; }
+.about-flow { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 16px; margin-top: 16px; }
+.about-flow div { display: grid; gap: 5px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: #f7f9ff; }
+.about-flow strong { font-size: 20px; }
+.about-flow span { color: var(--muted); }
 
 .announcement-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
 .announcement-list li { padding: 14px; border-radius: 8px; background: #f7f9ff; border: 1px solid #edf1fb; color: #344054; }
@@ -166,7 +184,10 @@ p { color: var(--muted); line-height: 1.8; }
 .cas-tag.on { background: #e8fff3; color: #12915a; }
 
 /* 项目库页面：左侧筛选栏 + 右侧项目列表。 */
-.library-layout { display: grid; grid-template-columns: 280px 1fr; gap: 22px; padding: 34px 0; align-items: start; }
+.library-page { display: grid; gap: 18px; padding: 28px 0 34px; }
+.library-intro h1 { font-size: clamp(34px, 5vw, 52px); }
+.library-intro p:last-child { margin-bottom: 0; }
+.library-layout { display: grid; grid-template-columns: 280px 1fr; gap: 22px; align-items: start; }
 .sidebar { position: sticky; top: 92px; display: grid; gap: 10px; }
 .sidebar label { font-size: 13px; color: var(--muted); font-weight: 700; margin-top: 6px; }
 .category-list { display: grid; gap: 8px; }
@@ -201,7 +222,7 @@ p { color: var(--muted); line-height: 1.8; }
 .admin-project-main:hover h3 { color: var(--primary); }
 
 /* 资源中心页面：顶部通用筛选 + 左侧分类 + 右侧内容结构。 */
-.resource-filter-bar { padding-top: 18px; }
+.resource-filter-bar { padding: 0; }
 .resource-filter-card {
   display: flex;
   gap: 16px;
@@ -210,7 +231,7 @@ p { color: var(--muted); line-height: 1.8; }
   overflow-x: auto;
   white-space: nowrap;
 }
-.resource-filter-card h1 {
+.resource-filter-card h2 {
   margin: 0;
   font-size: 20px;
   line-height: 1.2;
@@ -290,7 +311,7 @@ p { color: var(--muted); line-height: 1.8; }
 .resource-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .resource-thumb .badge { position: absolute; top: 12px; left: 12px; background: rgba(255, 255, 255, 0.92); }
 .resource-body { display: grid; gap: 10px; padding: 16px; flex: 1; }
-.resource-body h2 { margin: 0; font-size: 18px; }
+.resource-body h2, .resource-body h3 { margin: 0; font-size: 18px; }
 .resource-body p { margin: 0; }
 
 .photo-view { display: none; }
@@ -941,6 +962,10 @@ p { color: var(--muted); line-height: 1.8; }
 .link-card { display: block; padding: 14px; border: 1px solid var(--line); border-radius: 8px; color: var(--primary); word-break: break-all; }
 .footer { text-align: center; color: var(--muted); padding: 28px; }
 .empty { color: var(--muted); padding: 26px; text-align: center; border: 1px dashed #ccd4e5; border-radius: 8px; }
+.empty .button { margin-top: 12px; }
+.seo-fallback { grid-column: 1 / -1; }
+.seo-snapshot-card .badge { width: fit-content; }
+.project-row.seo-snapshot-card { grid-template-columns: 1fr; }
 .error { color: #b42318; background: #fff1f0; border-color: #ffd4d1; }
 .error-text { color: #b42318 !important; }
 
@@ -1472,8 +1497,8 @@ p { color: var(--muted); line-height: 1.8; }
   .nav-links { width: 100%; overflow-x: auto; }
   .auth-area { width: 100%; margin-left: 0; justify-content: space-between; }
   .auth-user { text-align: left; }
-  .page-grid, .library-layout { grid-template-columns: 1fr; }
-  .project-grid, .resource-grid, .photo-grid.photo-activity-cards { grid-template-columns: 1fr; }
+  .page-grid, .library-layout, .cta-grid, .about-flow { grid-template-columns: 1fr; }
+  .project-grid, .resource-grid, .photo-grid.photo-activity-cards, .product-grid { grid-template-columns: 1fr; }
   .yearbook-actions { justify-content: flex-start; }
   .yearbook-reader { padding: 56px 0 0; }
   .yearbook-pages { grid-template-columns: 1fr; }

@@ -1079,9 +1079,9 @@ async function openAdminYearbook(resourceId) {
   adminEls.yearbookView.classList.add('is-visible');
   adminState.currentYearbook = null;
   adminState.currentYearbookPage = 0;
-  adminEls.yearbookTitle.textContent = 'Yearbook';
-  adminEls.yearbookMeta.textContent = '正在加载 Yearbook...';
-  adminEls.yearbookPages.innerHTML = '<div class="empty">正在加载 Yearbook...</div>';
+  adminEls.yearbookTitle.textContent = 'Yearbook 年鉴';
+  adminEls.yearbookMeta.textContent = '正在加载 Yearbook 年鉴...';
+  adminEls.yearbookPages.innerHTML = '<div class="empty">正在加载 Yearbook 年鉴...</div>';
   setAdminYearbookDownload(null);
   updateAdminYearbookControls();
 
@@ -1091,7 +1091,7 @@ async function openAdminYearbook(resourceId) {
     adminState.currentYearbookPage = 0;
     renderAdminYearbook();
   } catch (error) {
-    adminEls.yearbookMeta.textContent = 'Yearbook 加载失败';
+    adminEls.yearbookMeta.textContent = 'Yearbook 年鉴加载失败';
     adminEls.yearbookPages.innerHTML = `<div class="empty error">${adminText(error.message)}</div>`;
   }
 }

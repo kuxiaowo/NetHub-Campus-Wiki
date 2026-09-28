@@ -1,6 +1,6 @@
-# Campus Wiki 校园论坛 + CAS 项目库
+# NetHub Campus Wiki 校园资源平台
 
-这是一个前后端分离的校园项目展示原型，包含首页公告、CAS 项目库、项目筛选、资源中心、活动照片和项目详情。
+Campus Wiki 是由学生技术团队 NetHub 开发和维护的校园资源平台，包含首页公告、CAS 项目库、项目筛选、资源中心、活动照片和项目详情。NetHub 还开发 TodoList、TechX 心情晴雨表等校园工具，并提供网站开发与部署支持。
 
 ## 技术栈
 
@@ -13,7 +13,7 @@
 
 ```text
 Campus Wiki/
-├── frontend_server.py     # 前端静态文件服务
+├── frontend_server.py     # 前端文件服务与公开内容 SEO 快照
 ├── backend/
 │   ├── main.py            # FastAPI 路由和 CORS 配置
 │   ├── config.py          # 环境变量配置
@@ -23,6 +23,7 @@ Campus Wiki/
 │   └── schemas.py         # API 响应模型
 ├── public/
 │   ├── index.html         # 首页
+│   ├── about.html         # NetHub 与 Campus Wiki 介绍
 │   ├── projects.html      # CAS 项目库
 │   ├── resources.html     # 资源中心
 │   ├── detail.html        # 项目详情
@@ -129,8 +130,16 @@ python3 frontend_server.py
 
 - 首页：http://127.0.0.1:3200/
 - CAS 项目库：http://127.0.0.1:3200/projects.html
+- 资源中心：http://127.0.0.1:3200/resources.html
+- 关于 NetHub：http://127.0.0.1:3200/about.html
 
 如果后端端口或域名变化，修改 `.env` 中的 `FRONTEND_API_BASE_URL`，然后重启前端服务。后端的 `CORS_ORIGINS` 也要包含当前前端页面的来源，否则浏览器会拦截跨域请求。
+
+### SEO 内容快照
+
+`frontend_server.py` 返回 `projects.html` 和 `resources.html` 时，会调用公开列表 API，把项目名称、简介、分类以及资源名称、简介、分类注入初始 HTML。结果在进程内缓存 5 分钟；API 暂时不可用时保留页面内置的功能说明，不阻塞页面脚本继续加载。浏览器端 JavaScript 随后仍会接管列表，原有搜索、筛选和排序不受影响。
+
+该增强依赖页面通过 `frontend_server.py` 提供。如果生产环境使用 Nginx 等服务直接返回 `public/` 中的静态 HTML，需要在部署流程中提供等效的预渲染或把请求转发到此前端服务，否则只能索引页面标题、介绍和资源分类说明，无法获得实时列表项。
 
 ## 数据库结构
 

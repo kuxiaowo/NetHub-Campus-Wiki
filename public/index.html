@@ -3,27 +3,38 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>校园论坛 - 首页</title>
+  <title>NetHub｜学生主导的校园技术团队</title>
+  <meta name="description" content="NetHub 是学生主导的校园技术团队，开发 Campus Wiki、TodoList、TechX 等工具，并提供网站开发与部署支持。" />
+  <meta property="og:title" content="NetHub｜让校园里的想法真正上线" />
+  <meta property="og:description" content="开发工具、整理校园资源，也为校园项目提供开发与部署支持。" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://nethub.wiki/" />
+  <link rel="canonical" href="https://nethub.wiki/" />
   <link rel="stylesheet" href="/css/styles.css" />
 </head>
 <body>
   <header class="site-header">
-    <nav class="navbar container">
-      <a class="brand" href="/index.html">校园论坛</a>
-      <div class="nav-links" aria-label="主导航">
+    <nav class="navbar container" aria-label="主导航">
+      <a class="brand" href="/index.html">NetHub <span class="brand-context">/ Campus Wiki</span></a>
+      <div class="nav-links">
         <a class="active" href="/index.html">首页</a>
         <a href="/projects.html">CAS 项目库</a>
         <a href="/resources.html">资源中心</a>
+        <a href="/about.html">关于</a>
       </div>
     </nav>
   </header>
 
   <main class="container page-grid">
     <section class="hero card">
-      <p class="eyebrow">Campus Activity & Service</p>
-      <h1>校园论坛</h1>
-      <p>一个简洁的校园项目展示入口：查看公告、发现优秀 CAS 项目，并为后续论坛、账号、评论等功能预留扩展空间。</p>
-      <a class="button" href="/projects.html">浏览 CAS 项目库</a>
+      <p class="eyebrow">Student-led campus technology</p>
+      <h1>让校园里的想法真正上线</h1>
+      <p>NetHub 是一个由学生发起的校园技术团队。我们开发工具、整理资源，也帮助校园里的想法从方案走向可用的产品。</p>
+      <p>Campus Wiki 是由 NetHub 开发和维护的校园资源平台，你可以在这里查找 CAS 项目、校园资料与活动影像。</p>
+      <div class="hero-actions">
+        <a class="button" href="/projects.html">进入 Campus Wiki</a>
+        <a class="button secondary" href="/about.html">了解 NetHub</a>
+      </div>
     </section>
 
     <section class="card">
@@ -31,7 +42,7 @@
         <h2>最新公告</h2>
         <span>Announcements</span>
       </div>
-      <ul id="announcementList" class="announcement-list skeleton-list"></ul>
+      <ul id="announcementList" class="announcement-list skeleton-list" aria-live="polite"></ul>
     </section>
 
     <section class="card full-width">
@@ -40,16 +51,47 @@
           <h2>推荐项目</h2>
           <span>按最新或热门排序</span>
         </div>
+        <label class="sr-only" for="recommendSort">推荐项目排序</label>
         <select id="recommendSort" class="input small">
           <option value="latest">最新</option>
           <option value="popular">热门</option>
         </select>
       </div>
-      <div id="recommendProjects" class="project-grid"></div>
+      <div id="recommendProjects" class="project-grid" aria-live="polite"></div>
+    </section>
+
+    <section class="card full-width">
+      <div class="section-title">
+        <div>
+          <h2>NetHub 的项目与支持</h2>
+          <span>从时间管理，到校园资源与协作</span>
+        </div>
+      </div>
+      <div class="product-grid">
+        <article class="product-item"><h3>TodoList</h3><p>为 IB 等国际课程学生设计的 TodoList，把截止日期放进日历，把今天留给行动。</p></article>
+        <article class="product-item"><h3>Campus Wiki</h3><p>CAS 项目、校园资料与活动影像，一处查找。</p></article>
+        <article class="product-item"><h3>TechX 心情晴雨表</h3><p>帮助校园社区更直观地了解和表达当下状态。</p></article>
+        <article class="product-item"><h3>开发支持</h3><p>提供开发经验、工具与技术支持。</p></article>
+        <article class="product-item"><h3>部署上线</h3><p>帮助项目完成部署，让网站真正上线。</p></article>
+      </div>
+      <p class="section-note">这些产品从真实需求出发，也在使用中持续迭代。</p>
+    </section>
+
+    <section class="cta-grid full-width" aria-label="参与 Campus Wiki 或联系 NetHub">
+      <article class="card cta-card">
+        <h2>想补充校园资料？</h2>
+        <p>向 Campus Wiki 补充 CAS 项目、校园资料或活动影像。</p>
+        <a class="button" href="/resources.html">提交资源</a>
+      </article>
+      <article class="card cta-card">
+        <h2>有项目需要技术支持？</h2>
+        <p>了解 NetHub 能提供的网站开发与部署支持。</p>
+        <a class="button secondary" href="/about.html#contact">联系 NetHub</a>
+      </article>
     </section>
   </main>
 
-  <footer class="footer">校园论坛原型 · 前端静态服务 + FastAPI API + MySQL</footer>
+  <footer class="footer">Campus Wiki · 由 NetHub 开发和维护</footer>
   <script src="/js/config.js"></script>
   <script src="/js/api.js?v=auth-ui8"></script>
   <script src="/js/index.js"></script>

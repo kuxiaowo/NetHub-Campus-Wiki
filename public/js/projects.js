@@ -37,25 +37,16 @@ async function loadMeta() {
   const meta = await request('/meta');
 
   categoryList.innerHTML = [
-    `<button class="category-button active" data-category="">全部分类</button>`,
+    `<button class="category-button active" type="button" data-category="">全部分类</button>`,
     ...meta.categories.map((category) => {
       const safeCategory = escapeHtml(category);
-      return `<button class="category-button" data-category="${safeCategory}">${safeCategory}</button>`;
+      return `<button class="category-button" type="button" data-category="${safeCategory}">${safeCategory}</button>`;
     }),
   ].join('');
 
   yearSelect.innerHTML = `<option value="">全部年份</option>` +
     meta.years.map((year) => `<option value="${escapeHtml(year)}">${escapeHtml(year)}</option>`).join('');
 
-  // 使用事件委托处理动态生成的分类按钮，避免给每个按钮单独绑定事件。
-  categoryList.addEventListener('click', (event) => {
-    const button = event.target.closest('.category-button');
-    if (!button) return;
-    selectedCategory = button.dataset.category;
-    document.querySelectorAll('.category-button').forEach((item) => item.classList.remove('active'));
-    button.classList.add('active');
-    loadProjects();
-  });
 }
 
 // 根据当前筛选状态查询项目列表。
@@ -71,17 +62,44 @@ async function loadProjects() {
   projectCount.textContent = `共 ${result.data.length} 个项目`;
   projectList.innerHTML = result.data.length
     ? result.data.map(projectRow).join('')
-    : '<div class="empty">没有找到符合条件的项目，换个筛选试试。</div>';
+    : '<div class="empty">暂时还没有相关项目，换个筛选条件试试。</div>';
 }
 
-[yearSelect, sortSelect].forEach((el) => el.addEventListener('change', loadProjects));
+function loadProjectsSafely() {
+  loadProjects().catch(() => {
+    projectCount.textContent = '加载失败';
+    projectList.innerHTML = '<div class="empty error">暂时无法加载项目。<br><button class="button secondary compact" type="button" data-retry-projects>重新加载</button></div>';
+  });
+}
+
+[yearSelect, sortSelect].forEach((el) => el.addEventListener('change', loadProjectsSafely));
+
+// 使用事件委托处理动态生成的分类按钮，重试元数据时不会重复绑定。
+categoryList.addEventListener('click', (event) => {
+  const button = event.target.closest('.category-button');
+  if (!button) return;
+  selectedCategory = button.dataset.category;
+  categoryList.querySelectorAll('.category-button').forEach((item) => item.classList.remove('active'));
+  button.classList.add('active');
+  loadProjectsSafely();
+});
 
 // 搜索框输入频率高，使用 300ms 防抖减少无意义请求。
 searchInput.addEventListener('input', () => {
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(loadProjects, 300);
+  debounceTimer = setTimeout(loadProjectsSafely, 300);
 });
 
-loadMeta().then(loadProjects).catch((error) => {
-  projectList.innerHTML = `<div class="empty error">${escapeHtml(error.message)}。请确认后端和数据库已启动。</div>`;
+projectList.addEventListener('click', (event) => {
+  if (event.target.closest('[data-retry-projects]')) loadProjectsSafely();
+  if (event.target.closest('[data-retry-project-page]')) initializeProjects();
 });
+
+function initializeProjects() {
+  loadMeta().then(loadProjectsSafely).catch(() => {
+    projectCount.textContent = '加载失败';
+    projectList.innerHTML = '<div class="empty error">暂时无法加载项目筛选信息。<br><button class="button secondary compact" type="button" data-retry-project-page>重新加载</button></div>';
+  });
+}
+
+initializeProjects();
