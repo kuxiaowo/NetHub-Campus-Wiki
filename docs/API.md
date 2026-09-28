@@ -768,7 +768,7 @@ JSON 迁移覆盖 CAS 项目（含成员联系方式与动态）、普通资源�
 - `DELETE /api/admin/announcements/{announcement_id}`：永久删除公告及其留言、回复、点赞、举报和通知。
 - `GET /api/admin/comment-reports?status=pending`：读取留言举报。
 - `PATCH /api/admin/comment-reports/{report_id}`：以 `resolved` 或 `dismissed` 处理；`hideComment=true` 时同时隐藏被举报留言。
-- `DELETE /api/admin/comment-reports/{report_id}/content`：清空被举报留言正文、标记为已删除，并处理该留言的全部待审举报；回复关系继续保留。
+- `DELETE /api/admin/comment-reports/{report_id}/content`：清空被举报留言正文、标记为已删除，并处理该留言的全部待审举报；没有可见回复时前台不显示该留言，有回复时保留“该留言已删除”占位，回复关系继续保留。
 - `GET /api/admin/message-reports?status=pending`：读取私信举报。
 - `GET /api/admin/message-reports/{report_id}/context`：读取被举报私信及前后各五条上下文消息，仅管理员可用。
 - `PATCH /api/admin/message-reports/{report_id}`：以 `resolved` 或 `dismissed` 处理举报。

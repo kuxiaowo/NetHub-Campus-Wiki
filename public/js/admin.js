@@ -942,7 +942,7 @@ async function openMessageReportContext(reportId) {
 }
 
 async function deleteReportedComment(reportId) {
-  if (!window.confirm('确认删除这条被举报留言？正文会从前台隐藏，回复关系会保留。')) return;
+  if (!window.confirm('确认删除这条被举报留言？没有回复时会从列表移除，有回复时保留删除占位。')) return;
   await adminEndpoint(`/admin/comment-reports/${reportId}/content`, { method: 'DELETE' });
   await loadCommunityAdmin();
 }
@@ -992,9 +992,7 @@ async function loadCommunityAdmin() {
     adminState.commentReports,
     (row) => `
       <div class="admin-inline-actions">
-        <button class="button compact" type="button" data-review-comment-report="${adminText(row.id)}" data-comment-report-decision="hide">隐藏并处理</button>
         <button class="button secondary compact danger" type="button" data-delete-reported-comment="${adminText(row.id)}">删除内容</button>
-        <button class="button secondary compact" type="button" data-review-comment-report="${adminText(row.id)}" data-comment-report-decision="dismiss">忽略</button>
       </div>
     `,
   );
@@ -2540,16 +2538,6 @@ function bindAdminEvents() {
     }
     if (target.dataset.deleteAnnouncement) {
       deleteAnnouncement(target.dataset.deleteAnnouncement).catch((error) => window.alert(error.message));
-    }
-    if (target.dataset.reviewCommentReport) {
-      const hideComment = target.dataset.commentReportDecision === 'hide';
-      adminEndpoint(`/admin/comment-reports/${target.dataset.reviewCommentReport}`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          status: hideComment ? 'resolved' : 'dismissed',
-          hideComment,
-        }),
-      }).then(loadCommunityAdmin).catch((error) => window.alert(error.message));
     }
     if (target.dataset.bindProjectMember) {
       const project = findAdminProject(target.dataset.bindingProject);
