@@ -29,6 +29,9 @@ exponential backoff. It does not delete acknowledged events.
    and sets the D1 watermark to the snapshot sequence. It does not mutate
    SQLite. For Todo, it leaves the two retired D1 tables empty and clears the
    old `ip` columns to empty strings; those values never return to SQLite.
+   Full content audits consume D1 read quota. The reconciler pages by primary
+   key so large tables are scanned once per audit instead of repeatedly reading
+   earlier pages with `OFFSET`.
 6. Run `d1_mirror.py arm --db ... --snapshot SNAPSHOT --baseline-seq SEQ --site SITE`.
    This checks the snapshot sequence and D1 watermark. Enable and start the
    `nethub-d1-mirror@SITE.service` and health timer. Confirm that local and D1
