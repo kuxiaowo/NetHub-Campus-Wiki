@@ -231,3 +231,35 @@ class ServiceTest(unittest.TestCase):
             ),
             200,
         )
+
+    def test_subscription_exhaustion_stops_before_generating_even_with_credits(self):
+        async def probe():
+            with tempfile.TemporaryDirectory() as directory:
+                store = ConfigStore(directory)
+                store.save({"model": "mock"})
+
+                class Catalog:
+                    async def models(self, config):
+                        return {
+                            "data": [{"model": "mock"}],
+                            "quota": {
+                                "rateLimits": {
+                                    "primary": {
+                                        "usedPercent": 100,
+                                        "resetsAt": 9999999999,
+                                    },
+                                    "credits": {"hasCredits": True},
+                                }
+                            },
+                        }
+
+                    async def close(self):
+                        pass
+
+                worker = Worker(store, Catalog(), [], "token")
+                self.assertFalse(await worker.preflight(store.read()))
+                self.assertEqual(worker.paused_until, 9999999999)
+                self.assertFalse(worker.tasks)
+                await worker.close()
+
+        asyncio.run(probe())
