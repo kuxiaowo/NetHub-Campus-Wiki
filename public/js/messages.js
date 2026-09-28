@@ -411,7 +411,7 @@ async function sendCurrentMessage() {
   submit.disabled = true;
   messageEls.status.textContent = '正在发送...';
   try {
-    const turnstileToken = await getTurnstileToken('message');
+    const turnstileToken = await getContentTurnstileToken('message');
     const result = await request(`/conversations/${encodeURIComponent(messageState.active.id)}/messages`, {
       method: 'POST',
       body: JSON.stringify({

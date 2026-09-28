@@ -64,6 +64,13 @@ function loadTurnstileScript() {
   return turnstileScriptPromise;
 }
 
+async function getContentTurnstileToken(action) {
+  const config = await request('/turnstile/config');
+  if (config.sessionVerified) return null;
+  turnstileSiteKeyPromise = Promise.resolve(config.siteKey);
+  return getTurnstileToken(action);
+}
+
 async function getTurnstileToken(action) {
   if (!turnstileSiteKeyPromise) {
     turnstileSiteKeyPromise = request('/turnstile/config')

@@ -11,6 +11,7 @@ import shutil
 import sqlite3
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -2390,6 +2391,67 @@ class SocialMessagingFlowTest(unittest.TestCase):
         final_contents = {item["content"] for item in final_updates}
         self.assertIn("并发动态 1", final_contents)
         self.assertIn("并发动态 2", final_contents)
+
+
+    def test_16_comment_and_message_share_fixed_one_hour_verification(self) -> None:
+        sender = self._register("hour_sender", "Hour Sender")
+        recipient = self._register("hour_recipient", "Hour Recipient")
+        token = self._login("hour_sender", "password123")
+        recipient_token = self._login("hour_recipient", "password123")
+        headers = self._headers(token)
+        self.client.post(f"/api/users/{sender['id']}/follow", headers=self._headers(recipient_token))
+        conversation = self.client.post("/api/conversations", headers=headers,
+            json={"targetUserId": recipient["id"]}).json()["data"]["id"]
+        url = f"/api/conversations/{conversation}/messages"
+
+        def verify(token, action):
+            if not token:
+                from fastapi import HTTPException
+                raise HTTPException(status_code=400, detail="请完成人机验证")
+
+        with patch("backend.messaging.verify_turnstile", side_effect=verify) as messages, \
+                patch("backend.comments.verify_turnstile", side_effect=verify) as comments:
+            self.assertEqual(self.client.post(url, headers=headers, json={"body": "missing"}).status_code, 400)
+            first = self.client.post(url, headers=headers, json={"body": "verified", "turnstileToken": "valid"})
+            self.assertEqual(first.status_code, 200, first.text)
+            config = self.client.get("/api/turnstile/config", headers=headers)
+            self.assertTrue(config.json()["sessionVerified"])
+            self.assertEqual(config.json()["sessionWindowSeconds"], 3600)
+            self.assertEqual(config.headers["cache-control"], "no-store")
+            with get_db_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT id, turnstile_verified_at FROM auth_sessions WHERE user_id = %s", (sender["id"],))
+                    session = cursor.fetchone()
+            messages.reset_mock()
+            now = int(time.time())
+            verified_at = now - 3599
+            with get_db_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("UPDATE auth_sessions SET turnstile_verified_at = %s WHERE id = %s", (verified_at, session["id"]))
+            with patch("backend.auth.time.time", return_value=now):
+                second = self.client.post(url, headers=headers, json={"body": "within one hour"})
+                self.assertEqual(second.status_code, 200, second.text)
+                comment = self.client.post("/api/comments", headers=headers, json={
+                    "targetType": "project", "targetId": 1, "content": "同一会话内评论免重复验证"})
+                self.assertEqual(comment.status_code, 200, comment.text)
+                messages.assert_not_called()
+                comments.assert_not_called()
+            with get_db_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT turnstile_verified_at FROM auth_sessions WHERE id = %s", (session["id"],))
+                    self.assertEqual(cursor.fetchone()["turnstile_verified_at"], verified_at)
+            with patch("backend.auth.time.time", return_value=now + 1):
+                self.assertFalse(self.client.get("/api/turnstile/config", headers=headers).json()["sessionVerified"])
+                self.assertEqual(self.client.post(url, headers=headers, json={"body": "expired"}).status_code, 400)
+                self.assertEqual(self.client.post("/api/comments", headers=headers, json={
+                    "targetType": "project", "targetId": 1, "content": "expired"}).status_code, 400)
+                renewed = self.client.post("/api/comments", headers=headers, json={
+                    "targetType": "project", "targetId": 1, "content": "重新验证后发布", "turnstileToken": "valid"})
+                self.assertEqual(renewed.status_code, 200, renewed.text)
+                messages.reset_mock()
+                self.assertEqual(self.client.post(url, headers=headers, json={"body": "comment verification reused"}).status_code, 200)
+                messages.assert_not_called()
+            self.assertFalse(self.client.get("/api/turnstile/config").json()["sessionVerified"])
 
 
 if __name__ == "__main__":
