@@ -46,7 +46,7 @@ def select_rows(
             after = []
             for index, name in enumerate(pk):
                 prefix = []
-                for earlier, value in zip(pk[:index], last_key[:index]):
+                for earlier, value in zip(pk[:index], last_key[:index], strict=True):
                     prefix.append(f"{d1_mirror.quote(earlier)} IS ?")
                     params.append(value)
                 if last_key[index] is None:
