@@ -318,7 +318,7 @@ class Providers:
             raise ProviderError("provider_timeout") from None
         except httpx.HTTPError:
             raise ProviderError("provider_connection_failed") from None
-        if response.status_code == 429:
+        if response.status_code in {402, 429}:
             raise ProviderError("quota_exhausted")
         if response.status_code in {401, 403}:
             raise ProviderError("provider_auth_failed")

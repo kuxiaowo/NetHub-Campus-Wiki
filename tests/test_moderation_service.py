@@ -164,6 +164,49 @@ class ServiceTest(unittest.TestCase):
 
         asyncio.run(probe())
 
+    def test_insufficient_balance_pauses_queue_without_exposing_response(self):
+        async def probe():
+            with tempfile.TemporaryDirectory() as directory:
+                store = ConfigStore(directory)
+                store.save({"provider": "openai", "apiKey": "secret", "model": "mock"})
+                providers = Providers(directory)
+                await providers.http.aclose()
+                calls = []
+
+                def handler(request):
+                    calls.append(request.url.path)
+                    return httpx.Response(
+                        402, text="insufficient balance; key is secret"
+                    )
+
+                providers.http = httpx.AsyncClient(
+                    transport=httpx.MockTransport(handler)
+                )
+                worker = Worker(store, providers, [], "token")
+                config = store.read()
+                worker.checked_version = config["version"]
+                completed = []
+
+                async def complete(url, path, payload):
+                    completed.append(payload)
+                    return {"applied": True}
+
+                worker.call = complete
+                try:
+                    await worker.run_job(
+                        "wiki", {"jobId": "test", "currentComment": "正常"}, config
+                    )
+                    self.assertEqual(completed[0]["error"], "quota_exhausted")
+                    self.assertGreater(completed[0]["retryAt"], 0)
+                    self.assertNotIn("secret", json.dumps(completed))
+                    self.assertFalse(await worker.preflight(config))
+                    self.assertIn("等待恢复", worker.message)
+                    self.assertEqual(calls, ["/v1/chat/completions"])
+                finally:
+                    await worker.close()
+
+        asyncio.run(probe())
+
     def test_global_pool_fairness_and_lower_limit_does_not_cancel_running_tasks(self):
         async def probe():
             with tempfile.TemporaryDirectory() as directory:
