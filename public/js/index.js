@@ -17,14 +17,13 @@ function projectUpdateMediaUrl(item) {
 
 function latestProjectUpdatePhoto(project) {
   const updates = Array.isArray(project.updates) ? project.updates : [];
-  const fallbackDate = project.updatedAt || project.createdAt || '';
   const latest = updates
     .map((update, index) => ({
       update,
       index,
       date: update && typeof update === 'object'
-        ? update.createdAt || update.updatedAt || update.date || update.time || fallbackDate
-        : fallbackDate,
+        ? update.createdAt || update.date || update.time || ''
+        : '',
     }))
     .sort((left, right) => {
       const leftTime = new Date(left.date).getTime();
