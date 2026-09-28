@@ -8,10 +8,10 @@ import secrets
 import time
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
 
-from backend.auth import get_current_user, public_user_identity
+from backend.auth import get_current_user, public_user_identity, mark_turnstile_session_verified, turnstile_session_is_fresh
 from backend.config import settings
 from backend.database import get_db_connection
 from backend.project_assets import project_icon_url
@@ -443,11 +443,16 @@ def list_messages(
 
 @router.post("/conversations/{conversation_id}/messages")
 async def send_message(
+    request: Request,
     conversation_id: int,
     payload: dict[str, Any],
     user: dict[str, Any] = Depends(get_current_user),
 ):
-    await run_in_threadpool(verify_turnstile, payload.get("turnstileToken"), "message")
+    session_id = getattr(request.state, "auth_session_id", None)
+    verification_required = not await run_in_threadpool(turnstile_session_is_fresh, session_id)
+    if verification_required:
+        await run_in_threadpool(verify_turnstile, payload.get("turnstileToken"), "message")
+        await run_in_threadpool(mark_turnstile_session_verified, session_id)
     message_type = str(payload.get("type") or "text")
     if message_type not in {"text", "project"}:
         raise HTTPException(status_code=422, detail="消息类型无效")

@@ -37,6 +37,7 @@ from backend.social import router as social_router
 from backend.config import settings, validate_runtime_settings
 from backend.auth import (
     SESSION_COOKIE_NAME,
+    TURNSTILE_SESSION_WINDOW_SECONDS,
     authenticate_user,
     change_user_password,
     create_access_token,
@@ -50,6 +51,7 @@ from backend.auth import (
     revoke_session,
     revoke_sessions,
     update_username,
+    turnstile_session_is_fresh,
 )
 from backend.auth_rate_limit import (
     clear_login_failures,
@@ -466,8 +468,18 @@ def backchannel_logout(logout_token: str = Form(...)):
 
 
 @app.get("/api/turnstile/config", tags=["system"])
-def turnstile_config():
-    return {"siteKey": settings.turnstile_site_key}
+def turnstile_config(
+    request: Request,
+    response: Response,
+    user: dict | None = Depends(get_optional_current_user),
+):
+    response.headers["Cache-Control"] = "no-store"
+    session_id = getattr(request.state, "auth_session_id", None) if user else None
+    return {
+        "siteKey": settings.turnstile_site_key,
+        "sessionVerified": turnstile_session_is_fresh(session_id),
+        "sessionWindowSeconds": TURNSTILE_SESSION_WINDOW_SECONDS,
+    }
 
 
 @app.get("/api/meta", response_model=MetaResponse, tags=["projects"])

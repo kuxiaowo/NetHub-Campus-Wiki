@@ -27,7 +27,7 @@ PASSWORD_ITERATIONS = 260_000
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]{3,32}$")
 bearer_scheme = HTTPBearer(auto_error=False)
 SESSION_COOKIE_NAME = "campus_wiki_session"
-TURNSTILE_SESSION_WINDOW_SECONDS = 15 * 60
+TURNSTILE_SESSION_WINDOW_SECONDS = 60 * 60
 
 
 def _base64url_encode(data: bytes) -> str:
@@ -557,4 +557,5 @@ def get_optional_current_user(
     if row is None or not row.get("is_active"):
         return None
     request.state.analytics_user_sub = row.get("session_auth_sub") or row.get("auth_sub")
+    request.state.auth_session_id = row.get("auth_session_id")
     return format_user(row)

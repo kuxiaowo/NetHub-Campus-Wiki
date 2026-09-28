@@ -533,7 +533,8 @@ def create_comment(
     user: dict[str, Any] = Depends(get_current_user),
 ):
     session_id = getattr(request.state, "auth_session_id", None)
-    if not turnstile_session_is_fresh(session_id):
+    verification_required = not turnstile_session_is_fresh(session_id)
+    if verification_required:
         verify_turnstile(payload.get("turnstileToken"), "comment")
     target_type = str(payload.get("targetType") or "")
     try:
@@ -715,7 +716,7 @@ def create_comment(
     if not is_d1:
         from backend.moderation import site
         background_tasks.add_task(site.release, comment_id)
-    if payload.get("turnstileToken"):
+    if verification_required:
         mark_turnstile_session_verified(session_id)
     return {"data": {"id": comment_id, "moderationStatus": "pending"}}
 
