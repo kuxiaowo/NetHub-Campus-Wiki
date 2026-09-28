@@ -96,7 +96,7 @@ class SchemaSecurityTest(unittest.TestCase):
                 connection.close()
 
         self.assertEqual(counts, {table: 0 for table in counts})
-        self.assertEqual(version, 17)
+        self.assertEqual(version, 18)
 
     def test_v10_migration_archives_drafts_and_marks_deleted_users(self) -> None:
         sql_root = Path(__file__).resolve().parents[1] / "sql"

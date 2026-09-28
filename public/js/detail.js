@@ -179,7 +179,6 @@ function metricValue(...values) {
 
 function normalizeUpdates(project) {
   const rawUpdates = asArray(project.updates);
-  const fallbackDate = firstFilled(project.updatedAt, project.createdAt);
 
   const updates = rawUpdates.map((item, index) => {
     if (item && typeof item === 'object') {
@@ -209,7 +208,7 @@ function normalizeUpdates(project) {
         author: firstFilled(boundMember.name, item.authorName, publisher.name, publisher.displayName, project.leader, '项目成员'),
         avatar: safeDetailUrl(firstFilled(boundMember.avatarUrl, publisher.avatar, item.avatar)),
         role: firstFilled(boundMember.role, item.authorRole, publisher.role, item.role, item.isLeader ? '负责人' : ''),
-        date: firstFilled(item.createdAt, item.updatedAt, item.date, item.time, fallbackDate),
+        date: firstFilled(item.createdAt, item.date, item.time),
         content,
         images,
         videos,
@@ -226,7 +225,7 @@ function normalizeUpdates(project) {
       author: firstFilled(project.leader, '项目成员'),
       avatar: null,
       role: index === 0 && project.leader ? '负责人' : '成员',
-      date: fallbackDate,
+      date: '',
       content: cleanText(item),
       images: [],
       videos: [],
@@ -323,7 +322,7 @@ function renderFeed(project) {
                   <strong>${escapeHtml(item.author)}</strong>
                   <div class="feed-meta">
                     ${item.role ? `<span>${escapeHtml(projectUpdateRoleLabel(item.role))}</span>` : ''}
-                    ${item.date ? `<time>${formatDate(item.date)}</time>` : ''}
+                    <time>${item.date ? formatDate(item.date) : '发布时间未记录'}</time>
                   </div>
                 </div>
                 ${item.canDelete && item.id ? `

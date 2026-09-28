@@ -416,7 +416,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         with get_db_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("PRAGMA user_version")
-                self.assertEqual(cursor.fetchone()["user_version"], 17)
+                self.assertEqual(cursor.fetchone()["user_version"], 18)
                 cursor.execute("PRAGMA table_info(conversation_members)")
                 member_columns = {column["name"] for column in cursor.fetchall()}
                 self.assertNotIn("request_status", member_columns)
@@ -1825,7 +1825,11 @@ class SocialMessagingFlowTest(unittest.TestCase):
 
     def test_11_cas_popularity_tracks_public_detail_views(self) -> None:
         clear_tracked_views()
-        baseline = self.client.get("/api/projects/1?track=false").json()["data"]["popularity"]
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("UPDATE projects SET updated_at = %s WHERE id = 1", ("2020-01-01 00:00:00",))
+        original = self.client.get("/api/projects/1?track=false").json()["data"]
+        baseline = original["popularity"]
 
         first = self.client.get(
             "/api/projects/1",
@@ -1849,6 +1853,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         self.assertEqual(guest_one.json()["data"]["popularity"], baseline + 3)
         self.assertEqual(guest_two.json()["data"]["popularity"], baseline + 4)
         self.assertEqual(untracked.json()["data"]["popularity"], baseline + 4)
+        self.assertEqual(untracked.json()["data"]["updatedAt"], original["updatedAt"])
         self.assertEqual(self.client.get("/api/projects/999999").status_code, 404)
         rejected = self.client.patch(
             "/api/admin/projects/1",
