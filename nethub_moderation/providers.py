@@ -47,6 +47,7 @@ class Codex:
                     raise ProviderError("codex_command_change_busy")
                 await self.close()
             self.directory.mkdir(parents=True, exist_ok=True)
+            (self.directory / "home").mkdir(mode=0o700, parents=True, exist_ok=True)
             command = shutil.which(self.command) or self.command
             args = [command]
             if command.lower().endswith((".cmd", ".bat", ".ps1")):

@@ -141,8 +141,10 @@ def make_router(site, admin_dependency, user_dependency):
         return {**worker, "queue": site.counts()}
 
     @router.post("/api/admin/moderation/codex/login")
-    async def login(_: dict = Depends(admin_dependency)):
-        return await proxy("POST", "/codex/login", {})
+    async def login(
+        payload: dict = Body(default={}), _: dict = Depends(admin_dependency)
+    ):
+        return await proxy("POST", "/codex/login", payload)
 
     @router.get("/api/system-notifications")
     def notifications(

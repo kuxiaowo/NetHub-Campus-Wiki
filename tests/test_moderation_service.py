@@ -37,6 +37,12 @@ class ServiceTest(unittest.TestCase):
                         )
                         self.assertEqual(response.status_code, 200)
                         self.assertNotIn("apiKey", response.json())
+                        response = await client.post(
+                            "/codex/login",
+                            json={"type": "apiKey"},
+                            headers={"Authorization": "Bearer " + "x" * 48},
+                        )
+                        self.assertEqual(response.status_code, 422)
                     async with httpx.AsyncClient(
                         transport=httpx.ASGITransport(
                             app, client=("203.0.113.1", 1234)

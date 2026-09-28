@@ -94,15 +94,18 @@
   form.provider.onchange=()=>action(discover);form.model.onchange=setEfforts;
   root.querySelector('[data-models]').onclick=()=>action(discover);
   root.querySelector('[data-test]').onclick=()=>action(async()=>{await api('/admin/moderation/test',{method:'POST',body:JSON.stringify(payload())});message.textContent='连接及审核结果校验成功';});
-  root.querySelector('[data-login]').onclick=()=>action(async()=>{
-    const info=await api('/admin/moderation/codex/login',{method:'POST'});
+  async function login(type='chatgptDeviceCode') {
+    const info=await api('/admin/moderation/codex/login',{method:'POST',body:JSON.stringify({type})});
     const url=info.verificationUri || info.verificationUrl || info.authUrl || info.deviceAuthUrl;
     const code=info.userCode || info.user_code || '';
     const container=root.querySelector('[data-login-info]');container.replaceChildren();
     const p=document.createElement('p');p.textContent=`服务器登录验证码：${code || '请打开登录页面'}`;container.append(p);
     if (url && new URL(url).protocol==='https:') {const a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener noreferrer';a.textContent='打开官方登录页面';container.append(a);}
-    message.textContent='完成登录后点击获取模型。';
-  });
+    message.textContent=info.requiresSshTunnel?'请先运行 ssh -N -L 1455:127.0.0.1:1455 nethub-server，再打开登录页面；完成后获取模型。':'完成登录后点击获取模型。';
+  }
+  root.querySelector('[data-login]').onclick=()=>action(()=>login());
+  const browserLogin=document.createElement('button');browserLogin.type='button';browserLogin.textContent='浏览器登录';browserLogin.title='设备登录受限时使用；需通过 SSH 转发服务器 1455 端口';
+  browserLogin.onclick=()=>action(()=>login('chatgpt'));root.querySelector('[data-login]').after(browserLogin);
   root.querySelector('[data-state]').onchange=event=>{currentState=event.target.value;page=1;action(()=>loadCases());};
   root.querySelector('[data-refresh]').onclick=()=>action(async()=>{page=1;await status();await loadCases();});
   root.querySelector('[data-more]').onclick=()=>action(async()=>{page++;await loadCases(true);});
