@@ -24,7 +24,7 @@ from pathlib import Path
 
 VERSION = 1
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-RESERVED = ("sqlite_", "_sync_", "_cf_")
+RESERVED = ("sqlite_", "_sync_", "_cf_", "_moderation_")
 SITE_ENV = {
     "accounts": ("ACCOUNTS_D1_GATEWAY_URL", "ACCOUNTS_D1_GATEWAY_SECRET"),
     "wiki": ("D1_GATEWAY_URL", "D1_GATEWAY_HMAC_SECRET"),

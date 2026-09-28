@@ -220,6 +220,29 @@ class MirrorTests(unittest.TestCase):
             self.gateway.db.execute("SELECT seq FROM _sync_watermark").fetchone()[0], 2
         )
 
+    def test_schema_migration_baseline_preserves_delivered_event_history(self):
+        db = sqlite3.connect(self.local)
+        db.execute("INSERT INTO users VALUES(1,'before migration')")
+        db.commit()
+        self._arm()
+        d1_mirror.worker(self.local, self.gateway, once=True, poll_seconds=0)
+        self.assertEqual(self.gateway.db.execute("SELECT seq FROM _sync_watermark").fetchone()[0], 1)
+        db.execute("UPDATE _sync_control SET ready=0 WHERE id=1")
+        db.execute("UPDATE users SET name='after migration' WHERE id=1")
+        db.commit()
+        db.close()
+        snapshot_path = Path(self.temp.name) / 'migration.sqlite3'
+        self.assertEqual(d1_mirror.snapshot(self.local, snapshot_path), 2)
+        with self.assertRaises(RuntimeError):
+            d1_reconcile.reconcile(snapshot_path, self.gateway, 'accounts', True)
+        with self.assertRaises(RuntimeError):
+            d1_reconcile.reconcile(snapshot_path, self.gateway, 'accounts', True, migration_watermark=0)
+        result = d1_reconcile.reconcile(snapshot_path, self.gateway, 'accounts', True, migration_watermark=1)
+        self.assertTrue(result['applied'])
+        self.assertEqual(self.gateway.db.execute("SELECT COUNT(*) FROM _sync_events").fetchone()[0], 1)
+        self.assertEqual(self.gateway.db.execute("SELECT seq FROM _sync_watermark").fetchone()[0], 2)
+        self.assertTrue(d1_reconcile.verify(snapshot_path, self.gateway, 'accounts')['matches'])
+
     def test_bounded_replay_stops_at_snapshot_watermark(self):
         db = sqlite3.connect(self.local)
         db.execute("INSERT INTO users VALUES(1,'first')")

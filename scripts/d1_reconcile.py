@@ -197,7 +197,7 @@ def apply_batches(gateway: d1_mirror.Gateway, statements: list[tuple[str, list]]
         gateway.request(batch)
 
 
-def reconcile(snapshot: Path, gateway: d1_mirror.Gateway, site: str, apply: bool) -> dict:
+def reconcile(snapshot: Path, gateway: d1_mirror.Gateway, site: str, apply: bool, migration_watermark: int | None = None) -> dict:
     db = d1_mirror.connect(snapshot)
     try:
         d1_mirror.verify_capture(db)
@@ -206,12 +206,15 @@ def reconcile(snapshot: Path, gateway: d1_mirror.Gateway, site: str, apply: bool
             raise RuntimeError("snapshot was taken after delivery was armed")
         baseline_seq = db.execute("SELECT seq FROM _sync_clock WHERE id=1").fetchone()[0]
         d1_state = gateway.request([("SELECT seq FROM _sync_watermark WHERE id=1", [])])[0]["rows"]
-        if len(d1_state) != 1 or d1_state[0]["seq"] not in (0, baseline_seq):
+        previous_seq = 0 if migration_watermark is None else migration_watermark
+        if previous_seq < 0 or previous_seq > baseline_seq:
+            raise RuntimeError("Migration watermark exceeds snapshot sequence")
+        if len(d1_state) != 1 or d1_state[0]["seq"] not in (previous_seq, baseline_seq):
             raise RuntimeError("D1 watermark is incompatible with this baseline")
         applied = gateway.request([("SELECT COUNT(*) AS n FROM _sync_events", [])])[0]["rows"][0][
             "n"
         ]
-        if applied:
+        if applied and migration_watermark is None:
             raise RuntimeError("D1 already contains live sync events")
         order = inspect_schema(db, gateway, site)
         deletes, upserts, before = differences(db, gateway, order)
@@ -236,9 +239,9 @@ def reconcile(snapshot: Path, gateway: d1_mirror.Gateway, site: str, apply: bool
         _, _, after = differences(db, gateway, order)
         if any(any(count for count in row.values()) for row in after.values()):
             raise RuntimeError("D1 baseline verification failed")
-        if d1_state[0]["seq"] == 0:
+        if d1_state[0]["seq"] == previous_seq:
             gateway.request(
-                [("UPDATE _sync_watermark SET seq=? WHERE id=1 AND seq=0", [baseline_seq])]
+                [("UPDATE _sync_watermark SET seq=? WHERE id=1 AND seq=?", [baseline_seq, previous_seq])]
             )
         state = gateway.request([("SELECT seq FROM _sync_watermark WHERE id=1", [])])[0]["rows"][0][
             "seq"
@@ -281,6 +284,7 @@ def main() -> None:
     parser.add_argument("--secret-env")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--verify-only", action="store_true")
+    parser.add_argument("--migration-watermark", type=int, help="Confirmed D1 sequence after stopping delivery; retain existing event history during schema migration")
     args = parser.parse_args()
     url_env, secret_env = d1_mirror.SITE_ENV[args.site]
     gateway = d1_mirror.Gateway(
@@ -291,7 +295,7 @@ def main() -> None:
     result = (
         verify(args.snapshot, gateway, args.site)
         if args.verify_only
-        else reconcile(args.snapshot, gateway, args.site, args.apply)
+        else reconcile(args.snapshot, gateway, args.site, args.apply, args.migration_watermark)
     )
     print(json.dumps(result, sort_keys=True))
     if args.verify_only and not result["matches"]:

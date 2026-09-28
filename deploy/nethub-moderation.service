@@ -1,0 +1,26 @@
+[Unit]
+Description=NetHub shared comment moderation
+After=network-online.target nethub-wiki-api.service nethub-cas.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nethub
+Group=nethub
+WorkingDirectory=/srv/nethub/apps/wiki/current
+EnvironmentFile=/srv/nethub/secrets/moderation.production.env
+ExecStart=/srv/nethub/venvs/wiki/bin/python -m nethub_moderation.service
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/nethub/data/moderation
+MemoryHigh=250M
+MemoryMax=400M
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

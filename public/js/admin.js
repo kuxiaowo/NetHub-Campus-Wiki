@@ -942,9 +942,9 @@ async function openMessageReportContext(reportId) {
 }
 
 async function deleteReportedComment(reportId) {
-  if (!window.confirm('确认删除这条被举报留言？没有回复时会从列表移除，有回复时保留删除占位。')) return;
-  await adminEndpoint(`/admin/comment-reports/${reportId}/content`, { method: 'DELETE' });
-  await loadCommunityAdmin();
+  const report = adminState.commentReports.find(row => String(row.id) === String(reportId));
+  if (!report) return;
+  await window.NetHubModeration.deleteComment(report.commentId, loadCommunityAdmin);
 }
 
 async function deleteReportedMessage(reportId) {

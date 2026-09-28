@@ -30,6 +30,7 @@ if __package__ in {None, ""}:
 from backend.admin import router as admin_router
 from backend.announcements import router as announcements_router
 from backend.comments import router as comments_router
+from backend.moderation import router as moderation_router
 from backend.messaging import router as messaging_router
 from backend.project_updates import router as project_updates_router
 from backend.social import router as social_router
@@ -147,6 +148,7 @@ app.include_router(social_router)
 app.include_router(messaging_router)
 app.include_router(announcements_router)
 app.include_router(comments_router)
+app.include_router(moderation_router)
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -177,7 +179,7 @@ async def cookie_session_security(request: Request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "same-origin")
-    if request.url.path.startswith("/api/auth"):
+    if request.url.path.startswith(("/api/auth", "/api/admin", "/api/comments", "/api/system-notifications", "/api/message-center", "/api/comment-notifications")):
         response.headers.setdefault("Cache-Control", "no-store")
     return response
 
