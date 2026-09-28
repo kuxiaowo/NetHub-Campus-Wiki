@@ -21,6 +21,8 @@ class ProjectUpdateTimeTest(unittest.TestCase):
             connection.executescript((ROOT / "sql/migrations/018_project_content_update_time.sql").read_text(encoding="utf-8"))
             connection.execute("UPDATE projects SET popularity = popularity + 1 WHERE id = 1")
             self.assertEqual(connection.execute("SELECT popularity, updated_at FROM projects").fetchone(), (1, '2020-01-01'))
+            connection.execute("UPDATE projects SET popularity = popularity + 1, name = name, updates = updates WHERE id = 1")
+            self.assertEqual(connection.execute("SELECT updated_at FROM projects").fetchone()[0], '2020-01-01')
             connection.execute("UPDATE projects SET description = 'After' WHERE id = 1")
             self.assertNotEqual(connection.execute("SELECT updated_at FROM projects").fetchone()[0], '2020-01-01')
             connection.execute("UPDATE projects SET updated_at = '2020-01-01' WHERE id = 1")
