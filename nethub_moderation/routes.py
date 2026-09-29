@@ -159,7 +159,11 @@ def make_router(site, admin_dependency, user_dependency):
         through = payload.get("throughId")
         if type(through) is not int or through < 0:
             raise HTTPException(422, "throughId 无效")
-        site.read(user["id"], through)
+        system_through = payload.get("throughSystemId", through)
+        report_through = payload.get("throughReportId", through)
+        if any(type(value) is not int or value < 0 for value in (system_through, report_through)):
+            raise HTTPException(422, "已读边界无效")
+        site.read(user["id"], system_through, report_through)
         return {"ok": True}
 
     @router.post("/internal/moderation/claim", dependencies=[Depends(internal_auth)])
