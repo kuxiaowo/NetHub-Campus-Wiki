@@ -52,19 +52,10 @@ function adminText(value) {
 }
 
 function adminUserCreatedTime(value) {
-  const raw = String(value ?? '').trim();
-  if (!raw) return '—';
-  // SQLite CURRENT_TIMESTAMP is UTC but does not include a timezone suffix.
-  const normalized = raw.replace(' ', 'T');
-  const timestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(normalized)
-    ? `${normalized}Z` : normalized;
-  const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
+  return formatSiteTimestamp(value, {
     year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-  }).format(date);
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }, '—');
 }
 
 function adminNumber(value, fallback = 0) {
@@ -824,7 +815,7 @@ async function loadSecuritySettings() {
     adminState.securitySettings = settings;
     fillSecuritySettingsForm(settings);
     setSecuritySettingsMessage(
-      settings.updatedAt ? `当前设置最后更新于 ${settings.updatedAt}` : '已加载当前设置。',
+      settings.updatedAt ? `当前设置最后更新于 ${adminUserCreatedTime(settings.updatedAt)}` : '已加载当前设置。',
     );
   } catch (error) {
     setSecuritySettingsMessage(error.message, true);
@@ -928,7 +919,7 @@ async function openMessageReportContext(reportId) {
           <article class="admin-report-message${message.reported ? ' reported' : ''}" id="admin-report-message-${adminText(message.id)}">
             <header>
               <strong>${adminText(message.sender.displayName || message.sender.username || '校园用户')}${message.reported ? ' · 被举报消息' : ''}</strong>
-              <time>${adminText(message.createdAt)}</time>
+              <time>${adminText(adminUserCreatedTime(message.createdAt))}</time>
             </header>
             <p>${message.recalled ? '消息已删除或撤回' : adminText(message.body || (message.project ? `CAS 项目：${message.project.name}` : ''))}</p>
           </article>
@@ -988,7 +979,7 @@ async function loadCommunityAdmin() {
       { key: 'status', label: '状态', render: (row) => `${row.isPinned ? '置顶 · ' : ''}${adminText(announcementStatusLabel(row.status))}` },
       { key: 'viewCount', label: '浏览' },
       { key: 'commentCount', label: '留言' },
-      { key: 'publishedAt', label: '发布时间', render: (row) => adminText(row.publishedAt || '—') },
+      { key: 'publishedAt', label: '发布时间', render: (row) => adminText(adminUserCreatedTime(row.publishedAt)) },
     ],
     adminState.announcements,
     (row) => `
@@ -1006,7 +997,7 @@ async function loadCommunityAdmin() {
       { key: 'authorUsername', label: '作者', render: (row) => `@${adminText(row.authorUsername)}` },
       { key: 'reporterUsername', label: '举报人', render: (row) => `@${adminText(row.reporterUsername)}` },
       { key: 'reason', label: '理由' },
-      { key: 'createdAt', label: '时间' },
+      { key: 'createdAt', label: '时间', render: (row) => adminText(adminUserCreatedTime(row.createdAt)) },
     ],
     adminState.commentReports,
     (row) => `
@@ -1023,7 +1014,7 @@ async function loadCommunityAdmin() {
       { key: 'senderUsername', label: '发送者', render: (row) => `@${adminText(row.senderUsername)}` },
       { key: 'reporterUsername', label: '举报人', render: (row) => `@${adminText(row.reporterUsername)}` },
       { key: 'reason', label: '举报理由' },
-      { key: 'createdAt', label: '举报时间' },
+      { key: 'createdAt', label: '举报时间', render: (row) => adminText(adminUserCreatedTime(row.createdAt)) },
     ],
     adminState.messageReports,
     (row) => `
@@ -1306,11 +1297,11 @@ function normalizeAdminProjectUpdates(rawUpdates) {
       createdAt: '',
     };
   }).filter((item) => item.content || item.images.length).sort((a, b) => {
-    const timeA = Date.parse(a.createdAt);
-    const timeB = Date.parse(b.createdAt);
-    if (Number.isNaN(timeA) && Number.isNaN(timeB)) return a.sourceIndex - b.sourceIndex;
-    if (Number.isNaN(timeA)) return 1;
-    if (Number.isNaN(timeB)) return -1;
+    const timeA = projectUpdateTimestamp(a.createdAt)?.getTime();
+    const timeB = projectUpdateTimestamp(b.createdAt)?.getTime();
+    if (timeA === undefined && timeB === undefined) return a.sourceIndex - b.sourceIndex;
+    if (timeA === undefined) return 1;
+    if (timeB === undefined) return -1;
     return timeB - timeA || a.sourceIndex - b.sourceIndex;
   });
 }
@@ -1344,7 +1335,7 @@ function adminProjectUpdates(project) {
         const visibleImages = update.images.slice(0, 6);
         return `
           <article class="admin-project-update-card">
-            ${update.authorName ? `<small>发布成员：${adminText(update.authorName)}${update.authorRole ? ` · ${adminText(update.authorRole === 'leader' ? '负责人' : '成员')}` : ''}${update.createdAt ? ` · ${adminText(update.createdAt)}` : ''}</small>` : ''}
+            ${update.authorName ? `<small>发布成员：${adminText(update.authorName)}${update.authorRole ? ` · ${adminText(update.authorRole === 'leader' ? '负责人' : '成员')}` : ''} · ${update.createdAt ? adminText(formatProjectUpdateDate(update.createdAt)) : '发布时间未记录'}</small>` : ''}
             <p>${update.content ? adminText(update.content) : '<span>仅照片动态</span>'}</p>
             ${visibleImages.length ? `
               <div class="admin-project-update-photos">

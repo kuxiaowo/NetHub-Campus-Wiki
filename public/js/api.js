@@ -15,6 +15,60 @@ const PROTECTED_FILE_EXTENSIONS = new Set([
 ]);
 const PROTECTED_FILE_DIRS = new Set(['photos', 'yearbook']);
 
+const SITE_TIME_ZONE = 'Asia/Shanghai';
+const SITE_DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const SITE_DATE_TIME = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$/i;
+
+// SQLite CURRENT_TIMESTAMP has no suffix, although its value is UTC.
+function parseSiteTimestamp(value) {
+  const raw = String(value ?? '').trim();
+  if (!SITE_DATE_TIME.test(raw)) return null;
+  const calendarDay = raw.slice(0, 10);
+  const calendarDate = new Date(`${calendarDay}T00:00:00Z`);
+  if (Number.isNaN(calendarDate.getTime()) || calendarDate.toISOString().slice(0, 10) !== calendarDay) return null;
+  if (Number(raw.slice(11, 13)) > 23 || Number(raw.slice(14, 16)) > 59
+    || (raw[16] === ':' && Number(raw.slice(17, 19)) > 59)) return null;
+  const normalized = raw.replace(' ', 'T').replace(/([+-]\d{2})(\d{2})$/, '$1:$2');
+  const timestamp = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized)
+    ? normalized : `${normalized}Z`;
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatSiteTimestamp(value, options, fallback = '') {
+  const date = parseSiteTimestamp(value);
+  if (!date) return fallback;
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: SITE_TIME_ZONE,
+    hourCycle: 'h23',
+    ...options,
+  }).format(date);
+}
+
+function siteCalendarDay(date) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: SITE_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(date);
+}
+
+// Imported project updates can contain a calendar date rather than an instant.
+function projectUpdateTimestamp(value) {
+  const raw = String(value ?? '').trim();
+  if (SITE_DATE_ONLY.test(raw)) {
+    const date = new Date(`${raw}T00:00:00Z`);
+    return Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== raw ? null : date;
+  }
+  return parseSiteTimestamp(raw);
+}
+
+function formatProjectUpdateDate(value) {
+  const raw = String(value ?? '').trim();
+  if (SITE_DATE_ONLY.test(raw)) return projectUpdateTimestamp(raw) ? raw.replace(/-/g, '/') : raw;
+  return formatSiteTimestamp(raw, {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  }, raw);
+}
+
 async function request(path, options = {}) {
   const headers = new Headers(options.headers || {});
   if (options.body && !(options.body instanceof FormData) && !headers.has('Content-Type')) {

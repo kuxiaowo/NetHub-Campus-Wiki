@@ -1,6 +1,7 @@
 (() => {
   'use strict';
   const reasons = {harassment:'辱骂骚扰与校园霸凌',hate:'仇恨与歧视',sexual:'色情及不当性内容',violence:'暴力威胁与鼓励自伤',privacy:'隐私泄露',fraud:'诈骗与危险行为引导',spam:'广告灌水与恶意刷屏',other:'其他'};
+  const siteDateTime = value => formatSiteTimestamp(value, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const e = (v) => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   async function api(path, options={}) {
     const headers = new Headers(options.headers);
@@ -42,9 +43,9 @@
             : (item.note ? `感谢您的举报，${item.note}` : '感谢您的举报，举报已被管理员驳回。');
         const authorReason = item.audience === 'author' && item.reasonCodes?.length
           ? `<p><strong>处理原因：</strong>${item.reasonCodes.map(code=>e(reasons[code] || '其他')).join('、')}</p>${item.note?`<p>${e(item.note)}</p>`:''}` : '';
-        card.innerHTML=`<header><strong>${e(item.title)}</strong><time>${e(item.createdAt)}</time></header><p class="mod-notification-excerpt">${e(item.excerpt || '原内容已不可见')}</p><p>${e(message)}</p>${authorReason}`;
+        card.innerHTML=`<header><strong>${e(item.title)}</strong><time>${e(siteDateTime(item.createdAt))}</time></header><p class="mod-notification-excerpt">${e(item.excerpt || '原内容已不可见')}</p><p>${e(message)}</p>${authorReason}`;
       } else {
-        card.innerHTML=`<header><strong>${e(item.title)}</strong><time>${e(item.createdAt)}</time></header><p class="mod-notification-excerpt">${e(item.excerpt || '原内容已不可见')}</p><p>你在「${e(item.target.title)}」发表的${item.title.startsWith('回复')?'回复':'评论'}已被管理员删除。</p><p><strong>处理原因：</strong>${item.reasons.map(e).join('、')}</p><details><summary>查看详情</summary><p>${e(item.note || '管理员已确认上述处理原因。')}</p><p>留言编号：${e(item.commentId)}</p>${item.target.available?`<a href="${e(item.target.url)}">查看原页面</a>`:'<p>原页面已不存在或不可访问。</p>'}</details>`;
+        card.innerHTML=`<header><strong>${e(item.title)}</strong><time>${e(siteDateTime(item.createdAt))}</time></header><p class="mod-notification-excerpt">${e(item.excerpt || '原内容已不可见')}</p><p>你在「${e(item.target.title)}」发表的${item.title.startsWith('回复')?'回复':'评论'}已被管理员删除。</p><p><strong>处理原因：</strong>${item.reasons.map(e).join('、')}</p><details><summary>查看详情</summary><p>${e(item.note || '管理员已确认上述处理原因。')}</p><p>留言编号：${e(item.commentId)}</p>${item.target.available?`<a href="${e(item.target.url)}">查看原页面</a>`:'<p>原页面已不存在或不可访问。</p>'}</details>`;
       }
       fragment.append(card);
     });
@@ -80,7 +81,7 @@
   }
   async function loadCases(append=false) {
     const result=await api(`/admin/moderation/cases?state=${currentState}&page=${page}`); data=append?[...data,...result.data]:result.data;hasMore=result.hasMore;
-    const container=root.querySelector('[data-cases]'); container.innerHTML=data.map(item=>`<article class="mod-card" data-case="${item.id}"><header><strong>${e(item.author)} · ${e(item.target.title)}</strong><time>${e(item.createdAt)}</time></header><p class="mod-original">${e(item.content || '正文已删除')}</p>${item.parentContent?`<details><summary>回复上下文</summary><p class="mod-original">${e(item.parentContent)}</p></details>`:''}<p>状态：${e(({review:'待复核',failed:'审核失败',passed:'AI 已通过',dismissed:'已忽略',deleted:'已删除',queued:'排队中',cancelled:'已取消'})[item.state]||item.state)}</p>${item.ai.explanation?`<p>AI：${e(item.ai.explanation)}</p><p>判断原因：${(item.ai.categories||[]).map(c=>e(reasons[c])).join('、')||'无'}</p>`:''}${item.ai.evidence?.length?`<details><summary>AI 原文证据</summary><p>${item.ai.evidence.map(e).join('；')}</p></details>`:''}${item.error?`<p>故障：${e(item.error)}；尝试 ${item.attempts} 次</p>`:''}${item.finalReasons?.length?`<p>最终原因：${item.finalReasons.map(c=>e(reasons[c])).join('、')} ${e(item.finalNote)}</p>`:''}<div class="mod-actions">${['review','failed'].includes(item.state)?'<button type="button" data-ignore>忽略并恢复</button><button type="button" data-delete>删除内容</button>':''}${item.state==='failed'?'<button type="button" data-retry>重试审核</button>':''}${item.target.available?`<a href="${e(item.target.url)}">查看原页面</a>`:''}</div></article>`).join('')||'<div class="mod-card">暂无记录</div>';
+    const container=root.querySelector('[data-cases]'); container.innerHTML=data.map(item=>`<article class="mod-card" data-case="${item.id}"><header><strong>${e(item.author)} · ${e(item.target.title)}</strong><time>${e(siteDateTime(item.createdAt))}</time></header><p class="mod-original">${e(item.content || '正文已删除')}</p>${item.parentContent?`<details><summary>回复上下文</summary><p class="mod-original">${e(item.parentContent)}</p></details>`:''}<p>状态：${e(({review:'待复核',failed:'审核失败',passed:'AI 已通过',dismissed:'已忽略',deleted:'已删除',queued:'排队中',cancelled:'已取消'})[item.state]||item.state)}</p>${item.ai.explanation?`<p>AI：${e(item.ai.explanation)}</p><p>判断原因：${(item.ai.categories||[]).map(c=>e(reasons[c])).join('、')||'无'}</p>`:''}${item.ai.evidence?.length?`<details><summary>AI 原文证据</summary><p>${item.ai.evidence.map(e).join('；')}</p></details>`:''}${item.error?`<p>故障：${e(item.error)}；尝试 ${item.attempts} 次</p>`:''}${item.finalReasons?.length?`<p>最终原因：${item.finalReasons.map(c=>e(reasons[c])).join('、')} ${e(item.finalNote)}</p>`:''}<div class="mod-actions">${['review','failed'].includes(item.state)?'<button type="button" data-ignore>忽略并恢复</button><button type="button" data-delete>删除内容</button>':''}${item.state==='failed'?'<button type="button" data-retry>重试审核</button>':''}${item.target.available?`<a href="${e(item.target.url)}">查看原页面</a>`:''}</div></article>`).join('')||'<div class="mod-card">暂无记录</div>';
     root.querySelector('[data-more]').hidden=!hasMore;
   }
   async function status() {
