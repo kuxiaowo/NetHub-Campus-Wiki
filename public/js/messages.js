@@ -314,25 +314,30 @@ function renderMessage(message) {
   `;
 }
 
-function renderMessages() {
+function renderMessages({ scrollToBottom = false } = {}) {
+  const list = messageEls.messageList;
+  const previousTop = list.scrollTop;
+  const wasAtBottom = list.scrollHeight - list.clientHeight - previousTop <= 48;
   if (!messageState.messages.length) {
-    messageEls.messageList.innerHTML = '<div class="message-day-tip">还没有消息，打个招呼吧。</div>';
+    list.innerHTML = '<div class="message-day-tip">还没有消息，打个招呼吧。</div>';
     return;
   }
-  messageEls.messageList.innerHTML = messageState.messages.map(renderMessage).join('');
-  messageEls.messageList.scrollTop = messageEls.messageList.scrollHeight;
+  list.innerHTML = messageState.messages.map(renderMessage).join('');
+  list.scrollTop = scrollToBottom || wasAtBottom ? list.scrollHeight : previousTop;
 }
 
 async function loadMessages(conversation) {
+  const changedConversation = Number(messageState.active?.id) !== Number(conversation.id);
   messageState.active = conversation;
   messageEls.chatEmpty.classList.add('is-hidden');
   messageEls.chatActive.classList.remove('is-hidden');
   renderConversationList();
   renderChatHeader();
   const result = await request(`/conversations/${encodeURIComponent(conversation.id)}/messages`);
+  if (Number(messageState.active?.id) !== Number(conversation.id)) return;
   messageState.messages = result.data || [];
   messageState.otherLastReadMessageId = result.otherLastReadMessageId;
-  renderMessages();
+  renderMessages({ scrollToBottom: changedConversation });
   const last = messageState.messages.at(-1);
   if (last) {
     await request(`/conversations/${encodeURIComponent(conversation.id)}/read`, {
@@ -424,7 +429,7 @@ async function sendCurrentMessage() {
     messageEls.status.textContent = '';
     if (!messageState.messages.some((item) => Number(item.id) === Number(result.data.id))) {
       messageState.messages.push(result.data);
-      renderMessages();
+      renderMessages({ scrollToBottom: true });
     }
     await loadConversations();
   } catch (error) {
