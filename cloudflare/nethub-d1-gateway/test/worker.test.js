@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import worker, { ReplayGuard } from "../src/worker.js";
+import worker, { ReplayGuard, databaseFailureCategory } from "../src/worker.js";
 
 const SECRET = "test-secret-012345678901234567890123";
 const BASE = "https://db.example.test";
@@ -58,6 +58,13 @@ test("batch uses D1 batch and returns changes/last_row_id", async () => {
   assert.equal(response.status, 200);
   assert.equal(environment.DB.calls[0][0], "batch");
   assert.deepEqual((await response.json()).results[0].meta, { changes: 1, last_row_id: 9 });
+});
+
+test("database failure classification does not expose SQL or row values", () => {
+  assert.equal(databaseFailureCategory("D1_ERROR: daily rows written limit exceeded"), "quota_or_limit");
+  assert.equal(databaseFailureCategory("SQLITE_BUSY: database is locked"), "temporary_unavailable");
+  assert.equal(databaseFailureCategory("D1_ERROR: no such column: example"), "schema_or_sql");
+  assert.equal(databaseFailureCategory("token_hash=secret-value"), "unclassified");
 });
 
 test("signature, timestamp and replay protections reject invalid requests", async () => {

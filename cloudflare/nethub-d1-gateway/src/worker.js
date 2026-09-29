@@ -136,6 +136,12 @@ async function executeOne(db, statement) {
   const meta = result?.meta || {};
   return { rows: result?.results || [], meta: { changes: meta.changes ?? 0, last_row_id: meta.last_row_id ?? null } };
 }
+function databaseFailureCategory(message) {
+  if (/daily|quota|limit|exceed|too many|rate/i.test(message)) return "quota_or_limit";
+  if (/busy|locked|timeout|temporar|unavailable/i.test(message)) return "temporary_unavailable";
+  if (/syntax|no such (table|column)|prepare|schema/i.test(message)) return "schema_or_sql";
+  return "unclassified";
+}
 async function execute(db, mode, statements) {
   try {
     if (mode === "single") return [await executeOne(db, statements[0])];
@@ -147,6 +153,8 @@ async function execute(db, mode, statements) {
     if (/constraint|unique|foreign key|not null/i.test(message)) {
       throw new GatewayError(409, "database_integrity_error", "Database constraint rejected the operation");
     }
+    // Keep SQL, parameters and the raw D1 error out of logs and responses.
+    console.error("D1 database failure category", databaseFailureCategory(message));
     throw new GatewayError(503, "database_unavailable", "Database operation failed");
   }
 }
@@ -178,4 +186,4 @@ export default {
   },
 };
 
-export { authenticate, executeOne, execute, validatePayload };
+export { authenticate, databaseFailureCategory, executeOne, execute, validatePayload };
