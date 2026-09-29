@@ -53,6 +53,8 @@ function popularProjectCard(project, index) {
       <div class="home-popular-body">
         <span class="home-popular-meta"><em>${escapeHtml(project.category)}</em><small>${escapeHtml(project.year)}</small></span>
         <strong>${escapeHtml(project.name)}</strong>
+        <p class="home-popular-description">${escapeHtml(project.description || '')}</p>
+        <div class="home-popular-tags" aria-label="CAS 类型">${project.cas?.creativity ? '<span>C</span>' : ''}${project.cas?.activity ? '<span>A</span>' : ''}${project.cas?.service ? '<span>S</span>' : ''}</div>
         <span class="home-popular-hot">热度 ${escapeHtml(project.popularity || 0)} <i aria-hidden="true">→</i></span>
       </div>
     </a>
@@ -84,6 +86,7 @@ function popularResourceCard(resource, index) {
       <div class="home-popular-body">
         <span class="home-popular-meta"><em>${escapeHtml(resource.label || '资源')}</em><small>${escapeHtml(resource.year)}</small></span>
         <strong>${escapeHtml(resource.title)}</strong>
+        <p class="home-popular-description">${escapeHtml(resource.description || '')}</p>
         <span class="home-popular-hot">热度 ${escapeHtml(resource.hot || 0)} <i aria-hidden="true">→</i></span>
       </div>
     </a>

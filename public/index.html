@@ -12,7 +12,7 @@
   <title>首页 - NetHub Campus Wiki</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=4" />
   <link rel="stylesheet" href="/css/styles.css?v=friend-links1" />
-  <link rel="stylesheet" href="/css/home.css?v=home-todolist2" />
+  <link rel="stylesheet" href="/css/home.css?v=home-sections1" />
 </head>
 <body class="home-content">
   <header class="site-header">
@@ -35,8 +35,8 @@
     </nav>
   </header>
 
-  <main class="container home-main">
-    <div class="home-top-grid">
+  <main class="home-main">
+    <div class="home-hero-section"><div class="container home-top-grid">
       <section class="home-intro" aria-labelledby="homeTitle">
         <div>
           <p class="home-intro-label">NetHub Campus Wiki</p>
@@ -47,7 +47,9 @@
           <a class="button secondary" href="/resources.html">校园资料</a>
         </div>
       </section>
-
+      <div class="home-hero-visual" aria-hidden="true"><div class="home-hero-mark">N<span>H</span></div><div class="home-hero-caption">Campus Wiki</div></div>
+    </div></div>
+    <div class="home-showcase-section"><div class="container home-showcase-inner">
       <section class="card home-notifications" aria-labelledby="homeNotificationsTitle">
         <div class="home-notifications-head">
           <h2 id="homeNotificationsTitle">通知</h2>
@@ -57,8 +59,6 @@
           <li class="home-notification-empty">正在加载...</li>
         </ul>
       </section>
-    </div>
-
     <section class="home-todo-entry" aria-labelledby="homeTodoTitle">
       <div class="home-todo-copy">
         <p class="home-todo-label"><span aria-hidden="true"></span>NetHub 工具 · 已上线</p>
@@ -73,7 +73,9 @@
         <img src="/assets/about/todolist.webp" alt="NetHub TodoList 的深色周视图界面" width="1600" height="749" loading="lazy" />
       </a>
     </section>
+    </div></div>
 
+    <div class="home-projects-section"><div class="container">
     <section class="card home-popular-section" aria-labelledby="popularProjectsTitle">
       <div class="section-title with-control">
         <div>
@@ -86,7 +88,9 @@
         <div class="empty">正在加载...</div>
       </div>
     </section>
+    </div></div>
 
+    <div class="home-resources-section"><div class="container">
     <section class="card home-popular-section" aria-labelledby="popularResourcesTitle">
       <div class="section-title with-control">
         <div>
@@ -99,11 +103,14 @@
         <div class="empty">正在加载...</div>
       </div>
     </section>
+    </div></div>
 
+    <div class="home-cta-section"><div class="container">
     <section class="home-contact-entry">
       <p><strong>有项目或资料想补充？</strong><span>也可以联系我们获取网站搭建支持。</span></p>
       <a href="/about.html">联系我们 <span aria-hidden="true">→</span></a>
     </section>
+    </div></div>
   </main>
 
   <footer class="site-footer">
