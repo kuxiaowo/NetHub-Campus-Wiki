@@ -59,7 +59,7 @@ def make_router(site, admin_dependency, user_dependency):
     @router.get("/api/admin/moderation/cases")
     def cases(
         state: str = Query(
-            "review", pattern="^(review|failed|history|queued|dispatch|running)$"
+            "review", pattern="^(review|passed|failed|history|queued|dispatch|running)$"
         ),
         page: int = Query(1, ge=1),
         page_size: int = Query(20, alias="pageSize", ge=1, le=50),

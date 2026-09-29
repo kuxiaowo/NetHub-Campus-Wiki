@@ -146,9 +146,6 @@ class Settings:
         "RESOURCE_HOT_THROTTLE_SECONDS", 5, minimum=0
     )
     message_max_length: int = _env_int("MESSAGE_MAX_LENGTH", 2000, minimum=1)
-    message_recall_window_seconds: int = _env_int(
-        "MESSAGE_RECALL_WINDOW_SECONDS", 120
-    )
     message_rate_per_minute: int = _env_int("MESSAGE_RATE_PER_MINUTE", 30, minimum=1)
     stream_ticket_ttl_seconds: int = _env_int("STREAM_TICKET_TTL_SECONDS", 60, minimum=1)
     comment_max_length: int = _env_int("COMMENT_MAX_LENGTH", 1000, minimum=1)

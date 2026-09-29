@@ -694,6 +694,13 @@ class SocialMessagingFlowTest(unittest.TestCase):
         self.assertEqual(retry.status_code, 200, retry.text)
         self.assertEqual(retry.json()["data"]["id"], first_message_id)
 
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE messages SET created_at = datetime('now', '-4 minutes') WHERE id = %s",
+                    (first_message_id,),
+                )
+
         recalled = self.client.post(
             f"/api/messages/{first_message_id}/recall",
             headers=self._headers(self.alice_token),
@@ -724,6 +731,19 @@ class SocialMessagingFlowTest(unittest.TestCase):
         )
         self.assertEqual(second.status_code, 200, second.text)
         second_message_id = second.json()["data"]["id"]
+
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE messages SET created_at = datetime('now', '-6 minutes') WHERE id = %s",
+                    (second_message_id,),
+                )
+        expired_recall = self.client.post(
+            f"/api/messages/{second_message_id}/recall",
+            headers=self._headers(self.alice_token),
+        )
+        self.assertEqual(expired_recall.status_code, 409, expired_recall.text)
+        self.assertIn("超过可撤回时间", expired_recall.json()["detail"])
 
         third_before_reply = self.client.post(
             f"/api/conversations/{conversation_id}/messages",

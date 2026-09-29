@@ -107,6 +107,21 @@ class ModerationStoreTest(unittest.TestCase):
             )
         self.assertEqual(self.site.unread(1), 0)
 
+    def test_ignore_passed_comment_only_closes_case(self):
+        ident = self.publish("正常的新回复")
+        job = self.job(ident)
+        self.assertTrue(self.site.complete(job, {
+            "jobId": job["jobId"], "decision": "allow", "categories": [],
+            "evidence": [], "explanation": "内容正常",
+        }))
+        self.assertEqual(self.site.cases("passed", 1, 20)["data"][0]["commentId"], ident)
+        self.site.decide(job["id"], 2, "ignore")
+        with self.connect() as conn:
+            self.assertEqual(conn.execute("SELECT status FROM comments WHERE id=?", (ident,)).fetchone()[0], "visible")
+        self.assertEqual(self.site.cases("passed", 1, 20)["total"], 0)
+        self.assertEqual(self.site.cases("history", 1, 20)["data"][0]["state"], "dismissed")
+        self.assertEqual(self.site.unread(1), 0)
+
     def test_override_reason_soft_delete_and_private_body_free_notification(self):
         ident = self.publish("通知中保留一行原文")
         reply = self.publish("正常回复", ident)
