@@ -11,8 +11,10 @@ The Wiki mirror deliberately excludes short-lived authentication state:
 `auth_rate_limit_buckets`. Comments, messages, conversation membership, users,
 and other application tables remain in scope. Excluded rows stay in SQLite and
 future full backups; existing D1 rows are retained and are not deleted. The
-worker records an event marker for an old excluded event and advances the D1
-watermark without changing that D1 row.
+worker records one event marker for each contiguous range of old excluded
+events and advances the D1 watermark without changing those D1 rows. A range
+stops before any in-scope event, so comments and messages still replay in
+order. Existing D1 event history is retained.
 
 ## Required order
 
