@@ -948,9 +948,28 @@ async function deleteReportedComment(reportId) {
 }
 
 async function deleteReportedMessage(reportId) {
-  if (!window.confirm('确认删除这条被举报私信？双方会话中将显示为已撤回，此操作无法恢复。')) return;
-  await adminEndpoint(`/admin/message-reports/${reportId}/content`, { method: 'DELETE' });
+  const reasons = await window.NetHubModeration.chooseReasons();
+  if (!reasons) return;
+  await adminEndpoint(`/admin/message-reports/${reportId}/content`, { method: 'DELETE', body: JSON.stringify(reasons) });
   closeMessageReportContext();
+  await loadCommunityAdmin();
+}
+
+async function rejectReport(type, reportId) {
+  const note = window.prompt('请输入驳回理由（可留空，留空将显示“举报已被管理员驳回”。）', '');
+  if (note === null) return;
+  await adminEndpoint(`/admin/${type}-reports/${reportId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'rejected', note }),
+  });
+  await loadCommunityAdmin();
+}
+
+async function ignoreReport(type, reportId) {
+  await adminEndpoint(`/admin/${type}-reports/${reportId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'dismissed' }),
+  });
   await loadCommunityAdmin();
 }
 
@@ -993,12 +1012,14 @@ async function loadCommunityAdmin() {
     (row) => `
       <div class="admin-inline-actions">
         <button class="button secondary compact danger" type="button" data-delete-reported-comment="${adminText(row.id)}">删除内容</button>
+        <button class="button compact" type="button" data-reject-comment-report="${adminText(row.id)}">驳回</button>
+        <button class="button secondary compact" type="button" data-ignore-comment-report="${adminText(row.id)}">忽略</button>
       </div>
     `,
   );
   adminEls.messageReportsTable.innerHTML = renderAdminTable(
     [
-      { key: 'messageBody', label: '消息内容', render: (row) => row.messageRecalled ? '消息已删除或撤回' : adminText(row.messageBody) },
+      { key: 'messageBody', label: '消息内容', render: (row) => `<a href="#messageReportModal" data-view-message-report="${adminText(row.id)}">${row.messageRecalled ? '消息已删除或撤回' : adminText(row.messageBody || '查看消息上下文')}</a>` },
       { key: 'senderUsername', label: '发送者', render: (row) => `@${adminText(row.senderUsername)}` },
       { key: 'reporterUsername', label: '举报人', render: (row) => `@${adminText(row.reporterUsername)}` },
       { key: 'reason', label: '举报理由' },
@@ -1007,10 +1028,9 @@ async function loadCommunityAdmin() {
     adminState.messageReports,
     (row) => `
       <div class="admin-inline-actions">
-        <button class="button secondary compact" type="button" data-view-message-report="${adminText(row.id)}">定位消息</button>
-        ${row.messageRecalled ? '' : `<button class="button secondary compact danger" type="button" data-delete-reported-message="${adminText(row.id)}">删除内容</button>`}
-        <button class="button compact" type="button" data-review-report="${adminText(row.id)}" data-report-decision="resolved">已处理</button>
-        <button class="button secondary compact" type="button" data-review-report="${adminText(row.id)}" data-report-decision="dismissed">忽略</button>
+        <button class="button secondary compact danger" type="button" data-delete-reported-message="${adminText(row.id)}" ${row.messageRecalled ? 'disabled title="消息已删除或撤回"' : ''}>删除内容</button>
+        <button class="button compact" type="button" data-reject-message-report="${adminText(row.id)}">驳回</button>
+        <button class="button secondary compact" type="button" data-ignore-message-report="${adminText(row.id)}">忽略</button>
       </div>
     `,
   );
@@ -2428,6 +2448,12 @@ function bindAdminEvents() {
   adminEls.photoModalNext.addEventListener('click', () => shiftAdminPhotoModal(1));
 
   document.addEventListener('click', (event) => {
+    const contextLink = event.target.closest('a[data-view-message-report]');
+    if (contextLink) {
+      event.preventDefault();
+      openMessageReportContext(contextLink.dataset.viewMessageReport);
+      return;
+    }
     const target = event.target.closest('button');
     if (!target) return;
     if (adminState.dragJustEnded) return;
@@ -2512,12 +2538,10 @@ function bindAdminEvents() {
     if (target.dataset.deleteUser) {
       deleteUser(target.dataset.deleteUser).catch((error) => window.alert(error.message));
     }
-    if (target.dataset.reviewReport) {
-      adminEndpoint(`/admin/message-reports/${target.dataset.reviewReport}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: target.dataset.reportDecision }),
-      }).then(loadCommunityAdmin).catch((error) => window.alert(error.message));
-    }
+    if (target.dataset.rejectCommentReport) rejectReport('comment', target.dataset.rejectCommentReport).catch((error) => window.alert(error.message));
+    if (target.dataset.ignoreCommentReport) ignoreReport('comment', target.dataset.ignoreCommentReport).catch((error) => window.alert(error.message));
+    if (target.dataset.rejectMessageReport) rejectReport('message', target.dataset.rejectMessageReport).catch((error) => window.alert(error.message));
+    if (target.dataset.ignoreMessageReport) ignoreReport('message', target.dataset.ignoreMessageReport).catch((error) => window.alert(error.message));
     if (target.dataset.editAnnouncement) {
       const announcement = adminState.announcements.find(
         (item) => String(item.id) === target.dataset.editAnnouncement,

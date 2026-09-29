@@ -136,6 +136,8 @@ resources ─────┘       │
 
 `comment_likes` 使用 `(comment_id, user_id)` 联合主键防止重复点赞。`comment_reports` 对同一用户和留言保持一条记录，管理员可处理或忽略，并记录处理人和处理时间。
 
+`message_reports` 保存私信举报。删除后举报自动记为 `resolved`；驳回和忽略记为 `dismissed`，`decision` 区分 `deleted`、`rejected`、`ignored`，`review_note` 保存管理员驳回说明。`report_notifications` 保存删除或驳回后的举报人通知，以及私信删除后的发送者通知；忽略不产生通知。`system_notifications.original_excerpt` 保存被删除留言的一行原文摘要。
+
 ### `comment_notifications`
 
 保存直接回复和留言点赞产生的永久通知。通知冗余保存目标类型和目标 ID，且不对 `comment_id` 设置级联外键，因此留言删除、隐藏或原内容不存在后仍可显示失效记录。`read_at` 保存分类已读状态；同一用户取消后重新点赞时复用原通知并重新标为未读。迁移 007 不回填升级前的互动。
@@ -196,4 +198,4 @@ SQLite 数据库及对应的 `public/` 资源目录。
 
 不要通过姓名自动把 `people` 绑定到 `users`。旧文本数据迁移会为每个项目创建独立人员档案，之后只能由管理员在对应 CAS 项目详情的成员区域选择账号完成绑定。
 
-数据库结构通过 `sql/migrations` 目录中的连续编号脚本升级。每个脚本必须在事务中执行并更新 `PRAGMA user_version`；后端检测到版本缺口时会拒绝启动，避免跳版本造成半套结构。当前最新版本为 16：002–012 完成既有社交、项目与安全结构升级，013 增加可选资源封面，014 接入 NetHub Accounts、停用旧开发账号并增加 OIDC 状态、本地会话和退出通知去重表，015 取消 `people.user_id` 的全局唯一限制并增加普通索引，使同一账号可绑定多个人员档案，016 记录会话最近一次 Turnstile 通过时间。
+数据库结构通过 `sql/migrations` 目录中的连续编号脚本升级。每个脚本必须在事务中执行并更新 `PRAGMA user_version`；后端检测到版本缺口时会拒绝启动，避免跳版本造成半套结构。当前最新版本为 19：017 增加评论审核，018 调整项目内容更新时间，019 增加举报结论和系统通知摘要。

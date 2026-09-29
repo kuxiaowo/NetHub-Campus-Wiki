@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from sqlite3 import IntegrityError
+import json
 import secrets
 import time
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
 
 from backend.auth import get_current_user, public_user_identity, mark_turnstile_session_verified, turnstile_session_is_fresh
@@ -16,11 +17,13 @@ from backend.config import settings
 from backend.database import get_db_connection
 from backend.project_assets import project_icon_url
 from backend.turnstile import verify_turnstile
+from nethub_moderation.site import report_excerpt
+from nethub_moderation.policy import CATEGORIES
 
 router = APIRouter(prefix="/api", tags=["messages"])
 
 MAX_MESSAGE_LENGTH = settings.message_max_length
-RECALL_WINDOW_SECONDS = settings.message_recall_window_seconds
+RECALL_WINDOW_SECONDS = getattr(settings, "message_recall_window_seconds", 300)
 SEND_RATE_PER_MINUTE = settings.message_rate_per_minute
 STREAM_TICKET_TTL_SECONDS = settings.stream_ticket_ttl_seconds
 _stream_tickets: dict[str, tuple[int, float]] = {}
@@ -914,7 +917,8 @@ def report_message(
                 VALUES (%s, %s, %s)
                 ON CONFLICT(message_id, reporter_id) DO UPDATE SET
                   reason = excluded.reason,
-                  status = 'pending'
+                  status = 'pending', decision = '', review_note = '',
+                  resolved_at = NULL, resolved_by = NULL
                 """,
                 (message_id, user["id"], reason),
             )
@@ -959,6 +963,8 @@ def admin_list_message_reports(
                 "reporterId": row["reporter_id"],
                 "reporterUsername": row["reporter_username"],
                 "reason": row["reason"],
+                "reviewNote": row.get("review_note") or "",
+                "decision": row.get("decision") or "",
                 "status": row["status"],
                 "createdAt": row["created_at"],
             }
@@ -1069,37 +1075,17 @@ def admin_review_message_report(
     admin: dict[str, Any] = Depends(_require_admin),
 ):
     status = str(payload.get("status") or "")
-    if status not in {"resolved", "dismissed"}:
-        raise HTTPException(status_code=422, detail="处理状态只能是 resolved 或 dismissed")
+    if status not in {"rejected", "dismissed", "resolved"}:
+        raise HTTPException(status_code=422, detail="处理状态只能是 rejected、dismissed 或兼容用的 resolved")
+    note = str(payload.get("note") or "").strip()
+    if len(note) > 1000:
+        raise HTTPException(status_code=422, detail="驳回理由最多1000字")
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 """
-                UPDATE message_reports
-                SET status = %s, resolved_at = CURRENT_TIMESTAMP, resolved_by = %s
-                WHERE id = %s AND status = 'pending'
-                """,
-                (status, admin["id"], report_id),
-            )
-            if cursor.rowcount == 0:
-                raise HTTPException(status_code=404, detail="待处理举报不存在")
-    return {"ok": True, "status": status}
-
-
-@router.delete("/admin/message-reports/{report_id}/content")
-async def admin_delete_reported_message(
-    report_id: int,
-    admin: dict[str, Any] = Depends(_require_admin),
-):
-    """清空被举报私信内容并处理该消息的全部待审举报。"""
-
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT mr.message_id, m.conversation_id
-                FROM message_reports mr
-                JOIN messages m ON m.id = mr.message_id
+                SELECT mr.id,mr.reporter_id,mr.message_id,m.body
+                FROM message_reports mr JOIN messages m ON m.id=mr.message_id
                 WHERE mr.id = %s AND mr.status = 'pending'
                 LIMIT 1
                 """,
@@ -1108,40 +1094,107 @@ async def admin_delete_reported_message(
             report = cursor.fetchone()
             if report is None:
                 raise HTTPException(status_code=404, detail="待处理举报不存在")
-            if getattr(conn, "_adapter", None) is not None:
-                conn.batch([
-                    (
-                        """UPDATE messages
-                           SET body='',message_type='text',project_id=NULL,
-                               recalled_at=COALESCE(recalled_at,CURRENT_TIMESTAMP)
-                           WHERE id=%s""",
-                        (report["message_id"],),
-                    ),
-                    (
-                        """UPDATE message_reports
-                           SET status='resolved',resolved_at=CURRENT_TIMESTAMP,resolved_by=%s
-                           WHERE message_id=%s AND status='pending'""",
-                        (admin["id"], report["message_id"]),
-                    ),
-                ])
-            else:
-                cursor.execute(
-                    """
-                    UPDATE messages
-                    SET body = '', message_type = 'text', project_id = NULL,
-                        recalled_at = COALESCE(recalled_at, CURRENT_TIMESTAMP)
-                    WHERE id = %s
-                    """,
-                    (report["message_id"],),
+            final_status = "resolved" if status == "resolved" else "dismissed"
+            statements = []
+            if status == "rejected":
+                statements.append((
+                    """INSERT INTO report_notifications
+                       (recipient_id,content_type,report_id,original_excerpt,decision,note,target_title)
+                       VALUES (%s,'message',%s,%s,'rejected',%s,'私信')
+                       ON CONFLICT(content_type,report_id,recipient_id) DO UPDATE SET
+                         decision=excluded.decision,original_excerpt=excluded.original_excerpt,
+                         note=excluded.note,created_at=CURRENT_TIMESTAMP,read_at=NULL""",
+                    (report["reporter_id"], report["id"], report_excerpt(report["body"]), note),
+                ))
+            statements.append((
+                """UPDATE message_reports
+                   SET status = %s, decision = %s, review_note = %s,
+                       resolved_at = CURRENT_TIMESTAMP, resolved_by = %s
+                   WHERE id = %s AND status = 'pending'""",
+                (final_status, "rejected" if status == "rejected" else "ignored" if status == "dismissed" else "legacy",
+                 note if status == "rejected" else "", admin["id"], report_id),
+            ))
+            conn.batch(statements)
+    return {"ok": True, "status": final_status}
+
+
+@router.delete("/admin/message-reports/{report_id}/content")
+async def admin_delete_reported_message(
+    report_id: int,
+    payload: dict[str, Any] = Body(default={}),
+    admin: dict[str, Any] = Depends(_require_admin),
+):
+    """清空被举报私信内容并处理该消息的全部待审举报。"""
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT mr.message_id, m.conversation_id, m.sender_id
+                FROM message_reports mr
+                JOIN messages m ON m.id = mr.message_id
+                WHERE mr.id = %s AND mr.status = 'pending' AND m.recalled_at IS NULL
+                LIMIT 1
+                """,
+                (report_id,),
+            )
+            report = cursor.fetchone()
+            if report is None:
+                raise HTTPException(status_code=404, detail="待处理举报不存在")
+            reasons = payload.get("reasons", [])
+            note = str(payload.get("note") or "").strip()
+            if (
+                not isinstance(reasons, list)
+                or not reasons
+                or any(not isinstance(reason, str) or reason not in {*CATEGORIES, "other"} for reason in reasons)
+                or len(note) > 1000
+                or ("other" in reasons and not note)
+            ):
+                raise HTTPException(status_code=422, detail="请选择有效删除原因；选择其他时必须填写说明")
+            cursor.execute(
+                """SELECT mr.id,mr.reporter_id,m.body
+                   FROM message_reports mr JOIN messages m ON m.id=mr.message_id
+                   WHERE mr.message_id=%s AND mr.status='pending'""",
+                (report["message_id"],),
+            )
+            pending_reports = cursor.fetchall()
+            is_d1 = getattr(conn, "_adapter", None) is not None
+            statements = []
+            def apply_statement(sql, params):
+                if is_d1:
+                    statements.append((sql, params))
+                else:
+                    cursor.execute(sql, params)
+            for pending in pending_reports:
+                apply_statement(
+                    """INSERT INTO report_notifications
+                       (recipient_id,content_type,report_id,original_excerpt,decision,note,target_title)
+                       VALUES (%s,'message',%s,%s,'deleted',%s,'私信')
+                       ON CONFLICT(content_type,report_id,recipient_id) DO UPDATE SET
+                         decision=excluded.decision,original_excerpt=excluded.original_excerpt,
+                         note=excluded.note,created_at=CURRENT_TIMESTAMP,read_at=NULL""",
+                    (pending["reporter_id"], pending["id"], report_excerpt(pending["body"]), note),
                 )
-                cursor.execute(
-                    """
-                    UPDATE message_reports
-                    SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP, resolved_by = %s
-                    WHERE message_id = %s AND status = 'pending'
-                    """,
-                    (admin["id"], report["message_id"]),
+            if pending_reports:
+                apply_statement(
+                    """INSERT OR IGNORE INTO report_notifications
+                       (recipient_id,content_type,report_id,original_excerpt,decision,note,reason_codes,audience,target_title)
+                       VALUES (%s,'message',%s,%s,'deleted',%s,%s,'author','私信')""",
+                    (report["sender_id"], pending_reports[0]["id"], report_excerpt(pending_reports[0]["body"]), note, json.dumps(reasons)),
                 )
+            apply_statement(
+                """UPDATE messages SET body='',message_type='text',project_id=NULL,
+                   recalled_at=COALESCE(recalled_at,CURRENT_TIMESTAMP) WHERE id=%s""",
+                (report["message_id"],),
+            )
+            apply_statement(
+                """UPDATE message_reports SET status='resolved',decision='deleted',
+                   review_note='',resolved_at=CURRENT_TIMESTAMP,resolved_by=%s
+                   WHERE message_id=%s AND status='pending'""",
+                (admin["id"], report["message_id"]),
+            )
+            if is_d1:
+                conn.batch(statements)
             user_ids = _conversation_user_ids(cursor, report["conversation_id"])
     event = {
         "event": "recall",
