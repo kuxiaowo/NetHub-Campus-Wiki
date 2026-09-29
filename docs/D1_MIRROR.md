@@ -6,6 +6,14 @@ set lives in that site's existing SQLite database. The worker polls every
 second, applies events in sequence, and retries the oldest failed event with
 exponential backoff. It does not delete acknowledged events.
 
+The Wiki mirror deliberately excludes short-lived authentication state:
+`auth_sessions`, `oidc_login_attempts`, `backchannel_logout_events`, and
+`auth_rate_limit_buckets`. Comments, messages, conversation membership, users,
+and other application tables remain in scope. Excluded rows stay in SQLite and
+future full backups; existing D1 rows are retained and are not deleted. The
+worker records an event marker for an old excluded event and advances the D1
+watermark without changing that D1 row.
+
 ## Required order
 
 1. Merge the tested `developing` PR and deploy that merged commit. Do not enable
@@ -53,6 +61,16 @@ mirror service immediately afterward. No application service is stopped.
 The D1 names are in each site's `cloudflare/nethub-d1-gateway/wrangler.toml`.
 Do not print or log the gateway secret. Each unit reads the existing production
 environment file. Do not start a service before its baseline is reconciled.
+
+## Changing the capture scope
+
+Stop the site's mirror worker, make a SQLite backup, and run
+`scripts/migrate_d1_sync_scope.py --db DB --backup BACKUP`. The migration drops
+and recreates only the local `_sync_*` capture triggers; it preserves the
+application rows, the outbox, and the D1 copy. Start the updated worker after
+the migration so it can acknowledge old excluded events in order. Do not
+delete `_sync_outbox`, reset `_sync_clock`, or manually change the D1
+watermark. Those operations can create an unrecoverable sequence gap.
 
 ## Delivery and failure behavior
 

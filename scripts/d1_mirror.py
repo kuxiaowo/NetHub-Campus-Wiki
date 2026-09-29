@@ -25,6 +25,17 @@ from pathlib import Path
 VERSION = 1
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 RESERVED = ("sqlite_", "_sync_", "_cf_", "_moderation_")
+# Short-lived authentication state stays in SQLite and R2 backups.  Mirroring
+# it to D1 creates an event for nearly every authenticated request without
+# providing useful replica data.
+SYNC_EXCLUDED_TABLES = frozenset(
+    {
+        "auth_sessions",
+        "oidc_login_attempts",
+        "backchannel_logout_events",
+        "auth_rate_limit_buckets",
+    }
+)
 SITE_ENV = {
     "accounts": ("ACCOUNTS_D1_GATEWAY_URL", "ACCOUNTS_D1_GATEWAY_SECRET"),
     "wiki": ("D1_GATEWAY_URL", "D1_GATEWAY_HMAC_SECRET"),
@@ -40,11 +51,15 @@ def quote(name: str) -> str:
     return '"' + name + '"'
 
 
+def is_sync_table(name: str) -> bool:
+    return not name.startswith(RESERVED) and name not in SYNC_EXCLUDED_TABLES
+
+
 def tables(db: sqlite3.Connection) -> list[str]:
     return [
         row[0]
         for row in db.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-        if not row[0].startswith(RESERVED)
+        if is_sync_table(row[0])
     ]
 
 
@@ -318,7 +333,17 @@ def event_statements(
         result.append((sql, values + [seq - 1, seq]))
     if not result:
         raise RuntimeError("unsupported outbox operation")
+    result.extend(event_marker_statements(event))
+    _validate_statement_limits(result)
+    return result
+
+
+def event_marker_statements(event: sqlite3.Row) -> list[tuple[str, list]]:
+    """Record an event and advance D1 without changing an application row."""
+
+    seq = event["seq"]
     digest = event_hash(event)
+    result = []
     result.append(
         (
             "INSERT INTO _sync_events(seq,event_id,payload_hash) "
@@ -335,17 +360,15 @@ def event_statements(
         )
     )
     result.append(("SELECT event_id,payload_hash FROM _sync_events WHERE seq=?", [seq]))
-    if len(result) > 100 or any(len(sql) > 10_000 or len(params) > 100 for sql, params in result):
-        raise RuntimeError("event exceeds D1 gateway statement limits")
     return result
 
 
-def deliver(db: sqlite3.Connection, gateway: Gateway, event: sqlite3.Row, schema: dict) -> None:
-    seq = event["seq"]
-    digest = event_hash(event)
-    existing = gateway.request(event_statements(event, schema))[-1]["rows"]
-    if not existing or existing[0] != {"event_id": event["event_id"], "payload_hash": digest}:
-        raise RuntimeError("D1 did not confirm event application")
+def _validate_statement_limits(statements: list[tuple[str, list]]) -> None:
+    if len(statements) > 100 or any(len(sql) > 10_000 or len(params) > 100 for sql, params in statements):
+        raise RuntimeError("event exceeds D1 gateway statement limits")
+
+
+def _acknowledge_local_event(db: sqlite3.Connection, seq: int) -> None:
     db.execute("BEGIN IMMEDIATE")
     try:
         db.execute(
@@ -358,6 +381,26 @@ def deliver(db: sqlite3.Connection, gateway: Gateway, event: sqlite3.Row, schema
     except BaseException:
         db.execute("ROLLBACK")
         raise
+
+
+def _confirm_marker(event: sqlite3.Row, rows: list[dict]) -> None:
+    expected = {"event_id": event["event_id"], "payload_hash": event_hash(event)}
+    if not rows or rows[0] != expected:
+        raise RuntimeError("D1 did not confirm event marker")
+
+
+def deliver(db: sqlite3.Connection, gateway: Gateway, event: sqlite3.Row, schema: dict) -> None:
+    existing = gateway.request(event_statements(event, schema))[-1]["rows"]
+    _confirm_marker(event, existing)
+    _acknowledge_local_event(db, event["seq"])
+
+
+def deliver_skipped(db: sqlite3.Connection, gateway: Gateway, event: sqlite3.Row) -> None:
+    """Advance D1 over an excluded event while retaining its existing row."""
+
+    existing = gateway.request(event_marker_statements(event))[-1]["rows"]
+    _confirm_marker(event, existing)
+    _acknowledge_local_event(db, event["seq"])
 
 
 def status(db: sqlite3.Connection) -> dict:
@@ -425,7 +468,15 @@ def worker(
                 time.sleep(poll_seconds)
                 continue
             try:
-                deliver(db, gateway, event, schema)
+                if event["table_name"] in SYNC_EXCLUDED_TABLES:
+                    deliver_skipped(db, gateway, event)
+                    print(
+                        f"D1 delivery skipped: seq={event['seq']} table={event['table_name']}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                else:
+                    deliver(db, gateway, event, schema)
                 backoff = 1.0
             except (
                 RuntimeError,
