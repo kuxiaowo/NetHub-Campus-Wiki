@@ -71,15 +71,7 @@ function initials(value) {
 function formatDate(value) {
   const raw = cleanText(value);
   if (!raw) return '';
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return escapeHtml(raw);
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
+  return formatProjectUpdateDate(raw);
 }
 
 function renderBreadcrumb(project) {
@@ -237,9 +229,9 @@ function normalizeUpdates(project) {
   }).filter((item) => item.content || item.images.length || item.videos.length);
 
   return updates.sort((a, b) => {
-    const timeA = new Date(a.date).getTime();
-    const timeB = new Date(b.date).getTime();
-    if (Number.isNaN(timeA) || Number.isNaN(timeB) || timeA === timeB) return a.index - b.index;
+    const timeA = projectUpdateTimestamp(a.date)?.getTime();
+    const timeB = projectUpdateTimestamp(b.date)?.getTime();
+    if (timeA === undefined || timeB === undefined || timeA === timeB) return a.index - b.index;
     return timeB - timeA;
   });
 }
@@ -322,7 +314,7 @@ function renderFeed(project) {
                   <strong>${escapeHtml(item.author)}</strong>
                   <div class="feed-meta">
                     ${item.role ? `<span>${escapeHtml(projectUpdateRoleLabel(item.role))}</span>` : ''}
-                    <time>${item.date ? formatDate(item.date) : '发布时间未记录'}</time>
+                    <time>${item.date ? escapeHtml(formatDate(item.date)) : '发布时间未记录'}</time>
                   </div>
                 </div>
                 ${item.canDelete && item.id ? `

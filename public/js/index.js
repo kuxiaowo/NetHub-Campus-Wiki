@@ -3,9 +3,7 @@ const popularProjectList = document.querySelector('#popularProjectList');
 const popularResourceList = document.querySelector('#popularResourceList');
 
 function shortDate(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' }).format(date);
+  return formatSiteTimestamp(value, { month: '2-digit', day: '2-digit' });
 }
 
 function projectUpdateMediaUrl(item) {
@@ -26,9 +24,9 @@ function latestProjectUpdatePhoto(project) {
         : '',
     }))
     .sort((left, right) => {
-      const leftTime = new Date(left.date).getTime();
-      const rightTime = new Date(right.date).getTime();
-      if (Number.isNaN(leftTime) || Number.isNaN(rightTime) || leftTime === rightTime) {
+      const leftTime = projectUpdateTimestamp(left.date)?.getTime();
+      const rightTime = projectUpdateTimestamp(right.date)?.getTime();
+      if (leftTime === undefined || rightTime === undefined || leftTime === rightTime) {
         return left.index - right.index;
       }
       return rightTime - leftTime;

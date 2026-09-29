@@ -37,6 +37,7 @@ const fs = require('fs');
 const vm = require('vm');
 const assert = require('assert/strict');
 const source = fs.readFileSync('public/js/detail.js', 'utf8');
+const api = fs.readFileSync('public/js/api.js', 'utf8');
 const context = {
   asArray: value => Array.isArray(value) ? value : [],
   cleanText: value => String(value || '').trim(),
@@ -45,6 +46,7 @@ const context = {
   safeDetailUrl: () => null, metricValue: () => null,
 };
 vm.createContext(context);
+vm.runInContext(api.slice(api.indexOf('const SITE_TIME_ZONE'), api.indexOf('async function request(')), context);
 vm.runInContext(source.slice(source.indexOf('function normalizeUpdates('), source.indexOf('function renderMediaImages(')), context);
 const project = {createdAt: '2026-01-01', updatedAt: '2026-09-28', updates: [
   {content: 'Published', createdAt: '2026-06-06T12:00:00Z', updatedAt: '2026-09-28'},

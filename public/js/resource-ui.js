@@ -16,7 +16,7 @@
   ]);
 
   function itemTimestamp(item) {
-    const timestamp = Date.parse(item.createdAt || item.updatedAt || '');
+    const timestamp = parseSiteTimestamp(item.createdAt || item.updatedAt)?.getTime();
     return Number.isFinite(timestamp) ? timestamp : 0;
   }
 
