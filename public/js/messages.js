@@ -158,7 +158,7 @@ async function loadActivity(kind, { append = false } = {}) {
     window.NetHubModeration.renderNotifications(messageEls.activityList, {data: messageState.activityItems});
     messageEls.activityMore.classList.toggle('is-hidden', !result.hasMore);
     try {
-      await request('/system-notifications/read', {method:'POST', body:JSON.stringify({throughId: result.latestId, throughSystemId: result.latestSystemId, throughReportId: result.latestReportId})});
+      await request('/system-notifications/read', {method:'POST', body:JSON.stringify({throughId: result.latestId})});
     } catch { /* Keep loaded cards visible; retry marking read on the next visit. */ }
     await loadUnreadCounts();
     return;

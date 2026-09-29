@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, Request
-from nethub_moderation.site import enqueue, report_excerpt
+from nethub_moderation.site import enqueue
 
 from backend.auth import get_current_user, get_optional_current_user, mark_turnstile_session_verified, public_user_identity, turnstile_session_is_fresh
 from backend.config import settings
@@ -850,8 +850,7 @@ def report_comment(
                 VALUES (%s, %s, %s)
                 ON CONFLICT(comment_id, reporter_id) DO UPDATE SET
                   reason = excluded.reason,
-                  status = 'pending', decision = '', review_note = '',
-                  resolved_at = NULL, resolved_by = NULL
+                  status = 'pending'
                 """,
                 (comment_id, user["id"], reason),
             )
@@ -891,9 +890,6 @@ def admin_list_comment_reports(
                 "authorUsername": row["author_username"],
                 "reporterUsername": row["reporter_username"],
                 "reason": row["reason"],
-                "reviewNote": row.get("review_note") or "",
-                "decision": row.get("decision") or "",
-                "status": row["status"],
                 "createdAt": row["created_at"],
             }
             for row in rows
@@ -909,35 +905,19 @@ def admin_review_comment_report(
 ):
     status = str(payload.get("status") or "")
     hide_comment = bool(payload.get("hideComment"))
-    if status not in {"rejected", "dismissed", "resolved"}:
-        raise HTTPException(status_code=422, detail="处理状态只能是 rejected、dismissed 或兼容用的 resolved")
-    note = str(payload.get("note") or "").strip()
-    if len(note) > 1000:
-        raise HTTPException(status_code=422, detail="驳回理由最多1000字")
+    if status not in {"resolved", "dismissed"}:
+        raise HTTPException(status_code=422, detail="处理状态只能是 resolved 或 dismissed")
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
-                """SELECT cr.id,cr.comment_id,cr.reporter_id,c.content,c.target_type,c.target_id
-                   FROM comment_reports cr JOIN comments c ON c.id=cr.comment_id
-                   WHERE cr.id = %s AND cr.status = 'pending' LIMIT 1""",
+                "SELECT comment_id FROM comment_reports WHERE id = %s AND status = 'pending' LIMIT 1",
                 (report_id,),
             )
             report = cursor.fetchone()
             if report is None:
                 raise HTTPException(status_code=404, detail="待处理举报不存在")
             statements: list[tuple[str, tuple[Any, ...]]] = []
-            if status == "rejected":
-                notification_statement = (
-                    """INSERT INTO report_notifications
-                       (recipient_id,content_type,report_id,original_excerpt,decision,note,target_type,target_id,target_title)
-                       VALUES (%s,'comment',%s,%s,'rejected',%s,%s,%s,'留言')
-                       ON CONFLICT(content_type,report_id,recipient_id) DO UPDATE SET
-                         decision=excluded.decision,original_excerpt=excluded.original_excerpt,
-                         note=excluded.note,created_at=CURRENT_TIMESTAMP,read_at=NULL""",
-                    (report["reporter_id"], report["id"], report_excerpt(report["content"]), note, report["target_type"], report["target_id"]),
-                )
-                statements.append(notification_statement)
-            if hide_comment and status == "resolved":
+            if hide_comment:
                 statements.append((
                     """
                     UPDATE comments SET status = 'hidden'
@@ -950,13 +930,12 @@ def admin_review_comment_report(
                     (report["comment_id"], report_id),
                 ))
             statements.append((
-                """UPDATE comment_reports
-                   SET status = %s, decision = %s, review_note = %s,
-                       resolved_at = CURRENT_TIMESTAMP, resolved_by = %s
-                   WHERE id = %s AND status = 'pending'""",
-                ("resolved" if status == "resolved" else "dismissed",
-                 "rejected" if status == "rejected" else "ignored" if status == "dismissed" else "legacy",
-                 note if status == "rejected" else "", admin["id"], report_id),
+                """
+                UPDATE comment_reports
+                SET status = %s, resolved_at = CURRENT_TIMESTAMP, resolved_by = %s
+                WHERE id = %s AND status = 'pending'
+                """,
+                (status, admin["id"], report_id),
             ))
             conn.batch(statements)
     return {"ok": True, "status": status}

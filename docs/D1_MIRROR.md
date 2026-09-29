@@ -104,17 +104,6 @@ events. No read routing or automatic switch to D1 is included.
 
 ## Limits and schema changes
 
-Wiki migration 019 adds `report_notifications` and changes three mirrored tables.
-For an existing SQLite-to-D1 mirror, stop the Wiki API, moderation service,
-and mirror worker, then
-run `python -m scripts.migrate_report_notifications --db DB --backup BACKUP`.
-The command backs up SQLite, applies 019, rebuilds capture triggers in the same
-transaction, and leaves delivery disarmed. Apply `sql/d1/019_report_notifications.sql`
-to D1 through Wrangler, take a new SQLite snapshot, and reconcile it with the
-confirmed pre-migration D1 watermark. Verify the snapshot before arming and
-restarting the mirror. Do not start the new API before the local migration has
-completed; ordinary startup migration does not rebuild mirror capture triggers.
-
 The current HMAC gateway accepts at most 100 statements, 100 parameters and
 10,000 SQL characters per statement, and a 1 MiB request body. Current
 production rows were below 5 KiB at audit time. An event beyond these limits

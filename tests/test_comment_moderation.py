@@ -29,7 +29,7 @@ class ModerationStoreTest(unittest.TestCase):
             CREATE TABLE comments(id INTEGER PRIMARY KEY,user_id INTEGER REFERENCES users(id),
               content TEXT,status TEXT DEFAULT 'visible',parent_id INTEGER,
               target_type TEXT DEFAULT 'project',target_id INTEGER DEFAULT 1,gallery_id INTEGER DEFAULT 1);
-            CREATE TABLE comment_reports(comment_id INTEGER,status TEXT,decision TEXT,review_note TEXT,resolved_by INTEGER,resolved_at TEXT);
+            CREATE TABLE comment_reports(comment_id INTEGER,status TEXT,resolved_by INTEGER,resolved_at TEXT);
             """ + SCHEMA)
         self.site = Site(self.connect, "wiki")
 
@@ -108,7 +108,7 @@ class ModerationStoreTest(unittest.TestCase):
         self.assertEqual(self.site.unread(1), 0)
 
     def test_override_reason_soft_delete_and_private_body_free_notification(self):
-        ident = self.publish("通知中保留一行原文")
+        ident = self.publish("不能进入通知的原文")
         reply = self.publish("正常回复", ident)
         job = self.job(ident)
         self.site.complete(job, self.review(job))
@@ -129,7 +129,7 @@ class ModerationStoreTest(unittest.TestCase):
                 1,
             )
         result = self.site.notifications(1, 1, 20)
-        self.assertEqual(result["data"][0]["excerpt"], "通知中保留一行原文")
+        self.assertNotIn("不能进入通知的原文", json.dumps(result, ensure_ascii=False))
         self.assertEqual(result["data"][0]["reasonCodes"], ["spam", "other"])
         self.assertEqual(self.site.notifications(3, 1, 20)["data"], [])
         self.site.read(3, result["latestId"])

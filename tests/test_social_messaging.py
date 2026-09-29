@@ -417,7 +417,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         with get_db_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("PRAGMA user_version")
-                self.assertEqual(cursor.fetchone()["user_version"], 19)
+                self.assertEqual(cursor.fetchone()["user_version"], 18)
                 cursor.execute("PRAGMA table_info(conversation_members)")
                 member_columns = {column["name"] for column in cursor.fetchall()}
                 self.assertNotIn("request_status", member_columns)
@@ -2034,19 +2034,9 @@ class SocialMessagingFlowTest(unittest.TestCase):
         self.assertEqual(focused["id"], message_id)
         self.assertEqual(focused["body"], "需要由举报中心删除的私信")
 
-        invalid_delete = self.client.request(
-            "DELETE",
+        deleted_message = self.client.delete(
             f"/api/admin/message-reports/{message_report['id']}/content",
             headers=self._headers(self.admin_token),
-            json={"reasons": []},
-        )
-        self.assertEqual(invalid_delete.status_code, 422)
-
-        deleted_message = self.client.request(
-            "DELETE",
-            f"/api/admin/message-reports/{message_report['id']}/content",
-            headers=self._headers(self.admin_token),
-            json={"reasons": ["spam"]},
         )
         self.assertEqual(deleted_message.status_code, 200, deleted_message.text)
         history = self.client.get(
@@ -2056,20 +2046,6 @@ class SocialMessagingFlowTest(unittest.TestCase):
         removed_message = next(row for row in history if row["id"] == message_id)
         self.assertTrue(removed_message["recalled"])
         self.assertEqual(removed_message["body"], "")
-        reporter_notices = self.client.get(
-            "/api/system-notifications", headers=self._headers(reporter_token)
-        ).json()["data"]
-        self.assertTrue(any(
-            row.get("decision") == "deleted" and row.get("excerpt") == "需要由举报中心删除的私信"
-            for row in reporter_notices
-        ))
-        sender_notices = self.client.get(
-            "/api/system-notifications", headers=self._headers(sender_token)
-        ).json()["data"]
-        self.assertTrue(any(
-            row.get("audience") == "author" and row.get("reasonCodes") == ["spam"]
-            for row in sender_notices
-        ))
         self.assertEqual(
             self.client.delete(
                 f"/api/admin/message-reports/{message_report['id']}/content",
@@ -2110,148 +2086,6 @@ class SocialMessagingFlowTest(unittest.TestCase):
                 deleted_row = cursor.fetchone()
                 self.assertEqual(deleted_row["content"], "")
                 self.assertEqual(deleted_row["status"], "deleted")
-                cursor.execute("SELECT decision FROM comment_reports WHERE id = %s", (comment_report["id"],))
-                self.assertEqual(cursor.fetchone()["decision"], "deleted")
-
-        reporter_notices = self.client.get(
-            "/api/system-notifications", headers=self._headers(reporter_token)
-        ).json()["data"]
-        self.assertTrue(any(
-            row.get("decision") == "deleted" and row.get("excerpt") == "需要由举报中心删除的留言"
-            for row in reporter_notices
-        ))
-        sender_notices = self.client.get(
-            "/api/system-notifications", headers=self._headers(sender_token)
-        ).json()["data"]
-        self.assertTrue(any(
-            row.get("title") == "评论处理通知" and row.get("excerpt") == "需要由举报中心删除的留言"
-            for row in sender_notices
-        ))
-
-    def test_14c_reject_notifies_and_ignore_stays_silent(self) -> None:
-        self._register("comment_decision_author", "举报决策作者")
-        self._register("comment_decision_reporter", "举报决策用户")
-        author_token = self._login("comment_decision_author", "password123")
-        reporter_token = self._login("comment_decision_reporter", "password123")
-        first = self.client.post(
-            "/api/comments", headers=self._headers(author_token),
-            json={"targetType": "project", "targetId": 1, "content": "驳回举报的原文"},
-        ).json()["data"]["id"]
-        second = self.client.post(
-            "/api/comments", headers=self._headers(author_token),
-            json={"targetType": "project", "targetId": 1, "content": "忽略举报的原文"},
-        ).json()["data"]["id"]
-        for ident in (first, second):
-            response = self.client.post(
-                f"/api/comments/{ident}/reports", headers=self._headers(reporter_token),
-                json={"reason": "测试举报"},
-            )
-            self.assertEqual(response.status_code, 200, response.text)
-        pending = self.client.get(
-            "/api/admin/comment-reports?status=pending", headers=self._headers(self.admin_token)
-        ).json()["data"]
-        ids = {row["commentId"]: row["id"] for row in pending}
-        rejected = self.client.patch(
-            f"/api/admin/comment-reports/{ids[first]}", headers=self._headers(self.admin_token),
-            json={"status": "rejected", "note": "证据不足"},
-        )
-        ignored = self.client.patch(
-            f"/api/admin/comment-reports/{ids[second]}", headers=self._headers(self.admin_token),
-            json={"status": "dismissed"},
-        )
-        self.assertEqual(rejected.status_code, 200, rejected.text)
-        self.assertEqual(ignored.status_code, 200, ignored.text)
-        with get_db_connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT id,decision,review_note FROM comment_reports WHERE id IN (%s,%s)",
-                    (ids[first], ids[second]),
-                )
-                decisions = {row["id"]: row for row in cursor.fetchall()}
-        self.assertEqual(decisions[ids[first]]["decision"], "rejected")
-        self.assertEqual(decisions[ids[first]]["review_note"], "证据不足")
-        self.assertEqual(decisions[ids[second]]["decision"], "ignored")
-        notices = self.client.get(
-            "/api/system-notifications", headers=self._headers(reporter_token)
-        ).json()["data"]
-        self.assertTrue(any(row.get("decision") == "rejected" and row.get("note") == "证据不足" for row in notices))
-        self.assertFalse(any(row.get("excerpt") == "忽略举报的原文" for row in notices))
-
-    def test_14d_private_report_rejection_and_read_boundary(self) -> None:
-        sender = self._register("report_decision_sender", "举报处理发送者")
-        receiver = self._register("report_decision_receiver", "举报处理接收者")
-        sender_token = self._login("report_decision_sender", "password123")
-        receiver_token = self._login("report_decision_receiver", "password123")
-        conversation = self.client.post(
-            "/api/conversations", headers=self._headers(sender_token),
-            json={"targetUserId": receiver["id"]},
-        )
-        self.assertEqual(conversation.status_code, 200, conversation.text)
-        sent = self.client.post(
-            f"/api/conversations/{conversation.json()['data']['id']}/messages",
-            headers=self._headers(sender_token),
-            json={"type": "text", "body": "被驳回举报的私信"},
-        )
-        self.assertEqual(sent.status_code, 200, sent.text)
-        message_id = sent.json()["data"]["id"]
-        reported = self.client.post(
-            f"/api/messages/{message_id}/reports", headers=self._headers(receiver_token),
-            json={"reason": "误报测试"},
-        )
-        self.assertEqual(reported.status_code, 200, reported.text)
-        pending = self.client.get(
-            "/api/admin/message-reports?status=pending", headers=self._headers(self.admin_token)
-        ).json()["data"]
-        report_id = next(row["id"] for row in pending if row["messageId"] == message_id)
-        rejected = self.client.patch(
-            f"/api/admin/message-reports/{report_id}", headers=self._headers(self.admin_token),
-            json={"status": "rejected"},
-        )
-        self.assertEqual(rejected.status_code, 200, rejected.text)
-        with get_db_connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT status,decision FROM message_reports WHERE id=%s", (report_id,))
-                row = cursor.fetchone()
-                self.assertEqual((row["status"], row["decision"]), ("dismissed", "rejected"))
-        notices = self.client.get(
-            "/api/system-notifications", headers=self._headers(receiver_token)
-        ).json()
-        self.assertTrue(any(
-            row.get("decision") == "rejected" and row.get("excerpt") == "被驳回举报的私信"
-            and not row.get("note") for row in notices["data"]
-        ))
-        marked = self.client.post(
-            "/api/system-notifications/read", headers=self._headers(receiver_token),
-            json={"throughId": notices["latestId"], "throughSystemId": notices["latestSystemId"],
-                  "throughReportId": notices["latestReportId"]},
-        )
-        self.assertEqual(marked.status_code, 200, marked.text)
-        self.assertFalse(any(
-            row.get("decision") == "rejected" and not row["read"]
-            for row in self.client.get(
-                "/api/system-notifications", headers=self._headers(receiver_token)
-            ).json()["data"]
-        ))
-
-        reported_again = self.client.post(
-            f"/api/messages/{message_id}/reports", headers=self._headers(receiver_token),
-            json={"reason": "复核后仍需删除"},
-        )
-        self.assertEqual(reported_again.status_code, 200, reported_again.text)
-        deleted = self.client.request(
-            "DELETE", f"/api/admin/message-reports/{report_id}/content",
-            headers=self._headers(self.admin_token), json={"reasons": ["spam"]},
-        )
-        self.assertEqual(deleted.status_code, 200, deleted.text)
-        updated_notices = [
-            row for row in self.client.get(
-                "/api/system-notifications", headers=self._headers(receiver_token)
-            ).json()["data"]
-            if row.get("excerpt") == "被驳回举报的私信"
-        ]
-        self.assertEqual(len(updated_notices), 1)
-        self.assertEqual(updated_notices[0]["decision"], "deleted")
-        self.assertFalse(updated_notices[0]["read"])
 
     def test_14b_existing_deleted_comments_and_reply_chains(self) -> None:
         # Seed historical records directly: listing must apply the new rule without migration.

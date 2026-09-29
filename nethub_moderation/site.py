@@ -8,23 +8,6 @@ from contextlib import contextmanager
 
 from .policy import CATEGORIES, fingerprint, validate_result
 
-
-def report_excerpt(value, limit=120):
-    """Keep a short, single-line copy for a reporter notification."""
-    text = " ".join(str(value or "").split())
-    return text if len(text) <= limit else text[: limit - 1] + "…"
-
-
-def _table_columns(conn, table):
-    try:
-        rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
-        return {
-            row["name"] if isinstance(row, (sqlite3.Row, dict)) else row[1]
-            for row in rows
-        }
-    except sqlite3.DatabaseError:
-        return set()
-
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS _moderation_jobs (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,7 +38,6 @@ CREATE TABLE IF NOT EXISTS system_notifications (
  target_title TEXT NOT NULL,
  reason_codes TEXT NOT NULL,
  reason_note TEXT NOT NULL DEFAULT '',
- original_excerpt TEXT NOT NULL DEFAULT '',
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
  read_at TEXT,
  UNIQUE(recipient_id, comment_id)
@@ -288,13 +270,6 @@ class Site:
             )
             return
         target = self.target(conn, comment)
-        pending_reports = []
-        report_columns = _table_columns(conn, "comment_reports")
-        if self.name == "wiki" and {"id", "reporter_id"}.issubset(report_columns) and _table_columns(conn, "report_notifications"):
-            pending_reports = conn.execute(
-                "SELECT id,reporter_id FROM comment_reports WHERE comment_id=? AND status='pending'",
-                (comment["id"],),
-            ).fetchall()
         conn.execute(
             "UPDATE comments SET content='',status='deleted' WHERE id=?",
             (comment["id"],),
@@ -319,39 +294,22 @@ class Site:
         )
         if self.name == "wiki":
             conn.execute(
-                "UPDATE comment_reports SET status='resolved',decision='deleted',review_note='',resolved_by=?,resolved_at=CURRENT_TIMESTAMP WHERE comment_id=? AND status='pending'",
+                "UPDATE comment_reports SET status='resolved',resolved_by=?,resolved_at=CURRENT_TIMESTAMP WHERE comment_id=? AND status='pending'",
                 (admin, comment["id"]),
             )
-            for report in pending_reports:
-                conn.execute(
-                    """INSERT INTO report_notifications
-                       (recipient_id,content_type,report_id,original_excerpt,decision,note,
-                        target_type,target_id,target_title)
-                       VALUES (?,?,?,?,?,?,?,?,?)
-                       ON CONFLICT(content_type,report_id,recipient_id) DO UPDATE SET
-                         decision=excluded.decision,original_excerpt=excluded.original_excerpt,
-                         note=excluded.note,created_at=CURRENT_TIMESTAMP,read_at=NULL""",
-                    (
-                        report["reporter_id"], "comment", report["id"],
-                        report_excerpt(comment["content"]), "deleted", note.strip(),
-                        target["type"], target["id"], target["title"],
-                    ),
-                )
-        notification_values = (
-            comment["user_id"], comment["id"], int(comment["parent_id"] is not None),
-            target["type"], target["id"], target["title"],
-            json.dumps(reasons), note.strip(),
+        conn.execute(
+            "INSERT OR IGNORE INTO system_notifications(recipient_id,comment_id,is_reply,target_type,target_id,target_title,reason_codes,reason_note) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                comment["user_id"],
+                comment["id"],
+                int(comment["parent_id"] is not None),
+                target["type"],
+                target["id"],
+                target["title"],
+                json.dumps(reasons),
+                note.strip(),
+            ),
         )
-        if "original_excerpt" in _table_columns(conn, "system_notifications"):
-            conn.execute(
-                "INSERT OR IGNORE INTO system_notifications(recipient_id,comment_id,is_reply,target_type,target_id,target_title,reason_codes,reason_note,original_excerpt) VALUES (?,?,?,?,?,?,?,?,?)",
-                (*notification_values, report_excerpt(comment["content"])),
-            )
-        else:
-            conn.execute(
-                "INSERT OR IGNORE INTO system_notifications(recipient_id,comment_id,is_reply,target_type,target_id,target_title,reason_codes,reason_note) VALUES (?,?,?,?,?,?,?,?)",
-                notification_values,
-            )
 
     def decide(self, case_id, admin, action, reasons=None, note=""):
         with self.db(True) as conn:
@@ -459,27 +417,14 @@ class Site:
 
     def notifications(self, user, page, size):
         with self.db() as conn:
-            window = page * size
             count, latest = conn.execute(
                 "SELECT COUNT(*),COALESCE(MAX(id),0) FROM system_notifications WHERE recipient_id=?",
                 (user,),
             ).fetchone()
             rows = conn.execute(
                 "SELECT * FROM system_notifications WHERE recipient_id=? ORDER BY id DESC LIMIT ? OFFSET ?",
-                (user, window, 0),
+                (user, size, (page - 1) * size),
             ).fetchall()
-            system_columns = _table_columns(conn, "system_notifications")
-            report_rows = []
-            report_total = 0
-            report_latest = 0
-            if _table_columns(conn, "report_notifications"):
-                report_rows = conn.execute(
-                    "SELECT * FROM report_notifications WHERE recipient_id=? ORDER BY id DESC LIMIT ? OFFSET ?",
-                    (user, window, 0),
-                ).fetchall()
-                report_total, report_latest = conn.execute(
-                    "SELECT COUNT(*),COALESCE(MAX(id),0) FROM report_notifications WHERE recipient_id=?", (user,)
-                ).fetchone()
             data = []
             for row in rows:
                 synthetic = (
@@ -502,67 +447,27 @@ class Site:
                         "reasonCodes": codes,
                         "reasons": [CATEGORIES.get(c, "其他") for c in codes],
                         "note": row["reason_note"],
-                        "excerpt": row["original_excerpt"] if "original_excerpt" in system_columns else "",
                         "createdAt": row["created_at"],
                         "read": row["read_at"] is not None,
                     }
                 )
-            for row in report_rows:
-                data.append(
-                    {
-                        "id": row["id"],
-                        "type": "report",
-                        "title": "私信处理通知" if row["audience"] == "author" else "举报处理通知",
-                        "decision": row["decision"],
-                        "audience": row["audience"],
-                        "excerpt": row["original_excerpt"],
-                        "note": row["note"],
-                        "reasonCodes": json.loads(row["reason_codes"]),
-                        "target": {
-                            "type": row["target_type"],
-                            "id": row["target_id"],
-                            "title": row["target_title"] or "私信",
-                            "available": False,
-                            "url": None,
-                        },
-                        "createdAt": row["created_at"],
-                        "read": row["read_at"] is not None,
-                    }
-                )
-            data.sort(key=lambda item: (item.get("createdAt") or "", item["id"]), reverse=True)
-            start = (page - 1) * size
-            data = data[start:start + size]
             return {
                 "data": data,
                 "page": page,
-                "hasMore": page * size < count + report_total,
-                "latestId": max(latest, report_latest),
-                "latestSystemId": latest,
-                "latestReportId": report_latest,
+                "hasMore": page * size < count,
+                "latestId": latest,
             }
 
-    def read(self, user, through, report_through=None):
+    def read(self, user, through):
         with self.db(True) as conn:
             conn.execute(
                 "UPDATE system_notifications SET read_at=CURRENT_TIMESTAMP WHERE recipient_id=? AND id<=? AND read_at IS NULL",
                 (user, through),
             )
-            if _table_columns(conn, "report_notifications"):
-                conn.execute(
-                    "UPDATE report_notifications SET read_at=CURRENT_TIMESTAMP WHERE recipient_id=? AND id<=? AND read_at IS NULL",
-                    (user, through if report_through is None else report_through),
-                )
 
     def unread(self, user):
         with self.db() as conn:
-            regular = conn.execute(
+            return conn.execute(
                 "SELECT COUNT(*) FROM system_notifications WHERE recipient_id=? AND read_at IS NULL",
                 (user,),
             ).fetchone()[0]
-            reports = 0
-            if _table_columns(conn, "report_notifications"):
-                reports = conn.execute(
-                    "SELECT COUNT(*) FROM report_notifications WHERE recipient_id=? AND read_at IS NULL",
-                    (user,),
-                ).fetchone()[0]
-            return regular + reports
