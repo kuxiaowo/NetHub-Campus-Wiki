@@ -103,7 +103,7 @@ def inspect_schema(db: sqlite3.Connection, gateway: d1_mirror.Gateway, site: str
         for row in gateway.request([("SELECT name FROM sqlite_master WHERE type='table'", [])])[0][
             "rows"
         ]
-        if not row["name"].startswith(d1_mirror.RESERVED)
+        if d1_mirror.is_sync_table(row["name"])
     }
     old_todo = {"visit_logs", "registration_attempt_logs"} if site == "todo" else set()
     if local != remote - old_todo:

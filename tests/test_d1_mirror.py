@@ -122,6 +122,56 @@ class MirrorTests(unittest.TestCase):
         self.assertEqual(d1_mirror.status(db)["pending"], 0)
         db.close()
 
+    def test_excluded_auth_event_advances_watermark_without_changing_d1_row(self):
+        root = Path(self.temp.name)
+        local = root / "excluded-local.sqlite3"
+        remote = root / "excluded-remote.sqlite3"
+        local_db = sqlite3.connect(local)
+        local_db.executescript(
+            """
+            CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+            CREATE TABLE auth_sessions(id INTEGER PRIMARY KEY, token_hash TEXT NOT NULL);
+            """
+        )
+        local_db.close()
+        d1_mirror.install(local)
+        db = d1_mirror.connect(local, write=True)
+        schema_hash = d1_mirror.columns(db, "auth_sessions")[2]
+        db.execute("UPDATE _sync_clock SET seq=1 WHERE id=1")
+        db.execute(
+            """INSERT INTO _sync_outbox
+               (seq,event_id,table_name,operation,pk_json,old_pk_json,row_json,types_json,schema_hash)
+               VALUES (1,'excluded-event','auth_sessions','insert','{"id":1}',NULL,
+                       '{"id":1,"token_hash":"new"}','{"id":"integer","token_hash":"text"}',?)""",
+            (schema_hash,),
+        )
+        db.execute("UPDATE _sync_control SET ready=1,baseline_seq=0 WHERE id=1")
+        db.close()
+        remote_db = sqlite3.connect(remote)
+        remote_db.executescript(
+            """
+            CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+            CREATE TABLE auth_sessions(id INTEGER PRIMARY KEY, token_hash TEXT NOT NULL);
+            INSERT INTO auth_sessions VALUES(1,'old');
+            """
+            + D1_META
+        )
+        remote_db.close()
+        gateway = LocalGateway(remote)
+        try:
+            d1_mirror.worker(local, gateway, once=True, poll_seconds=0)
+            self.assertEqual(
+                gateway.db.execute("SELECT token_hash FROM auth_sessions WHERE id=1").fetchone()[0],
+                "old",
+            )
+            self.assertEqual(gateway.db.execute("SELECT seq FROM _sync_watermark").fetchone()[0], 1)
+            local_view = d1_mirror.connect(local)
+            state = d1_mirror.status(local_view)
+            local_view.close()
+            self.assertEqual(state["pending"], 0)
+        finally:
+            gateway.db.close()
+
     def test_lost_confirmation_retry_deduplicates_counter(self):
         db = sqlite3.connect(self.local)
         db.execute("INSERT INTO users VALUES(1,'user')")
