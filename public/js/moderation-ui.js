@@ -34,7 +34,18 @@
     const fragment=document.createDocumentFragment();
     result.data.forEach(item=>{
       const card=document.createElement('article'); card.className=`mod-card mod-notification ${item.read?'':'unread'}`;
-      card.innerHTML=`<header><strong>${e(item.title)}</strong><time>${e(item.createdAt)}</time></header><p>你在「${e(item.target.title)}」发表的${item.title.startsWith('回复')?'回复':'评论'}已被管理员删除。</p><p><strong>处理原因：</strong>${item.reasons.map(e).join('、')}</p><details><summary>查看详情</summary><p>${e(item.note || '管理员已确认上述处理原因。')}</p><p>留言编号：${e(item.commentId)}</p>${item.target.available?`<a href="${e(item.target.url)}">查看原页面</a>`:'<p>原页面已不存在或不可访问。</p>'}</details>`;
+      if (item.type === 'report') {
+        const message = item.audience === 'author'
+          ? '你发布的内容已被管理员删除。'
+          : item.decision === 'deleted'
+            ? '感谢您的举报，内容已删除。'
+            : (item.note ? `感谢您的举报，${item.note}` : '感谢您的举报，举报已被管理员驳回。');
+        const authorReason = item.audience === 'author' && item.reasonCodes?.length
+          ? `<p><strong>处理原因：</strong>${item.reasonCodes.map(code=>e(reasons[code] || '其他')).join('、')}</p>${item.note?`<p>${e(item.note)}</p>`:''}` : '';
+        card.innerHTML=`<header><strong>${e(item.title)}</strong><time>${e(item.createdAt)}</time></header><p class="mod-notification-excerpt">${e(item.excerpt || '原内容已不可见')}</p><p>${e(message)}</p>${authorReason}`;
+      } else {
+        card.innerHTML=`<header><strong>${e(item.title)}</strong><time>${e(item.createdAt)}</time></header><p class="mod-notification-excerpt">${e(item.excerpt || '原内容已不可见')}</p><p>你在「${e(item.target.title)}」发表的${item.title.startsWith('回复')?'回复':'评论'}已被管理员删除。</p><p><strong>处理原因：</strong>${item.reasons.map(e).join('、')}</p><details><summary>查看详情</summary><p>${e(item.note || '管理员已确认上述处理原因。')}</p><p>留言编号：${e(item.commentId)}</p>${item.target.available?`<a href="${e(item.target.url)}">查看原页面</a>`:'<p>原页面已不存在或不可访问。</p>'}</details>`;
+      }
       fragment.append(card);
     });
     if (!append) container.replaceChildren(); container.append(fragment);

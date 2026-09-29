@@ -767,12 +767,14 @@ JSON 迁移覆盖 CAS 项目（含成员联系方式与动态）、普通资源�
 - `PATCH /api/admin/announcements/{announcement_id}`：编辑公告，或在 `published`、`archived` 之间切换状态。
 - `DELETE /api/admin/announcements/{announcement_id}`：永久删除公告及其留言、回复、点赞、举报和通知。
 - `GET /api/admin/comment-reports?status=pending`：读取留言举报。
-- `PATCH /api/admin/comment-reports/{report_id}`：以 `resolved` 或 `dismissed` 处理；`hideComment=true` 时同时隐藏被举报留言。
+- `PATCH /api/admin/comment-reports/{report_id}`：以 `rejected` 或 `dismissed` 处理；驳回可带 `note`。旧 `resolved` 状态保留供兼容，删除内容使用下方删除接口。
 - `DELETE /api/admin/comment-reports/{report_id}/content`：清空被举报留言正文、标记为已删除，并处理该留言的全部待审举报；没有可见回复时前台不显示该留言，有回复时保留“该留言已删除”占位，回复关系继续保留。
 - `GET /api/admin/message-reports?status=pending`：读取私信举报。
 - `GET /api/admin/message-reports/{report_id}/context`：读取被举报私信及前后各五条上下文消息，仅管理员可用。
-- `PATCH /api/admin/message-reports/{report_id}`：以 `resolved` 或 `dismissed` 处理举报。
-- `DELETE /api/admin/message-reports/{report_id}/content`：清空被举报私信并在双方会话中标记为已撤回，同时处理该消息的全部待审举报。
+- `PATCH /api/admin/message-reports/{report_id}`：以 `rejected` 或 `dismissed` 处理举报；驳回可带 `note`。旧 `resolved` 状态保留供兼容。
+- `DELETE /api/admin/message-reports/{report_id}/content`：请求体传删除原因（与评论审核相同的 `reasons` 和 `note`），清空被举报私信并在双方会话中标记为已撤回，同时处理该消息的全部待审举报。
+- 删除或驳回会给举报人发送系统通知，忽略不会通知；通知只显示被举报内容的一行摘要。
+- 删除内容还会向内容作者发送删除通知；通知卡片只显示一行原文摘要，正文保持紧凑。
 
 ### CAS 项目管理
 
