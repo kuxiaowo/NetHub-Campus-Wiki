@@ -25,7 +25,7 @@ from pathlib import Path
 VERSION = 1
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 RESERVED = ("sqlite_", "_sync_", "_cf_", "_moderation_")
-# Short-lived authentication state stays in SQLite and R2 backups.  Mirroring
+# Short-lived authentication state stays in SQLite and full SQLite backups.  Mirroring
 # it to D1 creates an event for nearly every authenticated request without
 # providing useful replica data.
 SYNC_EXCLUDED_TABLES = frozenset(
@@ -36,6 +36,7 @@ SYNC_EXCLUDED_TABLES = frozenset(
         "auth_rate_limit_buckets",
     }
 )
+MAX_SKIP_RANGE = 500
 SITE_ENV = {
     "accounts": ("ACCOUNTS_D1_GATEWAY_URL", "ACCOUNTS_D1_GATEWAY_SECRET"),
     "wiki": ("D1_GATEWAY_URL", "D1_GATEWAY_HMAC_SECRET"),
@@ -403,6 +404,114 @@ def deliver_skipped(db: sqlite3.Connection, gateway: Gateway, event: sqlite3.Row
     _acknowledge_local_event(db, event["seq"])
 
 
+def skipped_event_range(
+    db: sqlite3.Connection, first: sqlite3.Row, until_seq: int | None
+) -> list[sqlite3.Row]:
+    """Select only a contiguous run of excluded, unacknowledged events."""
+
+    limit = first["seq"] + MAX_SKIP_RANGE - 1
+    if until_seq is not None:
+        limit = min(limit, until_seq)
+    rows = db.execute(
+        "SELECT * FROM _sync_outbox WHERE seq>=? AND seq<=? "
+        "AND acked_at IS NULL ORDER BY seq LIMIT ?",
+        (first["seq"], limit, MAX_SKIP_RANGE),
+    ).fetchall()
+    result = []
+    for row in rows:
+        if row["seq"] != first["seq"] + len(result):
+            break
+        if row["table_name"] not in SYNC_EXCLUDED_TABLES:
+            break
+        result.append(row)
+    return result
+
+
+def skipped_range_hash(events: list[sqlite3.Row]) -> str:
+    if len(events) == 1:
+        return event_hash(events[0])
+    digest = hashlib.sha256()
+    for event in events:
+        digest.update(f"{event['seq']}:{event['event_id']}:{event_hash(event)}\n".encode())
+    return digest.hexdigest()
+
+
+def skipped_range_statements(events: list[sqlite3.Row]) -> list[tuple[str, list]]:
+    start = events[0]["seq"]
+    end = events[-1]["seq"]
+    event_id = events[-1]["event_id"]
+    digest = skipped_range_hash(events)
+    return [
+        (
+            "INSERT INTO _sync_events(seq,event_id,payload_hash) "
+            "SELECT ?,?,? WHERE (SELECT seq FROM _sync_watermark WHERE id=1)=? "
+            "AND NOT EXISTS (SELECT 1 FROM _sync_events WHERE seq=?)",
+            [end, event_id, digest, start - 1, end],
+        ),
+        (
+            "UPDATE _sync_watermark SET seq=? WHERE id=1 AND seq=? "
+            "AND EXISTS (SELECT 1 FROM _sync_events WHERE seq=? AND event_id=? AND payload_hash=?)",
+            [end, start - 1, end, event_id, digest],
+        ),
+        ("SELECT event_id,payload_hash FROM _sync_events WHERE seq=?", [end]),
+    ]
+
+
+def _acknowledge_skipped_range(db: sqlite3.Connection, events: list[sqlite3.Row]) -> None:
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        changed = db.execute(
+            "UPDATE _sync_outbox "
+            "SET acked_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),last_error_code=NULL "
+            "WHERE seq BETWEEN ? AND ? AND acked_at IS NULL",
+            (events[0]["seq"], events[-1]["seq"]),
+        ).rowcount
+        if changed != len(events):
+            raise RuntimeError("excluded event range changed during delivery")
+        db.execute("COMMIT")
+    except BaseException:
+        db.execute("ROLLBACK")
+        raise
+
+
+def deliver_skipped_range(
+    db: sqlite3.Connection, gateway: Gateway, events: list[sqlite3.Row]
+) -> int:
+    """Advance over old excluded events with one D1 marker per range.
+
+    The watermark read also resolves a lost D1 confirmation, including a range
+    that was extended by newer SQLite writes before the retry.
+    """
+
+    start = events[0]["seq"]
+    end = events[-1]["seq"]
+    remote = gateway.request([("SELECT seq FROM _sync_watermark WHERE id=1", [])])[0]["rows"]
+    if len(remote) != 1:
+        raise RuntimeError("D1 watermark missing")
+    remote_seq = remote[0]["seq"]
+    if remote_seq < start - 1 or remote_seq > end:
+        raise RuntimeError("D1 watermark differs from excluded event range")
+    if remote_seq >= start:
+        confirmed = [event for event in events if event["seq"] <= remote_seq]
+        marker = gateway.request(
+            [("SELECT event_id,payload_hash FROM _sync_events WHERE seq=?", [remote_seq])]
+        )[0]["rows"]
+        expected = {
+            "event_id": confirmed[-1]["event_id"],
+            "payload_hash": skipped_range_hash(confirmed),
+        }
+        if not marker or marker[0] != expected:
+            raise RuntimeError("D1 did not confirm excluded event range")
+        _acknowledge_skipped_range(db, confirmed)
+        return len(confirmed)
+    marker = gateway.request(skipped_range_statements(events))[-1]["rows"]
+    expected = {"event_id": events[-1]["event_id"], "payload_hash": skipped_range_hash(events)}
+    if not marker or marker[0] != expected:
+        raise RuntimeError("D1 did not confirm excluded event range")
+    _acknowledge_skipped_range(db, events)
+    return len(events)
+
+
 def status(db: sqlite3.Connection) -> dict:
     clock = db.execute("SELECT seq FROM _sync_clock WHERE id=1").fetchone()[0]
     control = db.execute("SELECT ready,baseline_seq FROM _sync_control WHERE id=1").fetchone()
@@ -469,9 +578,10 @@ def worker(
                 continue
             try:
                 if event["table_name"] in SYNC_EXCLUDED_TABLES:
-                    deliver_skipped(db, gateway, event)
+                    skipped = skipped_event_range(db, event, until_seq)
+                    count = deliver_skipped_range(db, gateway, skipped)
                     print(
-                        f"D1 delivery skipped: seq={event['seq']} table={event['table_name']}",
+                        f"D1 delivery skipped: seq={event['seq']} count={count}",
                         file=sys.stderr,
                         flush=True,
                     )

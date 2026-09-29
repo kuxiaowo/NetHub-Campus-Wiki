@@ -172,6 +172,115 @@ class MirrorTests(unittest.TestCase):
         finally:
             gateway.db.close()
 
+    def test_excluded_range_retries_after_lost_confirmation(self):
+        root = Path(self.temp.name)
+        local = root / "range-local.sqlite3"
+        remote = root / "range-remote.sqlite3"
+        local_db = sqlite3.connect(local)
+        local_db.executescript(
+            """
+            CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+            CREATE TABLE auth_sessions(id INTEGER PRIMARY KEY, token_hash TEXT NOT NULL);
+            """
+        )
+        local_db.close()
+        d1_mirror.install(local)
+        local_db = d1_mirror.connect(local, write=True)
+        schema_hash = d1_mirror.columns(local_db, "auth_sessions")[2]
+
+        def append_auth_event(seq):
+            local_db.execute("UPDATE _sync_clock SET seq=? WHERE id=1", (seq,))
+            local_db.execute(
+                """INSERT INTO _sync_outbox
+                   (seq,event_id,table_name,operation,pk_json,row_json,types_json,schema_hash)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (
+                    seq, f"excluded-{seq}", "auth_sessions", "insert", f'{{"id":{seq}}}',
+                    f'{{"id":{seq},"token_hash":"new"}}',
+                    '{"id":"integer","token_hash":"text"}', schema_hash,
+                ),
+            )
+
+        append_auth_event(1)
+        append_auth_event(2)
+        local_db.execute("UPDATE _sync_control SET ready=1,baseline_seq=0 WHERE id=1")
+        remote_db = sqlite3.connect(remote)
+        remote_db.executescript(
+            """
+            CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+            CREATE TABLE auth_sessions(id INTEGER PRIMARY KEY, token_hash TEXT NOT NULL);
+            INSERT INTO auth_sessions VALUES(1,'old');
+            """
+            + D1_META
+        )
+        remote_db.close()
+        gateway = LocalGateway(remote)
+        try:
+            gateway.lose_confirmation_once = True
+            with self.assertRaises(RuntimeError):
+                d1_mirror.worker(local, gateway, once=True, poll_seconds=0)
+            self.assertEqual(gateway.db.execute("SELECT seq FROM _sync_watermark").fetchone()[0], 2)
+            append_auth_event(3)
+            local_db.close()
+            d1_mirror.worker(local, gateway, once=True, poll_seconds=0)
+            self.assertEqual(gateway.db.execute("SELECT seq FROM _sync_watermark").fetchone()[0], 3)
+            self.assertEqual(gateway.db.execute("SELECT COUNT(*) FROM _sync_events").fetchone()[0], 2)
+            self.assertEqual(
+                gateway.db.execute("SELECT token_hash FROM auth_sessions WHERE id=1").fetchone()[0],
+                "old",
+            )
+            state_db = d1_mirror.connect(local)
+            self.assertEqual(d1_mirror.status(state_db)["pending"], 0)
+            state_db.close()
+        finally:
+            if local_db:
+                local_db.close()
+            gateway.db.close()
+
+    def test_excluded_range_stops_before_durable_event(self):
+        root = Path(self.temp.name)
+        local = root / "boundary-local.sqlite3"
+        remote = root / "boundary-remote.sqlite3"
+        local_db = sqlite3.connect(local)
+        local_db.executescript(
+            """
+            CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+            CREATE TABLE auth_sessions(id INTEGER PRIMARY KEY, token_hash TEXT NOT NULL);
+            """
+        )
+        local_db.close()
+        d1_mirror.install(local)
+        local_db = d1_mirror.connect(local, write=True)
+        schema_hash = d1_mirror.columns(local_db, "auth_sessions")[2]
+        local_db.execute("UPDATE _sync_clock SET seq=1 WHERE id=1")
+        local_db.execute(
+            """INSERT INTO _sync_outbox
+               (seq,event_id,table_name,operation,pk_json,row_json,types_json,schema_hash)
+               VALUES (1,'excluded-1','auth_sessions','insert','{"id":1}',
+                       '{"id":1,"token_hash":"new"}',
+                       '{"id":"integer","token_hash":"text"}',?)""",
+            (schema_hash,),
+        )
+        local_db.execute("INSERT INTO users VALUES(1,'durable')")
+        local_db.execute("UPDATE _sync_control SET ready=1,baseline_seq=0 WHERE id=1")
+        local_db.close()
+        remote_db = sqlite3.connect(remote)
+        remote_db.executescript(
+            """
+            CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+            CREATE TABLE auth_sessions(id INTEGER PRIMARY KEY, token_hash TEXT NOT NULL);
+            """
+            + D1_META
+        )
+        remote_db.close()
+        gateway = LocalGateway(remote)
+        try:
+            d1_mirror.worker(local, gateway, once=True, poll_seconds=0)
+            self.assertEqual(gateway.db.execute("SELECT seq FROM _sync_watermark").fetchone()[0], 2)
+            self.assertEqual(gateway.db.execute("SELECT name FROM users").fetchone()[0], "durable")
+        finally:
+            gateway.db.close()
+
     def test_lost_confirmation_retry_deduplicates_counter(self):
         db = sqlite3.connect(self.local)
         db.execute("INSERT INTO users VALUES(1,'user')")
