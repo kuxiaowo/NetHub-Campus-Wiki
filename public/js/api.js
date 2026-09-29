@@ -64,14 +64,14 @@ function loadTurnstileScript() {
   return turnstileScriptPromise;
 }
 
-async function getContentTurnstileToken(action) {
+async function getContentTurnstileToken(action, inlineHost = null) {
   const config = await request('/turnstile/config');
   if (config.sessionVerified) return null;
   turnstileSiteKeyPromise = Promise.resolve(config.siteKey);
-  return getTurnstileToken(action);
+  return getTurnstileToken(action, inlineHost);
 }
 
-async function getTurnstileToken(action) {
+async function getTurnstileToken(action, inlineHost = null) {
   if (!turnstileSiteKeyPromise) {
     turnstileSiteKeyPromise = request('/turnstile/config')
       .then((config) => config.siteKey)
@@ -84,14 +84,16 @@ async function getTurnstileToken(action) {
   if (!siteKey) throw new Error('人机验证暂不可用');
   await loadTurnstileScript();
   return new Promise((resolve, reject) => {
-    const previousFocus = document.activeElement;
-    const host = document.createElement('div');
-    host.className = 'turnstile-overlay';
-    host.innerHTML = '<div class="turnstile-dialog" role="dialog" aria-modal="true" aria-label="人机验证"><p>请完成人机验证后继续提交</p><div class="turnstile-widget"></div><button type="button" class="turnstile-cancel">取消</button></div>';
-    document.body.append(host);
-    const cancel = host.querySelector('.turnstile-cancel');
-    cancel.addEventListener('click', () => finish(null, '已取消人机验证'));
-    cancel.focus();
+    const previousFocus = inlineHost ? null : document.activeElement;
+    const host = inlineHost || document.createElement('div');
+    if (!inlineHost) {
+      host.className = 'turnstile-overlay';
+      host.innerHTML = '<div class="turnstile-dialog" role="dialog" aria-modal="true" aria-label="人机验证"><p>请完成人机验证后继续提交</p><div class="turnstile-widget"></div><button type="button" class="turnstile-cancel">取消</button></div>';
+      document.body.append(host);
+      const cancel = host.querySelector('.turnstile-cancel');
+      cancel.addEventListener('click', () => finish(null, '已取消人机验证'));
+      cancel.focus();
+    }
     let widgetId;
     let settled = false;
     const finish = (token, error) => {
@@ -99,14 +101,14 @@ async function getTurnstileToken(action) {
       settled = true;
       clearTimeout(timer);
       if (widgetId !== undefined) window.turnstile.remove(widgetId);
-      host.remove();
+      if (!inlineHost) host.remove();
       if (previousFocus?.isConnected) previousFocus.focus();
       if (error) reject(new Error(error));
       else resolve(token);
     };
     const timer = setTimeout(() => finish(null, '人机验证超时，请重试'), 240000);
     try {
-      widgetId = window.turnstile.render(host.querySelector('.turnstile-widget'), {
+      widgetId = window.turnstile.render(inlineHost || host.querySelector('.turnstile-widget'), {
         sitekey: siteKey,
         action,
         size: 'normal',

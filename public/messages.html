@@ -102,6 +102,7 @@
               <form id="messageComposer" class="message-composer">
                 <div id="projectSharePreview" class="composer-project-share is-hidden"></div>
                 <textarea id="messageInput" maxlength="2000" placeholder="输入消息，Enter 发送，Shift + Enter 换行"></textarea>
+                <div id="messageTurnstile" class="turnstile-inline" aria-label="发送前的人机验证"></div>
                 <div class="message-composer-foot">
                   <span id="messageStatus" aria-live="polite"></span>
                   <button class="button compact" type="submit">发送</button>
@@ -125,8 +126,8 @@
   </main>
 
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=turnstile-hour-20260928"></script>
+  <script src="/js/api.js?v=turnstile-inline-20260929"></script>
   <script src="/js/moderation-ui.js?v=moderation2"></script>
-  <script src="/js/messages.js?v=turnstile-hour-20260928"></script>
+  <script src="/js/messages.js?v=turnstile-inline-20260929"></script>
 </body>
 </html>
