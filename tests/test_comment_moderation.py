@@ -39,7 +39,7 @@ class ModerationStoreTest(unittest.TestCase):
         self.directory.cleanup()
 
     def connect(self):
-        conn = sqlite3.connect(self.path)
+        conn = sqlite3.connect(self.path, check_same_thread=False)
         self.connections.append(conn)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys=ON")
@@ -106,6 +106,76 @@ class ModerationStoreTest(unittest.TestCase):
                 conn.execute("SELECT status FROM comments").fetchone()[0], "visible"
             )
         self.assertEqual(self.site.unread(1), 0)
+
+    def test_ignore_passed_comment_only_closes_case(self):
+        ident = self.publish("正常的新回复")
+        job = self.job(ident)
+        self.assertTrue(self.site.complete(job, {
+            "jobId": job["jobId"], "decision": "allow", "categories": [],
+            "evidence": [], "explanation": "内容正常",
+        }))
+        self.assertEqual(self.site.cases("passed", 1, 20)["data"][0]["commentId"], ident)
+        self.assertEqual(self.site.cases("history", 1, 20)["total"], 0)
+        self.site.decide(job["id"], 2, "ignore")
+        with self.connect() as conn:
+            self.assertEqual(conn.execute("SELECT status FROM comments WHERE id=?", (ident,)).fetchone()[0], "visible")
+        self.assertEqual(self.site.cases("passed", 1, 20)["total"], 0)
+        self.assertEqual(self.site.cases("history", 1, 20)["data"][0]["state"], "dismissed")
+        self.assertEqual(self.site.unread(1), 0)
+
+    def test_passed_case_api_can_ignore_or_delete_and_keeps_replies(self):
+        from fastapi import FastAPI, HTTPException
+        from fastapi.testclient import TestClient
+        from nethub_moderation.routes import make_router
+
+        def admin():
+            return {"id": 2}
+
+        app = FastAPI()
+        app.include_router(make_router(self.site, admin, admin))
+        with TestClient(app) as client:
+            for action in ("ignore", "delete"):
+                ident = self.publish("AI 通过的新评论")
+                reply = self.publish("正常回复", ident)
+                job = self.job(ident)
+                self.site.complete(job, {
+                    "jobId": job["jobId"], "decision": "allow", "categories": [],
+                    "evidence": [], "explanation": "正常交流",
+                })
+                result = client.get("/api/admin/moderation/cases?state=passed")
+                self.assertEqual(result.status_code, 200)
+                self.assertEqual(result.json()["data"][0]["commentId"], ident)
+                payload = {"action": action}
+                if action == "delete":
+                    payload["reasons"] = ["spam"]
+                result = client.post(
+                    f"/api/admin/moderation/cases/{job['id']}/decision", json=payload
+                )
+                self.assertEqual(result.status_code, 200, result.text)
+                with self.connect() as conn:
+                    content, status = conn.execute(
+                        "SELECT content,status FROM comments WHERE id=?", (ident,)
+                    ).fetchone()
+                    self.assertEqual(status, "visible" if action == "ignore" else "deleted")
+                    self.assertEqual(content, "AI 通过的新评论" if action == "ignore" else "")
+                    self.assertEqual(conn.execute(
+                        "SELECT content,status FROM comments WHERE id=?", (reply,)
+                    ).fetchone()[1], "visible")
+                self.assertEqual(client.get(
+                    "/api/admin/moderation/cases?state=passed"
+                ).json()["total"], 0)
+                self.assertEqual(self.site.unread(1), 0 if action == "ignore" else 1)
+
+            def denied():
+                raise HTTPException(403, "需要管理员权限")
+
+            app.dependency_overrides[admin] = denied
+            self.assertEqual(client.get(
+                "/api/admin/moderation/cases?state=passed"
+            ).status_code, 403)
+            self.assertEqual(client.post(
+                f"/api/admin/moderation/cases/{job['id']}/decision", json={"action": "ignore"}
+            ).status_code, 403)
 
     def test_override_reason_soft_delete_and_private_body_free_notification(self):
         ident = self.publish("通知中保留一行原文")

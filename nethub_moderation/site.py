@@ -275,8 +275,8 @@ class Site:
         ):
             return
         if action == "ignore":
-            if not job or job["state"] not in {"review", "failed"}:
-                raise ValueError("仅待复核或审核失败记录可以忽略")
+            if not job or job["state"] not in {"review", "failed", "passed"}:
+                raise ValueError("仅待复核、审核失败或 AI 已通过记录可以忽略")
             if job["state"] == "review":
                 conn.execute(
                     "UPDATE comments SET status='visible' WHERE id=? AND status='hidden'",
@@ -391,7 +391,7 @@ class Site:
 
     def cases(self, state, page, size):
         where = (
-            "j.state IN ('passed','dismissed','deleted','cancelled')"
+            "j.state IN ('dismissed','deleted','cancelled')"
             if state == "history"
             else "j.state=?"
         )

@@ -703,7 +703,7 @@ curl http://127.0.0.1:3100/api/resources/meta
 - `POST /api/conversations/{id}/messages`：发送 `text` 或 `project` 消息。
 - `POST /api/conversations/{id}/read`：更新当前用户的已读位置。
 - `DELETE /api/conversations/{id}`：仅为当前用户隐藏会话，不删除双方消息。
-- `POST /api/messages/{id}/recall`：发送者在两分钟内撤回消息。
+- `POST /api/messages/{id}/recall`：发送者在五分钟内撤回消息。
 - `POST /api/messages/{id}/reports`：举报消息。
 - `GET /api/messages/unread-count`：读取私信未读数。
 - `POST /api/messages/stream-ticket`：创建 60 秒内有效且只能使用一次的实时连接凭证。

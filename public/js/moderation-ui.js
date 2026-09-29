@@ -55,8 +55,9 @@
   window.NetHubModeration=Object.freeze({api,chooseReasons,deleteComment,renderNotifications});
 
   const root=document.querySelector('[data-moderation-app]'); if (!root) return;
-  let config=null, page=1, currentState='review', data=[], hasMore=false, loading=false;
-  root.innerHTML=`<div class="mod-card"><h2>评论审核</h2><p>两站共用 AI 配置与总并发池。本页复核列表仅显示本站内容。</p><p data-status role="status">正在加载</p><details class="mod-settings"><summary>AI 接口与运行设置</summary><form data-settings><div class="mod-grid"><label class="mod-field">接口格式<select name="provider"><option value="codex">服务器 Codex 额度</option><option value="openai">OpenAI 兼容接口</option></select></label><label class="mod-field">总并发上限<input name="concurrency" type="number" min="1" max="32" required></label><label class="mod-field">Base URL<input name="baseUrl" type="url"></label><label class="mod-field">API Key<input name="apiKey" type="password" autocomplete="new-password" placeholder="留空保留已有密钥"></label><label class="mod-field">模型<select name="model"><option value="">请获取模型列表</option></select></label><label class="mod-field">推理强度<select name="effort"><option value="">模型默认</option></select></label><label class="mod-field">请求超时（秒）<input name="timeout" type="number" min="10" max="600" required></label><label class="mod-field">Codex 程序路径<input name="codexCommand" placeholder="codex"></label></div><label class="mod-check"><input name="enabled" type="checkbox">启用后台审核</label><div class="mod-actions"><button type="button" data-models>获取模型</button><button type="button" data-login>登录 Codex</button><button type="button" data-test>测试接口</button><button type="submit">保存共享配置</button></div><p data-config-message role="status"></p><div data-login-info></div><div data-quota></div></form></details></div><div class="mod-toolbar"><label>审核列表<select data-state><option value="review">待人工复核</option><option value="failed">审核失败</option><option value="queued">排队中</option><option value="history">处理历史</option></select></label><button type="button" data-refresh>刷新</button></div><div data-cases></div><button type="button" data-more hidden>加载更多</button>`;
+  const lists={review:{page:1,data:[],hasMore:false},passed:{page:1,data:[],hasMore:false},other:{page:1,data:[],hasMore:false}};
+  let config=null, currentState='failed', loading=false;
+  root.innerHTML=`<div class="mod-card"><h2>评论审核</h2><p>两站共用 AI 配置与总并发池。本页复核列表仅显示本站内容。</p><p data-status role="status">正在加载</p><details class="mod-settings"><summary>AI 接口与运行设置</summary><form data-settings><div class="mod-grid"><label class="mod-field">接口格式<select name="provider"><option value="codex">服务器 Codex 额度</option><option value="openai">OpenAI 兼容接口</option></select></label><label class="mod-field">总并发上限<input name="concurrency" type="number" min="1" max="32" required></label><label class="mod-field">Base URL<input name="baseUrl" type="url"></label><label class="mod-field">API Key<input name="apiKey" type="password" autocomplete="new-password" placeholder="留空保留已有密钥"></label><label class="mod-field">模型<select name="model"><option value="">请获取模型列表</option></select></label><label class="mod-field">推理强度<select name="effort"><option value="">模型默认</option></select></label><label class="mod-field">请求超时（秒）<input name="timeout" type="number" min="10" max="600" required></label><label class="mod-field">Codex 程序路径<input name="codexCommand" placeholder="codex"></label></div><label class="mod-check"><input name="enabled" type="checkbox">启用后台审核</label><div class="mod-actions"><button type="button" data-models>获取模型</button><button type="button" data-login>登录 Codex</button><button type="button" data-test>测试接口</button><button type="submit">保存共享配置</button></div><p data-config-message role="status"></p><div data-login-info></div><div data-quota></div></form></details></div><div class="mod-toolbar"><strong>新评论与回复</strong><button type="button" data-refresh>刷新</button></div><div class="mod-columns"><section class="mod-lane" aria-labelledby="mod-review-title"><h3 id="mod-review-title">AI 发现问题 <span data-count="review"></span></h3><p class="mod-lane-hint">内容已暂时隐藏，等待人工复核。</p><div data-cases="review"></div><button type="button" data-more="review" hidden>加载更多</button></section><section class="mod-lane" aria-labelledby="mod-passed-title"><h3 id="mod-passed-title">AI 已通过 <span data-count="passed"></span></h3><p class="mod-lane-hint">内容已公开，可忽略这条审核消息或删除内容。</p><div data-cases="passed"></div><button type="button" data-more="passed" hidden>加载更多</button></section></div><section class="mod-other" aria-labelledby="mod-other-title"><div class="mod-toolbar"><h3 id="mod-other-title">其他状态</h3><label>显示<select data-state><option value="failed">审核失败</option><option value="queued">排队中</option><option value="dispatch">待派发</option><option value="running">审核中</option><option value="history">处理历史</option></select></label></div><div data-cases="other"></div><button type="button" data-more="other" hidden>加载更多</button></section>`;
   const form=root.querySelector('[data-settings]'), message=root.querySelector('[data-config-message]');
   let models=[];
   const payload=()=>({provider:form.provider.value,baseUrl:form.baseUrl.value,apiKey:form.apiKey.value,model:form.model.value,effort:form.effort.value,concurrency:Number(form.concurrency.value),timeout:Number(form.timeout.value),codexCommand:form.codexCommand.value,enabled:form.enabled.checked});
@@ -79,10 +80,22 @@
     const buckets=quota.rateLimitsByLimitId || {default:quota.rateLimits};
     root.querySelector('[data-quota]').textContent=Object.entries(buckets).filter(([,v])=>v).map(([name,b])=>`${name}：`+['primary','secondary'].filter(k=>b[k]).map(k=>`${b[k].windowDurationMins || '?'} 分钟窗口剩余 ${Math.max(0,100-(b[k].usedPercent||0)).toFixed(1)}%`).join('；')).join(' / ');
   }
-  async function loadCases(append=false) {
-    const result=await api(`/admin/moderation/cases?state=${currentState}&page=${page}`); data=append?[...data,...result.data]:result.data;hasMore=result.hasMore;
-    const container=root.querySelector('[data-cases]'); container.innerHTML=data.map(item=>`<article class="mod-card" data-case="${item.id}"><header><strong>${e(item.author)} · ${e(item.target.title)}</strong><time>${e(siteDateTime(item.createdAt))}</time></header><p class="mod-original">${e(item.content || '正文已删除')}</p>${item.parentContent?`<details><summary>回复上下文</summary><p class="mod-original">${e(item.parentContent)}</p></details>`:''}<p>状态：${e(({review:'待复核',failed:'审核失败',passed:'AI 已通过',dismissed:'已忽略',deleted:'已删除',queued:'排队中',cancelled:'已取消'})[item.state]||item.state)}</p>${item.ai.explanation?`<p>AI：${e(item.ai.explanation)}</p><p>判断原因：${(item.ai.categories||[]).map(c=>e(reasons[c])).join('、')||'无'}</p>`:''}${item.ai.evidence?.length?`<details><summary>AI 原文证据</summary><p>${item.ai.evidence.map(e).join('；')}</p></details>`:''}${item.error?`<p>故障：${e(item.error)}；尝试 ${item.attempts} 次</p>`:''}${item.finalReasons?.length?`<p>最终原因：${item.finalReasons.map(c=>e(reasons[c])).join('、')} ${e(item.finalNote)}</p>`:''}<div class="mod-actions">${['review','failed'].includes(item.state)?'<button type="button" data-ignore>忽略并恢复</button><button type="button" data-delete>删除内容</button>':''}${item.state==='failed'?'<button type="button" data-retry>重试审核</button>':''}${item.target.available?`<a href="${e(item.target.url)}">查看原页面</a>`:''}</div></article>`).join('')||'<div class="mod-card">暂无记录</div>';
-    root.querySelector('[data-more]').hidden=!hasMore;
+  function caseCard(item) {
+    const stateName=({review:'待复核',failed:'审核失败',passed:'AI 已通过',dismissed:'已忽略',deleted:'已删除',queued:'排队中',cancelled:'已取消'})[item.state]||item.state;
+    const ignoreLabel=item.state==='review'?'忽略并恢复':'忽略';
+    return `<article class="mod-card mod-case" data-case="${item.id}"><header><strong>${e(item.author)} · ${e(item.target.title)}</strong><time>${e(siteDateTime(item.createdAt))}</time></header><p class="mod-original">${e(item.content || '正文已删除')}</p>${item.parentContent?`<details><summary>回复上下文</summary><p class="mod-original">${e(item.parentContent)}</p></details>`:''}<p>状态：${e(stateName)}</p>${item.ai.explanation?`<p>AI：${e(item.ai.explanation)}</p><p>判断原因：${(item.ai.categories||[]).map(c=>e(reasons[c])).join('、')||'无'}</p>`:''}${item.ai.evidence?.length?`<details><summary>AI 原文证据</summary><p>${item.ai.evidence.map(e).join('；')}</p></details>`:''}${item.error?`<p>故障：${e(item.error)}；尝试 ${item.attempts} 次</p>`:''}${item.finalReasons?.length?`<p>最终原因：${item.finalReasons.map(c=>e(reasons[c])).join('、')} ${e(item.finalNote)}</p>`:''}<div class="mod-actions">${['review','failed','passed'].includes(item.state)?`<button type="button" data-ignore>${ignoreLabel}</button><button type="button" data-delete>删除内容</button>`:''}${item.state==='failed'?'<button type="button" data-retry>重试审核</button>':''}${item.target.available?`<a href="${e(item.target.url)}">查看原页面</a>`:''}</div></article>`;
+  }
+  async function loadCases(kind,append=false) {
+    const list=lists[kind], state=kind==='other'?currentState:kind;
+    const result=await api(`/admin/moderation/cases?state=${state}&page=${list.page}`);
+    list.data=append?[...list.data,...result.data]:result.data;list.hasMore=result.hasMore;
+    root.querySelector(`[data-cases="${kind}"]`).innerHTML=list.data.map(caseCard).join('')||'<div class="mod-card mod-empty">暂无记录</div>';
+    root.querySelector(`[data-more="${kind}"]`).hidden=!list.hasMore;
+    if(kind!=='other') root.querySelector(`[data-count="${kind}"]`).textContent=`${result.total} 条`;
+  }
+  async function loadAllCases() {
+    for(const kind of Object.keys(lists)) lists[kind].page=1;
+    await Promise.all(Object.keys(lists).map(kind=>loadCases(kind)));
   }
   async function status() {
     const result=await api('/admin/moderation/status'); const queue=Object.entries(result.queue||{}).map(([k,v])=>`${({review:'待复核',failed:'失败',queued:'排队',dispatch:'待派发',running:'运行',passed:'通过',deleted:'删除',dismissed:'忽略'})[k]||k} ${v}`).join(' · ');
@@ -98,9 +111,9 @@
       form.enabled.checked=config.enabled; form.apiKey.value='';form.apiKey.placeholder=config.keyConfigured?'已有密钥；留空保留':'请输入 API Key';
       form.model.innerHTML=config.model?`<option value="${e(config.model)}">${e(config.model)}</option>`:'<option value="">请获取模型列表</option>';
       form.effort.innerHTML='<option value="">模型默认</option>'+(config.effort?`<option selected value="${e(config.effort)}">${e(config.effort)}</option>`:'');
-      await status(); await loadCases();
+      await status(); await loadAllCases();
       try {await discover();} catch(error){message.textContent=error.message;}
-    } catch(error) {root.querySelector('[data-status]').textContent=error.message;await loadCases().catch(()=>{});} finally{loading=false;}
+    } catch(error) {root.querySelector('[data-status]').textContent=error.message;await loadAllCases().catch(()=>{});} finally{loading=false;}
   }
   form.onsubmit=event=>{event.preventDefault();action(async()=>{config=await api('/admin/moderation/settings',{method:'PATCH',body:JSON.stringify(payload())});form.apiKey.value='';message.textContent='已保存，配置影响 Wiki 和 CAS 两站。';await status();});};
   form.provider.onchange=()=>action(discover);form.model.onchange=setEfforts;
@@ -118,18 +131,19 @@
   root.querySelector('[data-login]').onclick=()=>action(()=>login());
   const browserLogin=document.createElement('button');browserLogin.type='button';browserLogin.textContent='浏览器登录';browserLogin.title='设备登录受限时使用；需通过 SSH 转发服务器 1455 端口';
   browserLogin.onclick=()=>action(()=>login('chatgpt'));root.querySelector('[data-login]').after(browserLogin);
-  root.querySelector('[data-state]').onchange=event=>{currentState=event.target.value;page=1;action(()=>loadCases());};
-  root.querySelector('[data-refresh]').onclick=()=>action(async()=>{page=1;await status();await loadCases();});
-  root.querySelector('[data-more]').onclick=()=>action(async()=>{page++;await loadCases(true);});
-  root.querySelector('[data-cases]').onclick=event=>action(async()=>{
+  root.querySelector('[data-state]').onchange=event=>{currentState=event.target.value;lists.other.page=1;action(()=>loadCases('other'));};
+  root.querySelector('[data-refresh]').onclick=()=>action(async()=>{await status();await loadAllCases();});
+  root.querySelectorAll('[data-more]').forEach(button=>button.onclick=()=>action(async()=>{const kind=button.dataset.more;lists[kind].page++;try{await loadCases(kind,true);}catch(error){lists[kind].page--;throw error;}}));
+  root.querySelectorAll('[data-cases]').forEach(container=>container.onclick=event=>action(async()=>{
     const card=event.target.closest('[data-case]');if(!card) return;
-    const item=data.find(row=>String(row.id)===card.dataset.case);let body;
+    const kind=container.dataset.cases;
+    const item=lists[kind].data.find(row=>String(row.id)===card.dataset.case);let body;
     if(event.target.matches('[data-delete]')) {body=await chooseReasons(item.ai.categories||[]);if(!body)return;body.action='delete';}
     else if(event.target.matches('[data-ignore]')) body={action:'ignore'};
-    else if(event.target.matches('[data-retry]')) {await api(`/admin/moderation/cases/${item.id}/retry`,{method:'POST'});await loadCases();return;}
+    else if(event.target.matches('[data-retry]')) {await api(`/admin/moderation/cases/${item.id}/retry`,{method:'POST'});await loadAllCases();await status();return;}
     else return;
-    await api(`/admin/moderation/cases/${item.id}/decision`,{method:'POST',body:JSON.stringify(body)});await loadCases();await status();message.textContent='处理完成';
-  });
+    await api(`/admin/moderation/cases/${item.id}/decision`,{method:'POST',body:JSON.stringify(body)});await loadAllCases();await status();message.textContent='处理完成';
+  }));
   document.querySelectorAll('[data-admin-view="moderation"]').forEach(button=>button.addEventListener('click',load));
   window.setInterval(()=>{if(!document.hidden && root.getClientRects().length)status().catch(()=>{});},10000);
 })();
