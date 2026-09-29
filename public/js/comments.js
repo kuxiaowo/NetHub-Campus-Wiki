@@ -118,6 +118,7 @@
         ${commentAvatar(state.currentUser)}
         <div>
           <textarea maxlength="1000" placeholder="友善交流，说说你的看法..." required></textarea>
+          <div class="turnstile-inline" data-comment-turnstile></div>
           <footer>
             <span data-comment-message aria-live="polite"></span>
             <button class="button compact" type="submit">发布留言</button>
@@ -193,7 +194,10 @@
   }
 
   async function submitComment(state, content, parentId = null) {
-    const turnstileToken = await getContentTurnstileToken('comment');
+    const turnstileToken = await getContentTurnstileToken(
+      'comment',
+      state.element.querySelector('[data-comment-turnstile]'),
+    );
     await request('/comments', {
       method: 'POST',
       body: JSON.stringify({

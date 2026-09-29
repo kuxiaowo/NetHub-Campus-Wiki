@@ -3060,6 +3060,7 @@ a.message-activity-item:hover { background: #f8fbff; }
 }
 .comment-composer textarea:focus,
 .inline-reply-form textarea:focus { border-color: var(--primary); box-shadow: var(--focus-ring); }
+.turnstile-inline { min-height: 65px; margin-top: 8px; display: flex; align-items: center; }
 .comment-composer footer {
   min-height: 42px;
   padding-top: 8px;
