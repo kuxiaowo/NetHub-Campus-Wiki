@@ -280,15 +280,14 @@ class FrontendServerTest(unittest.TestCase):
         self.assertIn(b'href="https://sdgj.tech"', about_page)
         self.assertIn(b'href="https://todolist.nethub.wiki"', about_page)
         self.assertNotIn(b'href="https://www.nethub.wiki"', about_page)
-        self.assertIn(b'src="/assets/about/mood-meter.webp"', about_page)
+        self.assertIn(b'src="/assets/about/mood-meter-redacted.png"', about_page)
         self.assertNotIn(b'/assets/nethub-icon.png', about_page)
         self.assertEqual(about_page.count(b'src="/assets/about/nethub-icon.webp"'), 4)
 
-        status, mood_meter, content_type = self.fetch("/assets/about/mood-meter.webp")
+        status, mood_meter, content_type = self.fetch("/assets/about/mood-meter-redacted.png")
         self.assertEqual(status, 200)
-        self.assertEqual(content_type, "image/webp")
-        self.assertEqual(mood_meter[:4], b"RIFF")
-        self.assertEqual(mood_meter[8:12], b"WEBP")
+        self.assertEqual(content_type, "image/png")
+        self.assertTrue(mood_meter.startswith(b"\x89PNG\r\n\x1a\n"))
 
         status, about_icon, content_type = self.fetch("/assets/about/nethub-icon.webp")
         self.assertEqual(status, 200)
@@ -310,8 +309,8 @@ class FrontendServerTest(unittest.TestCase):
 
         destinations = (
             ("TodoList", "https://todolist.nethub.wiki/", "/assets/about/todolist.webp"),
-            ("TechX心情晴雨表", "https://sdgj.tech/", "/assets/about/mood-meter.webp"),
-            ("Codex笔记中心", "https://codex.nethub.wiki/", "/assets/about/codex-notes.svg"),
+            ("TechX心情晴雨表", "https://sdgj.tech/", "/assets/about/mood-meter-redacted.png"),
+            ("Codex笔记中心", "https://codex.nethub.wiki/", "/assets/about/codex-notes-redacted.png"),
             ("Compesistant", "https://compesistant.com/", "/assets/about/compesistant.png"),
         )
         for name, url, preview in destinations:
@@ -323,10 +322,10 @@ class FrontendServerTest(unittest.TestCase):
         self.assertIn("Compesistant 小组".encode("utf-8"), links_page)
         self.assertNotIn(b"https://auth.nethub.wiki", links_page)
 
-        status, codex_preview, content_type = self.fetch("/assets/about/codex-notes.svg")
+        status, codex_preview, content_type = self.fetch("/assets/about/codex-notes-redacted.png")
         self.assertEqual(status, 200)
-        self.assertEqual(content_type, "image/svg+xml")
-        self.assertTrue(codex_preview.startswith(b'<svg xmlns="http://www.w3.org/2000/svg"'))
+        self.assertEqual(content_type, "image/png")
+        self.assertTrue(codex_preview.startswith(b"\x89PNG\r\n\x1a\n"))
 
         status, compesistant_preview, content_type = self.fetch("/assets/about/compesistant.png")
         self.assertEqual(status, 200)

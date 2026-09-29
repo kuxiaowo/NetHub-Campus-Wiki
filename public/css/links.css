@@ -60,19 +60,22 @@
   color: var(--primary);
   font-size: 12px;
   font-weight: 900;
+  line-height: 1.2;
   letter-spacing: 0.08em;
 }
 
 .friend-link-copy h2 {
   margin: 0;
   font-size: clamp(23px, 2.5vw, 29px);
+  line-height: 1.2;
   letter-spacing: -0.025em;
 }
 
 .friend-link-copy > p:not(.friend-link-index) {
   max-width: 590px;
   margin: 8px 0 10px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .friend-link-copy .button {
@@ -85,6 +88,7 @@
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 700;
+  line-height: 1.3;
 }
 
 .friend-link-preview {

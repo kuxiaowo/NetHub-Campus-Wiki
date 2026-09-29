@@ -391,7 +391,7 @@ class Site:
 
     def cases(self, state, page, size):
         where = (
-            "j.state IN ('passed','dismissed','deleted','cancelled')"
+            "j.state IN ('dismissed','deleted','cancelled')"
             if state == "history"
             else "j.state=?"
         )
