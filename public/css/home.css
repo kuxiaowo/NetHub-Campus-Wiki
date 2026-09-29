@@ -1,7 +1,7 @@
 /* 首页使用独立的白色与浅绿 Section，公共控件仍沿用站点字体与交互。 */
 .home-content { --container: 1240px; background: #fff; color: #172522; }
-.home-content *, .home-content *::before, .home-content *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
-.home-content .site-header { position: relative; background: #fff; backdrop-filter: none; border-bottom: 1px solid rgba(20,40,30,.08); }
+.home-content .site-header { position: relative; opacity: 1; filter: none; transform: none; background: #fff; backdrop-filter: none; border-bottom: 1px solid rgba(20,40,30,.08); }
+.home-content .auth-backdrop { background: transparent; filter: none; backdrop-filter: none; }
 .home-content .navbar { min-height: 68px; gap: 32px; }
 .home-content .nav-links { margin: 0 auto; }
 .home-content .nav-links a { border-radius: 10px; font-weight: 600; transition: none; }
@@ -81,3 +81,250 @@
 .home-content .site-footer-inner { min-height: 100px; gap: 32px; }
 @media (max-width: 900px) { .home-top-grid, .home-todo-entry { grid-template-columns: 1fr 1fr; } .home-popular-grid { gap: 14px; } .home-popular-media { height: 160px; } }
 @media (max-width: 700px) { .home-hero-section, .home-showcase-section, .home-projects-section, .home-resources-section { padding: 64px 0; } .home-top-grid, .home-todo-entry { grid-template-columns: 1fr; gap: 36px; } .home-hero-visual { min-height: 260px; } .home-notifications { align-items: flex-start; flex-direction: column; gap: 8px; } .home-notifications-head { width: 100%; justify-content: space-between; } .home-notification-list { width: 100%; } .home-popular-grid { grid-template-columns: 1fr; } .home-popular-media { height: 190px; } .home-contact-entry { align-items: flex-start; flex-direction: column; padding: 30px; } .home-content .site-footer-inner { padding: 28px 0; } }
+
+/* Phase 2: 每个桌面内容区至少占一个视口，内容增多时仍可自然延长。 */
+.home-main > div > .container {
+  max-width: 1240px;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.home-hero-section {
+  min-height: calc(100svh - 68px);
+  padding: clamp(36px, 5vh, 68px) 0 32px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 36px;
+}
+
+.home-top-grid {
+  width: min(1240px, calc(100% - 40px));
+  flex: 1;
+  grid-template-columns: minmax(0, 45fr) minmax(0, 55fr);
+  align-content: center;
+  gap: 5%;
+}
+
+.home-intro h1 { font-size: clamp(42px, 4.5vw, 62px); }
+.home-hero-visual { min-height: clamp(340px, 46svh, 560px); }
+.home-hero-announcement { width: min(1240px, calc(100% - 40px)); }
+
+.home-showcase-section,
+.home-projects-section,
+.home-resources-section {
+  min-height: 100svh;
+  padding: clamp(56px, 7vh, 90px) 0;
+  display: flex;
+  align-items: center;
+}
+
+.home-showcase-inner,
+.home-projects-section > .container,
+.home-resources-section > .container {
+  width: min(1240px, calc(100% - 40px));
+}
+
+.home-showcase-inner { display: block; }
+.home-todo-entry { min-height: min(70svh, 650px); }
+.home-todo-preview { width: 100%; padding: clamp(16px, 2vw, 24px); }
+.home-todo-preview img { width: 100%; }
+
+.home-popular-section { width: 100%; }
+.home-popular-section .section-title { margin-bottom: clamp(28px, 4vh, 46px); }
+.home-popular-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(16px, 2vw, 28px); }
+.home-popular-card { min-height: clamp(410px, 55svh, 590px); }
+.home-popular-media { height: clamp(190px, 27svh, 280px); }
+.home-popular-body { padding: clamp(22px, 2vw, 30px); }
+
+.home-cta-section {
+  min-height: 65svh;
+  padding: 60px 0;
+  display: flex;
+  align-items: center;
+}
+
+.home-cta-section > .container { width: min(1240px, calc(100% - 40px)); }
+.home-contact-entry { min-height: 210px; }
+
+@media (max-width: 1024px) {
+  .home-hero-section,
+  .home-showcase-section,
+  .home-projects-section,
+  .home-resources-section,
+  .home-cta-section { min-height: 0; padding: 72px 0; }
+
+  .home-top-grid { flex: none; }
+  .home-todo-entry { min-height: 0; }
+  .home-popular-card { min-height: 0; }
+  .home-popular-media { height: 190px; }
+}
+
+@media (max-width: 700px) {
+  .home-hero-section,
+  .home-showcase-section,
+  .home-projects-section,
+  .home-resources-section,
+  .home-cta-section { padding: 60px 0; }
+
+  .home-top-grid { grid-template-columns: 1fr; }
+  .home-hero-visual { min-height: 260px; }
+  .home-popular-grid { grid-template-columns: 1fr; }
+  .home-notifications-head { display: contents; }
+  .home-notifications-head h2 { order: 0; }
+  .home-notification-list { flex: none; order: 2; }
+  .home-notifications-head a { order: 1; margin-left: auto; }
+  .home-contact-entry { min-height: 0; }
+}
+
+/* Phase 3: 只在脚本启用观察器后隐藏待进入的内容，避免无脚本时内容消失。 */
+.home-content {
+  --ease-reveal: cubic-bezier(.22, 1, .36, 1);
+  --ease-page: cubic-bezier(.76, 0, .24, 1);
+  --duration-fast: 220ms;
+  --duration-reveal: 650ms;
+  --duration-page: 720ms;
+  --motion-distance: 24px;
+}
+
+@keyframes home-gather-in {
+  from { opacity: 0; transform: translate(var(--gather-x, 0), var(--gather-y, 0)) scale(var(--gather-scale, 1)); }
+  to { opacity: 1; transform: none; }
+}
+
+.home-motion-ready .home-intro-label {
+  --gather-x: -20px;
+  animation: home-gather-in 620ms 80ms var(--ease-reveal) backwards;
+}
+
+.home-motion-ready .home-intro h1 {
+  --gather-x: -24px;
+  animation: home-gather-in 650ms 140ms var(--ease-reveal) backwards;
+}
+
+.home-motion-ready .home-intro-actions {
+  --gather-x: -20px;
+  animation: home-gather-in 580ms 300ms var(--ease-reveal) backwards;
+}
+
+.home-motion-ready .home-hero-visual {
+  --gather-x: 28px;
+  --gather-scale: 1.02;
+  animation: home-gather-in 680ms 180ms var(--ease-reveal) backwards;
+}
+
+.home-motion-ready .home-hero-announcement {
+  --gather-y: 12px;
+  animation: home-gather-in 380ms 480ms var(--ease-reveal) backwards;
+}
+
+.home-motion-ready .home-showcase-section:not(.is-visible) .home-todo-copy,
+.home-motion-ready .home-showcase-section:not(.is-visible) .home-todo-preview,
+.home-motion-ready .home-projects-section:not(.is-visible) .section-title,
+.home-motion-ready .home-resources-section:not(.is-visible) .section-title,
+.home-motion-ready .home-projects-section:not(.is-visible) .home-popular-card,
+.home-motion-ready .home-resources-section:not(.is-visible) .home-popular-card,
+.home-motion-ready .home-cta-section:not(.is-visible) .home-contact-entry {
+  opacity: 0;
+}
+
+.home-motion-ready .home-showcase-section:not(.is-visible) .home-todo-copy { transform: translateX(calc(-1 * var(--motion-distance))); }
+.home-motion-ready .home-showcase-section:not(.is-visible) .home-todo-preview { transform: translateX(var(--motion-distance)); }
+.home-motion-ready .home-projects-section:not(.is-visible) .section-title,
+.home-motion-ready .home-resources-section:not(.is-visible) .section-title,
+.home-motion-ready .home-cta-section:not(.is-visible) .home-contact-entry { transform: translateY(18px); }
+
+.home-motion-ready .home-todo-copy,
+.home-motion-ready .home-todo-preview,
+.home-motion-ready .home-popular-section .section-title,
+.home-motion-ready .home-contact-entry {
+  transition: opacity var(--duration-reveal) var(--ease-reveal), transform var(--duration-reveal) var(--ease-reveal);
+}
+
+.home-motion-ready .home-showcase-section.is-visible .home-todo-preview { transition-delay: 90ms; }
+.home-motion-ready .home-projects-section.is-visible .home-popular-card,
+.home-motion-ready .home-resources-section.is-visible .home-popular-card {
+  --gather-y: 18px;
+  animation: home-gather-in var(--duration-reveal) var(--ease-reveal) backwards;
+}
+
+.home-motion-ready .home-projects-section.is-visible .home-popular-card:nth-child(1) { --gather-x: -20px; --gather-y: 0; }
+.home-motion-ready .home-projects-section.is-visible .home-popular-card:nth-child(3) { --gather-x: 20px; --gather-y: 0; }
+.home-motion-ready .home-resources-section.is-visible .home-popular-card:nth-child(2) { animation-delay: 60ms; }
+.home-motion-ready .home-resources-section.is-visible .home-popular-card:nth-child(3) { animation-delay: 120ms; }
+
+.home-content .home-popular-card { transition: transform var(--duration-fast) var(--ease-reveal); }
+.home-content .home-popular-card:hover { transform: translateY(-4px); }
+.home-content .home-todo-preview { transition: opacity var(--duration-reveal) var(--ease-reveal), transform var(--duration-fast) var(--ease-reveal); }
+.home-content .home-todo-preview:hover { transform: scale(1.012); }
+.home-content .home-intro-actions .button,
+.home-content .home-todo-actions .button,
+.home-content .home-contact-entry a { transition: opacity var(--duration-fast) var(--ease-reveal); }
+.home-content .home-intro-actions .button:hover,
+.home-content .home-todo-actions .button:hover,
+.home-content .home-contact-entry a:hover { opacity: .88; }
+
+@media (max-width: 1024px) {
+  .home-content { --motion-distance: 16px; }
+}
+
+@media (max-width: 700px) {
+  .home-content { --motion-distance: 10px; }
+  .home-motion-ready .home-intro-label,
+  .home-motion-ready .home-intro h1,
+  .home-motion-ready .home-intro-actions { --gather-x: -10px; }
+  .home-motion-ready .home-hero-visual { --gather-x: 12px; }
+  .home-motion-ready .home-projects-section.is-visible .home-popular-card:nth-child(1) { --gather-x: -10px; }
+  .home-motion-ready .home-projects-section.is-visible .home-popular-card:nth-child(3) { --gather-x: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-content *,
+  .home-content *::before,
+  .home-content *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .home-motion-ready .home-main .home-intro-label,
+  .home-motion-ready .home-main .home-intro h1,
+  .home-motion-ready .home-main .home-intro-actions,
+  .home-motion-ready .home-main .home-hero-visual,
+  .home-motion-ready .home-main .home-todo-copy,
+  .home-motion-ready .home-main .home-todo-preview,
+  .home-motion-ready .home-main .section-title,
+  .home-motion-ready .home-main .home-popular-card,
+  .home-motion-ready .home-main .home-contact-entry {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* 桌面翻页只移动 Section 的内容层，内部 Reveal 保持独立。 */
+@media (min-width: 901px) and (prefers-reduced-motion: no-preference) {
+  .home-main > .is-page-leaving > .container {
+    opacity: .92;
+    transform: translateY(-12px) scale(.985);
+    transition: opacity 220ms var(--ease-page), transform 220ms var(--ease-page);
+  }
+
+  .home-main > .is-page-leaving.page-up > .container {
+    transform: translateY(12px) scale(.985);
+  }
+
+  .home-main > .is-page-entering > .container {
+    opacity: .78;
+    transform: translateY(18px) scale(.99);
+    transition: opacity 240ms var(--ease-page), transform 240ms var(--ease-page);
+  }
+
+  .home-main > .is-page-entering.page-up > .container {
+    transform: translateY(-18px) scale(.99);
+  }
+
+  .home-main > .is-page-entering.is-page-arriving > .container,
+  .home-main > .is-page-entering.page-up.is-page-arriving > .container {
+    opacity: 1;
+    transform: none;
+  }
+}
