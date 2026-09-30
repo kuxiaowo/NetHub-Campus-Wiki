@@ -150,8 +150,6 @@ loadPopularResources().catch((error) => {
   popularResourceList.innerHTML = `<div class="empty error">${escapeHtml(error.message)}。热门资源暂时无法加载。</div>`;
 });
 
-let homePageTransitionTarget = null;
-
 function initHomeMotion() {
   if (!('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
@@ -162,13 +160,14 @@ function initHomeMotion() {
   const observer = new IntersectionObserver((entries) => {
     observerResponded = true;
     entries.forEach((entry) => {
-      if (entry.intersectionRatio >= 0.2 && entry.target !== homePageTransitionTarget) {
+      const visible = entry.target.classList.contains('is-visible');
+      if (entry.intersectionRatio >= 0.2 && !visible) {
         entry.target.classList.add('is-visible');
-      } else if (entry.intersectionRatio <= 0.05) {
+      } else if (entry.intersectionRatio <= 0.02 && visible) {
         entry.target.classList.remove('is-visible');
       }
     });
-  }, { threshold: [0, 0.05, 0.2, 0.4] });
+  }, { threshold: [0, 0.02, 0.2, 0.4] });
 
   sections.forEach((section) => observer.observe(section));
   document.documentElement.classList.add('home-motion-ready');
@@ -178,204 +177,3 @@ function initHomeMotion() {
 }
 
 initHomeMotion();
-
-function initHomePageTransitions() {
-  const sections = [...document.querySelectorAll(
-    '.home-hero-section, .home-showcase-section, .home-projects-section, .home-resources-section, .home-cta-section',
-  )];
-  const footer = document.querySelector('.site-footer');
-  if (sections.length !== 5 || !footer || !window.requestAnimationFrame) return;
-
-  const desktop = window.matchMedia('(min-width: 901px)');
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-  const duration = 720;
-  const wheelThreshold = 80;
-  let wheelAccumulator = 0;
-  let lastWheelTime = 0;
-  let cooldownUntil = 0;
-  let isPageTransitioning = false;
-  let pageFrame = 0;
-  let cleanupTimer = 0;
-  let sourceSection = null;
-  let targetSection = null;
-
-  function pageEase(progress) {
-    let low = 0;
-    let high = 1;
-    for (let index = 0; index < 12; index += 1) {
-      const parameter = (low + high) / 2;
-      const inverse = 1 - parameter;
-      const x = 3 * inverse * inverse * parameter * .76
-        + 3 * inverse * parameter * parameter * .24
-        + parameter * parameter * parameter;
-      if (x < progress) low = parameter;
-      else high = parameter;
-    }
-    const parameter = (low + high) / 2;
-    return 3 * (1 - parameter) * parameter * parameter + parameter ** 3;
-  }
-
-  function clearPageClasses() {
-    [sourceSection, targetSection].forEach((section) => {
-      section?.classList.remove('is-page-leaving', 'is-page-entering', 'is-page-arriving', 'page-up');
-    });
-    sourceSection = null;
-    targetSection = null;
-  }
-
-  function cancelPageTransition() {
-    window.cancelAnimationFrame(pageFrame);
-    window.clearTimeout(cleanupTimer);
-    isPageTransitioning = false;
-    wheelAccumulator = 0;
-    homePageTransitionTarget = null;
-    if (targetSection) {
-      const bounds = targetSection.getBoundingClientRect();
-      if (bounds.top < window.innerHeight * .8 && bounds.bottom > window.innerHeight * .2) {
-        targetSection.classList.add('is-visible');
-      }
-    }
-    clearPageClasses();
-  }
-
-  function pageTargetY(section) {
-    const maximum = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-    return Math.min(section.offsetTop, maximum);
-  }
-
-  function startPageTransition(current, next, direction) {
-    window.clearTimeout(cleanupTimer);
-    clearPageClasses();
-    sourceSection = current;
-    targetSection = next;
-    homePageTransitionTarget = next;
-    next.classList.remove('is-visible');
-    current.classList.add('is-page-leaving');
-    next.classList.add('is-page-entering');
-    if (direction < 0) {
-      current.classList.add('page-up');
-      next.classList.add('page-up');
-    }
-
-    isPageTransitioning = true;
-    wheelAccumulator = 0;
-    const startY = window.scrollY;
-    const startedAt = performance.now();
-    let arriving = false;
-
-    function frame(now) {
-      try {
-        if (!desktop.matches || reducedMotion.matches || document.hidden) {
-          cancelPageTransition();
-          return;
-        }
-        const progress = Math.min(1, (now - startedAt) / duration);
-        window.scrollTo(0, startY + (pageTargetY(next) - startY) * pageEase(progress));
-        if (!arriving && progress >= .65) {
-          next.classList.add('is-page-arriving');
-          arriving = true;
-        }
-        if (progress < 1) {
-          pageFrame = window.requestAnimationFrame(frame);
-          return;
-        }
-        window.scrollTo(0, pageTargetY(next));
-        homePageTransitionTarget = null;
-        next.classList.add('is-visible');
-        isPageTransitioning = false;
-        cooldownUntil = performance.now() + 260;
-        cleanupTimer = window.setTimeout(clearPageClasses, 260);
-      } catch {
-        cancelPageTransition();
-      }
-    }
-
-    pageFrame = window.requestAnimationFrame(frame);
-  }
-
-  function activeSectionIndex() {
-    const probe = window.scrollY + window.innerHeight * .25;
-    for (let index = sections.length - 1; index >= 0; index -= 1) {
-      if (sections[index].offsetTop <= probe) return index;
-    }
-    return 0;
-  }
-
-  function canTurnPage(direction) {
-    if (!desktop.matches || reducedMotion.matches || document.hidden) return null;
-    if (footer.getBoundingClientRect().top < window.innerHeight) return null;
-    const index = activeSectionIndex();
-    const nextIndex = index + direction;
-    if (nextIndex < 0 || nextIndex >= sections.length) return null;
-    const current = sections[index];
-    const next = sections[nextIndex];
-    if (current.scrollHeight > window.innerHeight + 2 || next.scrollHeight > window.innerHeight + 2) return null;
-    return { current, next };
-  }
-
-  function hasInteractiveFocus() {
-    const active = document.activeElement;
-    return active && active !== document.body && active !== document.documentElement
-      && active.matches('a, button, input, textarea, select, [contenteditable]')
-      && active.getClientRects().length > 0;
-  }
-
-  function overScrollableRegion(event) {
-    return event.composedPath().some((item) => {
-      if (!(item instanceof Element) || item === document.body) return false;
-      const overflow = window.getComputedStyle(item).overflowY;
-      return /^(auto|scroll)$/.test(overflow) && item.scrollHeight > item.clientHeight + 1;
-    });
-  }
-
-  window.addEventListener('wheel', (event) => {
-    if (event.defaultPrevented || event.ctrlKey || event.metaKey || hasInteractiveFocus() || overScrollableRegion(event)) {
-      if (isPageTransitioning) cancelPageTransition();
-      return;
-    }
-    if (!desktop.matches || reducedMotion.matches || document.hidden) return;
-    if (!isPageTransitioning && footer.getBoundingClientRect().top < window.innerHeight) return;
-    const now = performance.now();
-    if (isPageTransitioning || now < cooldownUntil) {
-      event.preventDefault();
-      if (!isPageTransitioning) cooldownUntil = now + 260;
-      return;
-    }
-    const multiplier = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1;
-    const delta = event.deltaY * multiplier;
-    if (!delta) return;
-    if (now - lastWheelTime > 220 || Math.sign(delta) !== Math.sign(wheelAccumulator)) wheelAccumulator = 0;
-    lastWheelTime = now;
-    wheelAccumulator += delta;
-    if (Math.abs(wheelAccumulator) < wheelThreshold) return;
-    const direction = Math.sign(wheelAccumulator);
-    wheelAccumulator = 0;
-    const page = canTurnPage(direction);
-    if (!page) return;
-    event.preventDefault();
-    startPageTransition(page.current, page.next, direction);
-  }, { passive: false });
-
-  window.addEventListener('keydown', (event) => {
-    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || hasInteractiveFocus()) return;
-    const direction = event.key === 'PageDown' || event.key === 'ArrowDown' ? 1
-      : event.key === 'PageUp' || event.key === 'ArrowUp' ? -1 : 0;
-    if (!direction || !desktop.matches || reducedMotion.matches) return;
-    if (isPageTransitioning) {
-      event.preventDefault();
-      return;
-    }
-    const page = canTurnPage(direction);
-    if (!page) return;
-    event.preventDefault();
-    startPageTransition(page.current, page.next, direction);
-  });
-
-  desktop.addEventListener('change', cancelPageTransition);
-  reducedMotion.addEventListener('change', cancelPageTransition);
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && isPageTransitioning) cancelPageTransition();
-  });
-}
-
-initHomePageTransitions();

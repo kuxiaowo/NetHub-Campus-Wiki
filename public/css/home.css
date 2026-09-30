@@ -177,18 +177,15 @@
   .home-contact-entry { min-height: 0; }
 }
 
-/* Phase 3: 只在脚本启用观察器后隐藏待进入的内容，避免无脚本时内容消失。 */
+/* 只在观察器启用后隐藏待进入的内容；外层 Section 保持静止。 */
 .home-content {
   --ease-reveal: cubic-bezier(.22, 1, .36, 1);
-  --ease-page: cubic-bezier(.76, 0, .24, 1);
-  --duration-fast: 220ms;
   --duration-reveal: 650ms;
-  --duration-page: 720ms;
   --motion-distance: 24px;
 }
 
 @keyframes home-gather-in {
-  from { opacity: 0; transform: translate(var(--gather-x, 0), var(--gather-y, 0)) scale(var(--gather-scale, 1)); }
+  from { opacity: 0; transform: translate(var(--gather-x, 0px), var(--gather-y, 0px)) scale(var(--gather-scale, 1)); }
   to { opacity: 1; transform: none; }
 }
 
@@ -209,13 +206,13 @@
 
 .home-motion-ready .home-hero-visual {
   --gather-x: 28px;
-  --gather-scale: 1.02;
+  --gather-scale: .99;
   animation: home-gather-in 680ms 180ms var(--ease-reveal) backwards;
 }
 
 .home-motion-ready .home-hero-announcement {
   --gather-y: 12px;
-  animation: home-gather-in 380ms 480ms var(--ease-reveal) backwards;
+  animation: home-gather-in 650ms 420ms var(--ease-reveal) backwards;
 }
 
 .home-motion-ready .home-showcase-section:not(.is-visible) .home-todo-copy,
@@ -232,7 +229,9 @@
 .home-motion-ready .home-showcase-section:not(.is-visible) .home-todo-preview { transform: translateX(var(--motion-distance)); }
 .home-motion-ready .home-projects-section:not(.is-visible) .section-title,
 .home-motion-ready .home-resources-section:not(.is-visible) .section-title,
-.home-motion-ready .home-cta-section:not(.is-visible) .home-contact-entry { transform: translateY(18px); }
+.home-motion-ready .home-cta-section:not(.is-visible) .home-contact-entry { transform: translateY(24px) scale(.99); }
+.home-motion-ready .home-projects-section:not(.is-visible) .home-popular-card,
+.home-motion-ready .home-resources-section:not(.is-visible) .home-popular-card { transform: translateY(24px) scale(.99); }
 
 .home-motion-ready .home-todo-copy,
 .home-motion-ready .home-todo-preview,
@@ -242,24 +241,26 @@
 }
 
 .home-motion-ready .home-showcase-section.is-visible .home-todo-preview { transition-delay: 90ms; }
+
 .home-motion-ready .home-projects-section.is-visible .home-popular-card,
 .home-motion-ready .home-resources-section.is-visible .home-popular-card {
-  --gather-y: 18px;
+  --gather-y: 24px;
+  --gather-scale: .99;
   animation: home-gather-in var(--duration-reveal) var(--ease-reveal) backwards;
 }
 
-.home-motion-ready .home-projects-section.is-visible .home-popular-card:nth-child(1) { --gather-x: -20px; --gather-y: 0; }
-.home-motion-ready .home-projects-section.is-visible .home-popular-card:nth-child(3) { --gather-x: 20px; --gather-y: 0; }
+.home-motion-ready .home-projects-section.is-visible .home-popular-card:nth-child(2),
 .home-motion-ready .home-resources-section.is-visible .home-popular-card:nth-child(2) { animation-delay: 60ms; }
+.home-motion-ready .home-projects-section.is-visible .home-popular-card:nth-child(3),
 .home-motion-ready .home-resources-section.is-visible .home-popular-card:nth-child(3) { animation-delay: 120ms; }
 
-.home-content .home-popular-card { transition: transform var(--duration-fast) var(--ease-reveal); }
+.home-content .home-popular-card { transition: transform 220ms var(--ease-reveal); }
 .home-content .home-popular-card:hover { transform: translateY(-4px); }
-.home-content .home-todo-preview { transition: opacity var(--duration-reveal) var(--ease-reveal), transform var(--duration-fast) var(--ease-reveal); }
+.home-content .home-todo-preview { transition: opacity var(--duration-reveal) var(--ease-reveal), transform 220ms var(--ease-reveal); }
 .home-content .home-todo-preview:hover { transform: scale(1.012); }
 .home-content .home-intro-actions .button,
 .home-content .home-todo-actions .button,
-.home-content .home-contact-entry a { transition: opacity var(--duration-fast) var(--ease-reveal); }
+.home-content .home-contact-entry a { transition: opacity 220ms var(--ease-reveal); }
 .home-content .home-intro-actions .button:hover,
 .home-content .home-todo-actions .button:hover,
 .home-content .home-contact-entry a:hover { opacity: .88; }
@@ -274,8 +275,13 @@
   .home-motion-ready .home-intro h1,
   .home-motion-ready .home-intro-actions { --gather-x: -10px; }
   .home-motion-ready .home-hero-visual { --gather-x: 12px; }
-  .home-motion-ready .home-projects-section.is-visible .home-popular-card:nth-child(1) { --gather-x: -10px; }
-  .home-motion-ready .home-projects-section.is-visible .home-popular-card:nth-child(3) { --gather-x: 10px; }
+  .home-motion-ready .home-projects-section:not(.is-visible) .section-title,
+  .home-motion-ready .home-resources-section:not(.is-visible) .section-title,
+  .home-motion-ready .home-cta-section:not(.is-visible) .home-contact-entry,
+  .home-motion-ready .home-projects-section:not(.is-visible) .home-popular-card,
+  .home-motion-ready .home-resources-section:not(.is-visible) .home-popular-card { transform: translateY(10px) scale(.99); }
+  .home-motion-ready .home-projects-section.is-visible .home-popular-card,
+  .home-motion-ready .home-resources-section.is-visible .home-popular-card { --gather-y: 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -290,6 +296,7 @@
   .home-motion-ready .home-main .home-intro h1,
   .home-motion-ready .home-main .home-intro-actions,
   .home-motion-ready .home-main .home-hero-visual,
+  .home-motion-ready .home-main .home-hero-announcement,
   .home-motion-ready .home-main .home-todo-copy,
   .home-motion-ready .home-main .home-todo-preview,
   .home-motion-ready .home-main .section-title,
@@ -297,34 +304,5 @@
   .home-motion-ready .home-main .home-contact-entry {
     opacity: 1 !important;
     transform: none !important;
-  }
-}
-
-/* 桌面翻页只移动 Section 的内容层，内部 Reveal 保持独立。 */
-@media (min-width: 901px) and (prefers-reduced-motion: no-preference) {
-  .home-main > .is-page-leaving > .container {
-    opacity: .92;
-    transform: translateY(-12px) scale(.985);
-    transition: opacity 220ms var(--ease-page), transform 220ms var(--ease-page);
-  }
-
-  .home-main > .is-page-leaving.page-up > .container {
-    transform: translateY(12px) scale(.985);
-  }
-
-  .home-main > .is-page-entering > .container {
-    opacity: .78;
-    transform: translateY(18px) scale(.99);
-    transition: opacity 240ms var(--ease-page), transform 240ms var(--ease-page);
-  }
-
-  .home-main > .is-page-entering.page-up > .container {
-    transform: translateY(-18px) scale(.99);
-  }
-
-  .home-main > .is-page-entering.is-page-arriving > .container,
-  .home-main > .is-page-entering.page-up.is-page-arriving > .container {
-    opacity: 1;
-    transform: none;
   }
 }
