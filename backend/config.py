@@ -215,8 +215,8 @@ def validate_runtime_settings() -> None:
             raise RuntimeError("R2_MEDIA_HMAC_SECRET 至少需要 32 字节")
         if settings.r2_download_url_seconds > 120:
             raise RuntimeError("R2_DOWNLOAD_URL_SECONDS 不能超过 Worker 的 120 秒上限")
-    if settings.database_backend not in {"sqlite", "d1"}:
-        raise RuntimeError("DATABASE_BACKEND 必须是 sqlite 或 d1")
+    if settings.database_backend != "sqlite":
+        raise RuntimeError("DATABASE_BACKEND 必须是 sqlite")
     if settings.database_backend == "d1":
         gateway = urlsplit(settings.d1_gateway_url)
         if (
