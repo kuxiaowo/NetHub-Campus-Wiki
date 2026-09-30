@@ -53,6 +53,8 @@ function popularProjectCard(project, index) {
       <div class="home-popular-body">
         <span class="home-popular-meta"><em>${escapeHtml(project.category)}</em><small>${escapeHtml(project.year)}</small></span>
         <strong>${escapeHtml(project.name)}</strong>
+        <p class="home-popular-description">${escapeHtml(project.description || '')}</p>
+        <div class="home-popular-tags" aria-label="CAS 类型">${project.cas?.creativity ? '<span>C</span>' : ''}${project.cas?.activity ? '<span>A</span>' : ''}${project.cas?.service ? '<span>S</span>' : ''}</div>
         <span class="home-popular-hot">热度 ${escapeHtml(project.popularity || 0)} <i aria-hidden="true">→</i></span>
       </div>
     </a>
@@ -84,6 +86,7 @@ function popularResourceCard(resource, index) {
       <div class="home-popular-body">
         <span class="home-popular-meta"><em>${escapeHtml(resource.label || '资源')}</em><small>${escapeHtml(resource.year)}</small></span>
         <strong>${escapeHtml(resource.title)}</strong>
+        <p class="home-popular-description">${escapeHtml(resource.description || '')}</p>
         <span class="home-popular-hot">热度 ${escapeHtml(resource.hot || 0)} <i aria-hidden="true">→</i></span>
       </div>
     </a>
@@ -146,3 +149,31 @@ loadPopularProjects().catch((error) => {
 loadPopularResources().catch((error) => {
   popularResourceList.innerHTML = `<div class="empty error">${escapeHtml(error.message)}。热门资源暂时无法加载。</div>`;
 });
+
+function initHomeMotion() {
+  if (!('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  const sections = document.querySelectorAll(
+    '.home-showcase-section, .home-projects-section, .home-resources-section, .home-cta-section',
+  );
+  let observerResponded = false;
+  const observer = new IntersectionObserver((entries) => {
+    observerResponded = true;
+    entries.forEach((entry) => {
+      const visible = entry.target.classList.contains('is-visible');
+      if (entry.intersectionRatio >= 0.2 && !visible) {
+        entry.target.classList.add('is-visible');
+      } else if (entry.intersectionRatio <= 0.02 && visible) {
+        entry.target.classList.remove('is-visible');
+      }
+    });
+  }, { threshold: [0, 0.02, 0.2, 0.4] });
+
+  sections.forEach((section) => observer.observe(section));
+  document.documentElement.classList.add('home-motion-ready');
+  window.setTimeout(() => {
+    if (!observerResponded) document.documentElement.classList.remove('home-motion-ready');
+  }, 1500);
+}
+
+initHomeMotion();
