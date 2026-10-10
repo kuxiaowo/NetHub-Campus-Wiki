@@ -36,6 +36,7 @@ public/CAS/*
 
 # Generated thumbnails and large video files
 public/**/.thumbs/
+public/thumbnails/
 public/**/*.mp4
 public/**/*.m4v
 public/**/*.mov
