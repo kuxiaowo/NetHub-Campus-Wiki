@@ -14,7 +14,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install -r requirements-dev.txt
-      - run: python -m unittest discover -s tests -v
+      - run: python -m pytest -q
       - name: Validate Linux deployment scripts
         run: |
           bash -n scripts/init_linux_common.sh

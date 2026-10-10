@@ -97,6 +97,10 @@ function assertYearbookKeyClass(key) {
 }
 
 function assertAllowedKey(key, env, isPublic = false) {
+  if (key.startsWith("review-media/")) {
+    if (isPublic || env.PRIVATE_REVIEW_MEDIA_ENABLED !== "true" || !/^review-media\/[a-f0-9]{32}\.jpg$/.test(key)) throw new HttpError(403, "private_media", "Private review media is not public");
+    return;
+  }
   const prefixes = configuredPrefixes(
     env,
     isPublic ? "PUBLIC_MEDIA_PREFIXES" : "ALLOWED_KEY_PREFIXES",

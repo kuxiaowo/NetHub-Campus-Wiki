@@ -299,7 +299,7 @@ function renderFeed(project) {
         <h2><span></span>CAS 动态</h2>
         <div class="detail-panel-actions">
           ${updates.length ? '<small>最新动态</small>' : ''}
-          ${canCreateUpdate ? '<button class="button compact" type="button" data-open-project-update>发布动态</button>' : ''}
+          ${canCreateUpdate ? '<button class="button compact" type="button" data-open-project-update>提交动态</button>' : ''}
         </div>
       </div>
       ${updates.length ? `
@@ -418,7 +418,13 @@ async function deleteProjectUpdate(event) {
       `/projects/${encodeURIComponent(currentProject.id)}/updates/${encodeURIComponent(updateId)}`,
       { method: 'DELETE' },
     );
-    renderProject(result.data || currentProject);
+    if (result.data?.moderationStatus === 'published') {
+      const latest = await request(`/projects/${encodeURIComponent(currentProject.id)}?track=false`);
+      renderProject(latest.data);
+    } else {
+      window.alert('动态已提交审核，通过后公开。可在个人中心查看状态或撤回。');
+      renderProject(currentProject);
+    }
   } catch (error) {
     button.disabled = false;
     button.textContent = oldText;
@@ -452,7 +458,7 @@ async function submitProjectUpdate(event) {
   projectUpdateSubmitting = true;
   projectUpdateModal.classList.add('is-submitting');
   projectUpdateSubmit.disabled = true;
-  setProjectUpdateMessage('正在发布……');
+  setProjectUpdateMessage('正在提交审核……');
   try {
     const result = await request(`/projects/${encodeURIComponent(currentProject.id)}/updates`, {
       method: 'POST',

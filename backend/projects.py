@@ -51,14 +51,8 @@ def format_project(
     """
 
     asset_dir = row.get("asset_dir")
-    try:
-        updates = (
-            normalize_project_updates(row.get("updates"), asset_dir, allow_legacy=True)
-            if admin
-            else public_updates(row.get("updates"), asset_dir)
-        )
-    except ProjectAssetError:
-        updates = parse_json_field(row.get("updates"))
+    from backend.content_store import list_updates
+    updates = list_updates(row["id"], asset_dir, admin=admin)
 
     result = {
         "id": row["id"],

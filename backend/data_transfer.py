@@ -18,17 +18,16 @@ from backend.config import PROJECT_ROOT, settings
 from backend.database import get_db_connection
 from backend.project_assets import (
     ProjectAssetError,
-    infer_asset_dir,
     new_update_id,
     normalize_asset_dir,
-    normalize_project_updates,
     normalize_relative_image_path,
 )
 from backend.resource_types import get_resource_type
+from backend.content_store import list_updates, write_update
 
 
 TRANSFER_FORMAT = "nethub-campus-wiki-data"
-TRANSFER_VERSION = 2
+TRANSFER_VERSION = 3
 MAX_IMPORT_BYTES = settings.data_import_max_bytes
 PUBLIC_DIR = PROJECT_ROOT / "public"
 WINDOWS_DRIVE_PATTERN = re.compile(r"^[A-Za-z]:[/\\]")
@@ -214,6 +213,21 @@ def _normalize_update(
     images = []
     seen: set[str] = set()
     for index, raw_image in enumerate(_array(item.get("images", []), f"{path}.images", errors)):
+        if isinstance(raw_image, str) and re.fullmatch(r"/api/content-media/[a-f0-9]{32}", raw_image):
+            with get_db_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""SELECT 1 FROM _private_content_media m
+                    JOIN _private_content_submissions s ON s.id=m.submission_id
+                    WHERE m.id=%s AND s.status='published'
+                    AND EXISTS(SELECT 1 FROM project_updates p,json_each(p.images) image WHERE image.value=%s)""",
+                                   (raw_image.rsplit("/", 1)[1], raw_image))
+                    available = cursor.fetchone() is not None
+            if not available:
+                errors.append(_issue(f"{path}.images[{index}]", "审核图片不存在或尚未公开，请使用对应站点的媒体备份"))
+            elif raw_image not in seen:
+                images.append(raw_image)
+                seen.add(raw_image)
+            continue
         if not asset_dir:
             errors.append(_issue(f"{path}.images[{index}]", "项目缺少 assetDir"))
             continue
@@ -258,8 +272,6 @@ def _normalize_project(
         "name", "category", "year", "assetDir", "description", "cas",
         "popularity", "members", "updates",
     }
-    if version == 1:
-        allowed_fields.add("icon")
     _unknown_fields(
         item,
         allowed_fields,
@@ -278,23 +290,16 @@ def _normalize_project(
     if sum(member["role"] == "leader" for member in members) > 1:
         errors.append(_issue(f"{path}.members", "最多只能有一名负责人"))
     asset_dir: str | None = None
-    if version == 1:
-        asset_dir = infer_asset_dir(item.get("icon"), item.get("updates"))
-        if asset_dir:
-            warnings.append(_issue(f"{path}.assetDir", f"已从 v1 路径推断为 {asset_dir}"))
+    raw_asset_dir = _text(item.get("assetDir"), f"{path}.assetDir", errors, required=True)
+    if raw_asset_dir:
+        try:
+            asset_dir = normalize_asset_dir(raw_asset_dir)
+        except ProjectAssetError as error:
+            errors.append(_issue(f"{path}.assetDir", str(error)))
         else:
-            errors.append(_issue(f"{path}.assetDir", "无法从 v1 的 icon 或动态图片推断 CAS 项目目录"))
-    else:
-        raw_asset_dir = _text(item.get("assetDir"), f"{path}.assetDir", errors, required=True)
-        if raw_asset_dir:
-            try:
-                asset_dir = normalize_asset_dir(raw_asset_dir)
-            except ProjectAssetError as error:
-                errors.append(_issue(f"{path}.assetDir", str(error)))
-            else:
-                target = PUBLIC_DIR / asset_dir.strip("/")
-                if not target.is_dir():
-                    warnings.append(_issue(f"{path}.assetDir", f"站内目录不存在：{asset_dir}"))
+            target = PUBLIC_DIR / asset_dir.strip("/")
+            if not target.is_dir():
+                warnings.append(_issue(f"{path}.assetDir", f"站内目录不存在：{asset_dir}"))
     updates = [
         _normalize_update(update, f"{path}.updates[{index}]", errors, warnings, asset_dir)
         for index, update in enumerate(_array(item.get("updates", []), f"{path}.updates", errors))
@@ -453,8 +458,8 @@ def validate_transfer_document(payload: Any) -> tuple[dict[str, Any], list[dict[
     if document.get("format") != TRANSFER_FORMAT:
         errors.append(_issue("format", f"必须是 {TRANSFER_FORMAT}"))
     version = document.get("version")
-    if version not in {1, TRANSFER_VERSION}:
-        errors.append(_issue("version", f"当前支持版本 1 和 {TRANSFER_VERSION}"))
+    if version != TRANSFER_VERSION:
+        errors.append(_issue("version", f"仅支持版本 {TRANSFER_VERSION}，请先使用离线转换工具"))
         version = TRANSFER_VERSION
 
     encoded_size = len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
@@ -486,15 +491,11 @@ def validate_transfer_document(payload: Any) -> tuple[dict[str, Any], list[dict[
     }, warnings
 
 
-def _parse_updates(value: Any, asset_dir: str | None) -> list[dict[str, Any]]:
-    try:
-        updates = normalize_project_updates(value, asset_dir, allow_legacy=True)
-    except ProjectAssetError:
-        return []
-    for update in updates:
-        # Person and user IDs are installation-local and must not be transferred.
-        update.pop("authorPersonId", None)
-        update.pop("authorUserId", None)
+def _export_updates(row):
+    updates = list_updates(row["id"], row.get("asset_dir"), admin=True)
+    for item in updates:
+        item.pop("authorPersonId", None)
+        item.pop("authorUserId", None)
     return updates
 
 
@@ -568,7 +569,7 @@ def export_transfer_document(
                             },
                             "popularity": row["popularity"],
                             "members": members,
-                            "updates": _parse_updates(row.get("updates"), row.get("asset_dir")),
+                            "updates": _export_updates(row),
                         }
                     )
 
@@ -640,7 +641,7 @@ def export_transfer_document(
     return document
 
 
-def import_transfer_document(document: dict[str, Any]) -> dict[str, Any]:
+def import_transfer_document(document: dict[str, Any], *, operator_id=None) -> dict[str, Any]:
     """Create every normalized item in one database transaction."""
 
     created: dict[str, list[dict[str, Any]]] = {
@@ -655,6 +656,8 @@ def import_transfer_document(document: dict[str, Any]) -> dict[str, Any]:
                 detail="D1 模式暂不支持整份数据导入；请使用独立、可回滚的离线导入流程",
             )
         with conn.cursor() as cursor:
+            cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute("INSERT INTO governance_audit(actor_id,action,details) VALUES(%s,%s,%s)", (operator_id, "data.import", json.dumps({"version": TRANSFER_VERSION})))
             for project in document["projects"]:
                 cursor.execute("SELECT id FROM project_categories WHERE name = %s LIMIT 1", (project["category"],))
                 if cursor.fetchone() is None:
@@ -673,8 +676,8 @@ def import_transfer_document(document: dict[str, Any]) -> dict[str, Any]:
                     """
                     INSERT INTO projects
                       (name, leader, members, category, year, icon, asset_dir, description, media,
-                       cas_creativity, cas_activity, cas_service, popularity, updates)
-                    VALUES (%s, %s, %s, %s, %s, NULL, %s, %s, '[]', %s, %s, %s, %s, %s)
+                       cas_creativity, cas_activity, cas_service, popularity)
+                    VALUES (%s, %s, %s, %s, %s, NULL, %s, %s, '[]', %s, %s, %s, %s)
                     """,
                     (
                         project["name"],
@@ -688,10 +691,11 @@ def import_transfer_document(document: dict[str, Any]) -> dict[str, Any]:
                         1 if project["cas"]["activity"] else 0,
                         1 if project["cas"]["service"] else 0,
                         project["popularity"],
-                        json.dumps(project["updates"], ensure_ascii=False),
                     ),
                 )
                 project_id = int(cursor.lastrowid)
+                for item in reversed(project["updates"]):
+                    write_update(conn, project_id, item, operator_id)
                 for index, member in enumerate(project["members"]):
                     cursor.execute(
                         """

@@ -189,10 +189,10 @@ class AccountsOidcTest(unittest.TestCase):
                 stored = cursor.fetchone()["token_hash"]
         self.assertNotEqual(stored, token)
         self.assertEqual(stored, hashlib.sha256(token.encode()).hexdigest())
-        self.assertEqual(get_current_user_from_token(token)["id"], user["id"])
+        self.assertEqual(get_current_user_from_token(token, __import__("starlette.requests", fromlist=["Request"]).Request({"type": "http"}))["id"], user["id"])
         self.assertEqual(revoke_sessions(sid="central-session-id"), 1)
         with self.assertRaises(HTTPException) as raised:
-            get_current_user_from_token(token)
+            get_current_user_from_token(token, __import__("starlette.requests", fromlist=["Request"]).Request({"type": "http"}))
         self.assertEqual(raised.exception.status_code, 401)
 
     def test_rs256_tokens_nonce_and_logout_replay(self) -> None:
@@ -474,7 +474,7 @@ class AccountsOidcTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["revoked"], 1)
         with self.assertRaises(HTTPException):
-            get_current_user_from_token(token)
+            get_current_user_from_token(token, __import__("starlette.requests", fromlist=["Request"]).Request({"type": "http"}))
 
 
 if __name__ == "__main__":

@@ -336,7 +336,7 @@ def _backfill_project_assets(connection: sqlite3.Connection) -> None:
         row["name"]
         for row in connection.execute("PRAGMA table_info(projects)").fetchall()
     }
-    if "asset_dir" not in columns:
+    if "asset_dir" not in columns or "updates" not in columns:
         return
 
     projects = connection.execute(
@@ -396,7 +396,13 @@ def _initialize_database(database_path: Path) -> None:
                     raise RuntimeError(
                         f"数据库迁移版本不连续：当前 {user_version}，下一个文件是 {migration_path.name}"
                     )
-                connection.executescript(migration_path.read_text(encoding="utf-8"))
+                if migration_version == 20 and connection.execute("SELECT 1 FROM sqlite_master WHERE name='_sync_control'").fetchone():
+                    raise RuntimeError("已启用镜像的数据库须离线执行内容治理迁移")
+                if migration_version == 20:
+                    from backend.content_store import apply_governance_migration
+                    apply_governance_migration(connection, migration_path.read_text(encoding="utf-8"))
+                else:
+                    connection.executescript(migration_path.read_text(encoding="utf-8"))
                 migrated_version = connection.execute("PRAGMA user_version").fetchone()["user_version"]
                 if migrated_version != migration_version:
                     raise RuntimeError(f"迁移 {migration_path.name} 未正确更新 user_version")
@@ -405,6 +411,9 @@ def _initialize_database(database_path: Path) -> None:
             _backfill_project_members(connection)
             _backfill_project_assets(connection)
             connection.commit()
+            if user_version >= 20:
+                from backend.content_store import finalize_migration
+                finalize_migration(connection)
             _INITIALIZED_DATABASES.add(resolved_path)
         finally:
             connection.close()

@@ -451,6 +451,8 @@ async def send_message(
     payload: dict[str, Any],
     user: dict[str, Any] = Depends(get_current_user),
 ):
+    from backend.content_review import require_speaker
+    await run_in_threadpool(require_speaker, user)
     session_id = getattr(request.state, "auth_session_id", None)
     verification_required = not await run_in_threadpool(turnstile_session_is_fresh, session_id)
     if verification_required:
@@ -489,6 +491,8 @@ async def send_message(
             is_d1 = getattr(conn, "_adapter", None) is not None
             if not is_d1:
                 cursor.execute("BEGIN IMMEDIATE")
+                from backend.content_review import assert_unmuted
+                assert_unmuted(conn._connection, user["id"])
             cursor.execute(
                 """
                 SELECT other_cm.user_id AS other_user_id

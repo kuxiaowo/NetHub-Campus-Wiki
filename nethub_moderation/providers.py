@@ -15,7 +15,7 @@ def model_input(job):
     """Exclude internal lease tokens and database metadata from provider prompts."""
     return {
         key: job.get(key, "")
-        for key in ("jobId", "currentComment", "pageTitle", "parentComment")
+        for key in ("jobId", "currentComment", "pageTitle", "parentComment", "imageIds")
     }
 
 
@@ -195,7 +195,8 @@ class Codex:
                     {
                         "type": "text",
                         "text": json.dumps(model_input(job), ensure_ascii=False),
-                    }
+                    },
+                    *[{"type": "image", "url": url} for url in job.get("images", [])]
                 ],
                 "outputSchema": OUTPUT_SCHEMA,
             }
@@ -338,7 +339,9 @@ class Providers:
                     {"role": "system", "content": POLICY},
                     {
                         "role": "user",
-                        "content": json.dumps(model_input(job), ensure_ascii=False),
+                        "content": ([{"type": "text", "text": json.dumps(model_input(job), ensure_ascii=False)}] +
+                                    [{"type": "image_url", "image_url": {"url": url}} for url in job["images"]])
+                                   if job.get("images") else json.dumps(model_input(job), ensure_ascii=False),
                     },
                 ],
             }

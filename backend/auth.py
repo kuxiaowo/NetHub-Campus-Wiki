@@ -98,6 +98,10 @@ def format_user(row: dict[str, Any]) -> dict[str, Any]:
         "role": row["role"],
         "isActive": bool(row.get("is_active")),
         "campusVerified": bool(row.get("campus_verified")),
+        "emailVerified": bool(row.get("email_verified")),
+        "isMuted": bool(row.get("is_muted") and (row.get("muted_until") is None or row["muted_until"] > time.time())),
+        "mutedUntil": row.get("muted_until"),
+        "muteReason": row.get("mute_reason") or "",
         "messagingPermission": row.get("messaging_permission") or "everyone",
         "linkedPersonId": row.get("person_id"),
         "createdAt": row.get("created_at"),
@@ -388,10 +392,11 @@ def get_user_by_id(user_id: int) -> dict[str, Any] | None:
     return None if row is None else format_user(row)
 
 
-def get_current_user_from_token(token: str) -> dict[str, Any]:
+def get_current_user_from_token(token: str, request: Request) -> dict[str, Any]:
     row = _session_record(token)
     if row is None:
         raise HTTPException(status_code=401, detail="登录状态无效或已过期")
+    row["email_verified"] = _central_status(request, row)["emailVerified"]
     user = format_user(row)
     if not user["isActive"]:
         raise HTTPException(status_code=403, detail="账号已被禁用")
@@ -526,6 +531,24 @@ def _request_token(
     return ""
 
 
+def _central_status(request, row):
+    from nethub_status import AccountStatusUnavailable, read_account_status
+    sub = row.get("session_auth_sub") or row.get("auth_sub")
+    cached = getattr(request.state, "central_account_status", None)
+    if cached is not None and cached[0] == sub:
+        return cached[1]
+    try:
+        status = read_account_status(settings.oidc_issuer, settings.oidc_client_id,
+                                     settings.oidc_client_secret, sub)
+    except AccountStatusUnavailable:
+        raise HTTPException(503, "账号中心暂时不可用，请稍后重试") from None
+    if not status["active"]:
+        revoke_sessions(user_id=row["id"])
+        raise HTTPException(403, "账号已被全站封禁或停用；申诉请查看账号中心 /policy")
+    request.state.central_account_status = (sub, status)
+    return status
+
+
 def get_current_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
@@ -536,6 +559,7 @@ def get_current_user(
     row = _session_record(token)
     if row is None:
         raise HTTPException(status_code=401, detail="登录状态无效或已过期")
+    row["email_verified"] = _central_status(request, row)["emailVerified"]
     user = format_user(row)
     if not user["isActive"]:
         raise HTTPException(status_code=403, detail="账号已被禁用")
@@ -555,6 +579,10 @@ def get_optional_current_user(
         return None
     row = _session_record(token)
     if row is None or not row.get("is_active"):
+        return None
+    try:
+        row["email_verified"] = _central_status(request, row)["emailVerified"]
+    except HTTPException:
         return None
     request.state.analytics_user_sub = row.get("session_auth_sub") or row.get("auth_sub")
     request.state.auth_session_id = row.get("auth_session_id")

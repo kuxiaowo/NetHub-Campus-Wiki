@@ -474,3 +474,24 @@ test("Accounts avatars use a separate bucket and signing key", async () => {
   assert.equal(wrongKey.status, 401);
   assert.equal((await worker.fetch(new Request(`${BASE}/accounts/media/avatars/bad.webp`), env)).status, 400);
 });
+
+
+test("review images require signed access and never use public media", async () => {
+  const env = environment();
+  env.PRIVATE_REVIEW_MEDIA_ENABLED = "true";
+  const key = "review-media/" + "a".repeat(32) + ".jpg";
+  const uploaded = await worker.fetch(await signedRequest(`/internal/object/${key}`, {method: "PUT", body: "private-image", headers: {"Content-Type": "image/jpeg"}}), env);
+  assert.equal(uploaded.status, 201);
+  assert.equal((await worker.fetch(new Request(`${BASE}/media/${key}`), env)).status, 403);
+  assert.equal((await worker.fetch(new Request(`${BASE}/download/${key}`), env)).status, 400);
+  const download = await worker.fetch(await signedDownload(`/download/${key}`), env);
+  assert.equal(download.status, 200);
+  assert.equal(await download.text(), "private-image");
+  assert.match(download.headers.get("Cache-Control"), /no-store/);
+  for (const invalid of ["review-media/other.jpg", "review-media/" + "a".repeat(32) + ".png", "review-media/nested/" + "a".repeat(32) + ".jpg"]) {
+    assert.equal((await worker.fetch(await signedDownload(`/download/${invalid}`), env)).status, 403);
+  }
+  const otherEnv = {...environment(env.MEDIA_BUCKET), PRIVATE_REVIEW_MEDIA_ENABLED: "true", HMAC_SECRET: SECRET + "other-site"};
+  assert.equal((await worker.fetch(await signedDownload(`/download/${key}`), otherEnv)).status, 401);
+  assert.equal((await worker.fetch(await signedDownload(`/download/${key}`), environment(env.MEDIA_BUCKET))).status, 403);
+});

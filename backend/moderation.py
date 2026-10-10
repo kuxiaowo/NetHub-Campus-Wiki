@@ -14,5 +14,5 @@ def connect():
     return facade._connection
 
 
-site = Site(connect, "wiki")
+from backend.content_review import site
 router = make_router(site, _require_admin, get_current_user)

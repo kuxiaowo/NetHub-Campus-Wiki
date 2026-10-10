@@ -221,21 +221,30 @@ def update_profile(payload: dict[str, Any], user: dict[str, Any] = Depends(get_c
         bio = str(payload.get("bio") or "").strip()
         if len(bio) > 300:
             raise HTTPException(status_code=422, detail="个人简介不能超过 300 字")
-        updates.append("bio = %s")
-        params.append(bio)
+        from backend.content_review import require_speaker, submit
+        require_speaker(user)
+        if user["role"] == "admin":
+            updates.append("bio = %s")
+            params.append(bio)
     if "messagingPermission" in payload:
         permission = str(payload["messagingPermission"])
         if permission not in MESSAGING_PERMISSIONS:
             raise HTTPException(status_code=422, detail="私信权限设置无效")
         updates.append("messaging_permission = %s")
         params.append(permission)
-    if not updates:
+    if not updates and "bio" not in payload:
         raise HTTPException(status_code=422, detail="请求体不能为空")
 
     params.append(user["id"])
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s", params)
+            if "bio" in payload and user["role"] != "admin":
+                if conn._connection is None:
+                    raise HTTPException(503, "内容预审需要 SQLite 主库")
+                cursor.execute("BEGIN IMMEDIATE")
+                submit("profile", user["id"], user, bio, connection=conn._connection)
+            if updates:
+                cursor.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s", params)
             cursor.execute(
                 """
                 SELECT u.*,
@@ -246,7 +255,11 @@ def update_profile(payload: dict[str, Any], user: dict[str, Any] = Depends(get_c
                 (user["id"],),
             )
             row = cursor.fetchone()
-    return format_user(row)
+    row["email_verified"] = user.get("emailVerified", False)
+    result = format_user(row)
+    if "bio" in payload:
+        result["bioModerationStatus"] = "published" if user["role"] == "admin" else "pending"
+    return result
 
 
 @router.post("/users/me/avatar")
