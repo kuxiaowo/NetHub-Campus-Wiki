@@ -196,7 +196,7 @@
       'comment',
       state.element.querySelector('[data-comment-turnstile]'),
     );
-    await request('/comments', {
+    const submitted = await request('/comments', {
       method: 'POST',
       body: JSON.stringify({
         targetType: state.targetType,
@@ -206,6 +206,9 @@
         turnstileToken,
       }),
     });
+    if (submitted.data?.moderationStatus === 'pending') {
+      window.alert('留言已提交审核，通过后公开。');
+    }
     state.page = 1;
     await loadComments(state);
   }

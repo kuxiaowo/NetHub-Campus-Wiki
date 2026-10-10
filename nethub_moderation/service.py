@@ -164,7 +164,8 @@ class Worker:
 
     async def call(self, url, path, payload):
         response = await self.http.post(
-            url + path, json=payload, headers={"Authorization": "Bearer " + self.token}
+            url + path, json=payload, headers={"Authorization": "Bearer " + self.token},
+            timeout=210 if path.endswith("/claim") else 15,
         )
         response.raise_for_status()
         return response.json()
@@ -348,7 +349,7 @@ def create_app(directory=None, sites=None, token=None):
         sites
         if sites is not None
         else os.environ.get(
-            "MODERATION_SITES", "http://127.0.0.1:3100,http://127.0.0.1:3300"
+            "MODERATION_SITES", "http://127.0.0.1:3100"
         ).split(",")
     )
     for url in site_urls:

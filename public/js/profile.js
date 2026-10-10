@@ -62,7 +62,8 @@ async function initProfile() {
         }),
       });
       saveProfileUser(profileUser);
-      setProfileMessage('资料已保存');
+      setProfileMessage(profileUser.bioModerationStatus === 'pending' ? '资料已保存；新个人简介将在审核通过后公开。' : '资料已保存。');
+      document.dispatchEvent(new Event('profile-saved'));
     } catch (error) {
       setProfileMessage(error.message, true);
     } finally {

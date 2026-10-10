@@ -42,6 +42,11 @@ class User(BaseModel):
     createdAt: datetime | None = None
 
 
+    email_verified: bool = Field(default=False, alias="emailVerified")
+    is_muted: bool = Field(default=False, alias="isMuted")
+    muted_until: int | None = Field(default=None, alias="mutedUntil")
+    mute_reason: str = Field(default="", alias="muteReason")
+
 class RegisterRequest(BaseModel):
     """用户注册请求。"""
 

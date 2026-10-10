@@ -3222,3 +3222,11 @@ a.message-activity-item:hover { background: #f8fbff; }
 }
 .turnstile-dialog p { margin: 0; text-align: center; }
 .turnstile-cancel { cursor: pointer; }
+
+/* Governance status and review controls follow the existing card system. */
+[data-my-submissions], [data-content-review] { display: grid; gap: 18px; }
+[data-my-submissions] article, [data-content-review] article { padding: 20px; overflow-wrap: anywhere; }
+[data-my-submissions] article p, [data-content-review] article p { white-space: pre-wrap; }
+[data-my-submissions] article img, [data-content-review] article img { width: min(100%, 240px); border-radius: 10px; margin: 8px; vertical-align: top; }
+[data-content-review] .button, [data-my-submissions] .button { margin: 6px 8px 6px 0; }
+[data-content-review] .button[aria-pressed="true"] { background: var(--accent, #2563eb); color: #fff; }

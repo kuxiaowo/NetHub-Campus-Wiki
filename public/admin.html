@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>管理后台</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=4" />
-  <link rel="stylesheet" href="/css/styles.css?v=activity-accounts-20260910" />
-  <link rel="stylesheet" href="/css/moderation.css?v=lanes-20260929">
+  <link rel="stylesheet" href="/css/styles.css?v=governance-20261001" />
+  <link rel="stylesheet" href="/css/moderation.css?v=governance-20261001">
 </head>
 <body>
   <main class="admin-shell">
@@ -24,7 +24,7 @@
         <button class="admin-nav-item" type="button" data-admin-view="transfer" aria-pressed="false">数据导入/导出</button>
         <button class="admin-nav-item" type="button" data-admin-view="projects" aria-pressed="false">CAS 项目管理</button>
         <button class="admin-nav-item" type="button" data-admin-view="resources" aria-pressed="false">资源管理</button>
-        <button class="admin-nav-item" type="button" data-admin-view="moderation" aria-pressed="false">评论审核</button>
+        <button class="admin-nav-item" type="button" data-admin-view="moderation" aria-pressed="false">内容审核</button>
         <button class="admin-nav-item" type="button" data-admin-view="community" aria-pressed="false">公告与留言</button>
         <button class="admin-nav-item" type="button" data-admin-view="security" aria-pressed="false" hidden>旧认证限制</button>
       </nav>
@@ -294,7 +294,7 @@
           </div>
         </section>
 
-        <section class="admin-view" data-admin-panel="moderation"><div data-moderation-app></div></section>
+        <section class="admin-view" data-admin-panel="moderation"><div data-moderation-app></div><div data-content-review></div></section>
         <section class="admin-view" data-admin-panel="community">
           <div class="admin-section-head">
             <div>
@@ -456,7 +456,8 @@
   <script src="/js/config.js"></script>
   <script src="/js/api.js?v=timezone-20260929"></script>
   <script src="/js/resource-ui.js?v=timezone-20260929"></script>
-  <script src="/js/moderation-ui.js?v=lanes-20260929"></script>
-  <script src="/js/admin.js?v=reports-20260929"></script>
+  <script src="/js/moderation-ui.js?v=governance-20261001"></script>
+  <script src="/js/admin.js?v=governance-20261001"></script>
+  <script src="/js/content-governance.js?v=20261001"></script>
 </body>
 </html>

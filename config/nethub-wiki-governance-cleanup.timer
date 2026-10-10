@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Wiki governance retention
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=900
+
+[Install]
+WantedBy=timers.target

@@ -495,22 +495,17 @@ async def _store_project_update_photos(
 
 
 def _project_row_and_updates(project_id: int) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    from backend.content_store import list_updates
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM projects WHERE id = %s LIMIT 1", (project_id,))
+            cursor.execute("SELECT * FROM projects WHERE id=%s", (project_id,))
             row = cursor.fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    asset_dir = row.get("asset_dir")
-    if not asset_dir:
-        raise HTTPException(status_code=422, detail="请先为项目配置资源目录")
-    normalized_dir = _normalize_project_asset_dir(asset_dir)
-    try:
-        updates = normalize_project_updates(row.get("updates"), normalized_dir, allow_legacy=True)
-    except ProjectAssetError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    row["asset_dir"] = normalized_dir
-    return row, updates
+    if not row:
+        raise HTTPException(404, "项目不存在")
+    if not row.get("asset_dir"):
+        raise HTTPException(422, "请先为项目配置资源目录")
+    row["asset_dir"] = _normalize_project_asset_dir(row["asset_dir"])
+    return row, list_updates(project_id, row["asset_dir"], admin=True)
 
 
 def _normalize_bool(value: Any) -> int:
@@ -714,7 +709,7 @@ def admin_import_data(
             status_code=409,
             detail={"message": "存在缺失或类型不符的站内路径，请确认预警后再导入", "warnings": warnings},
         )
-    result = import_transfer_document(document)
+    result = import_transfer_document(document, operator_id=_["id"])
     return {"ok": True, **result, "warnings": warnings}
 
 
@@ -830,13 +825,12 @@ def admin_create_project(payload: dict[str, Any], _: dict[str, Any] = Depends(re
         _normalize_bool(payload.get("casActivity")),
         _normalize_bool(payload.get("casService")),
         0,
-        _json_list([], "updates"),
     )
     insert_project_sql = """
         INSERT INTO projects
           (name, leader, members, category, year, icon, asset_dir, description, media,
-           cas_creativity, cas_activity, cas_service, popularity, updates)
-        VALUES (%s, %s, %s, %s, %s, NULL, %s, %s, %s, %s, %s, %s, %s, %s)
+           cas_creativity, cas_activity, cas_service, popularity)
+        VALUES (%s, %s, %s, %s, %s, NULL, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
         """
     with get_db_connection() as conn:
@@ -884,85 +878,34 @@ async def create_project_update_record(
     images: str,
     photos: list[UploadFile],
     publisher: dict[str, Any],
+    operator_id: int | None = None,
 ) -> dict[str, Any]:
-    """Create one update while preserving concurrent member submissions."""
-
+    from backend.content_store import write_update
     row, _ = _project_row_and_updates(project_id)
-    clean_content = content.strip()
-    retained_images = _project_update_images_form(images, row["asset_dir"])
+    retained = _project_update_images_form(images, row["asset_dir"])
     update_id = new_update_id()
-    uploaded_images, created_files = await _store_project_update_photos(
-        photos, row["asset_dir"], update_id
-    )
-    all_images = [*retained_images, *uploaded_images]
-    if not clean_content and not all_images:
+    uploaded, created_files = await _store_project_update_photos(photos, row["asset_dir"], update_id)
+    if not content.strip() and not retained and not uploaded:
         _cleanup_project_photo_files(created_files)
-        raise HTTPException(status_code=422, detail="动态内容和图片不能同时为空")
-    update = {
-        "id": update_id,
-        "content": clean_content,
-        "images": all_images,
-        "authorName": str(publisher["name"]).strip(),
-        "authorRole": publisher["role"],
-        "createdAt": datetime.now(timezone.utc).isoformat(),
-    }
-    if publisher.get("personId"):
-        update["authorPersonId"] = int(publisher["personId"])
-    elif publisher.get("userId"):
-        # Compatibility for administrators, who are not project member records.
-        update["authorUserId"] = int(publisher["userId"])
+        raise HTTPException(422, "动态内容和图片不能同时为空")
+    item = {"id": update_id, "content": content.strip(), "images": [*retained, *uploaded],
+            "authorName": publisher["name"], "authorRole": publisher["role"],
+            "createdAt": datetime.now(timezone.utc).isoformat()}
+    for key in ("personId", "userId"):
+        if publisher.get(key):
+            item["author" + key[0].upper() + key[1:]] = publisher[key]
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cursor:
-                # The upload happens before the write lock. Reloading inside a
-                # short IMMEDIATE transaction prevents two publishers from
-                # replacing each other's read-modify-write result.
-                is_d1 = getattr(conn, "_adapter", None) is not None
-                if not is_d1:
-                    cursor.execute("BEGIN IMMEDIATE")
-                cursor.execute(
-                    "SELECT asset_dir, updates FROM projects WHERE id = %s LIMIT 1",
-                    (project_id,),
-                )
-                latest_row = cursor.fetchone()
-                if latest_row is None:
-                    raise HTTPException(status_code=404, detail="项目不存在")
-                latest_asset_dir = _normalize_project_asset_dir(latest_row.get("asset_dir"))
-                if latest_asset_dir != row["asset_dir"]:
-                    raise HTTPException(status_code=409, detail="项目资源目录已变更，请重新发布")
-                try:
-                    updates = normalize_project_updates(
-                        latest_row.get("updates"),
-                        latest_asset_dir,
-                        allow_legacy=True,
-                    )
-                except ProjectAssetError as error:
-                    raise HTTPException(status_code=422, detail=str(error)) from error
-                # The stored order is newest-first so the public feed and the
-                # admin editor agree without a client-only reversal.
-                updates.insert(0, update)
-                serialized_updates = json.dumps(updates, ensure_ascii=False)
-                if is_d1:
-                    # D1 has no connection transaction. Guard the write with
-                    # the value read above so a concurrent publisher cannot
-                    # silently overwrite a newer update list.
-                    cursor.execute(
-                        """
-                        UPDATE projects SET updates = %s
-                        WHERE id = %s AND updates = %s
-                        RETURNING id
-                        """,
-                        (serialized_updates, project_id, latest_row.get("updates")),
-                    )
-                    if cursor.fetchone() is None:
-                        raise HTTPException(status_code=409, detail="项目动态已被其他人更新，请重试")
-                else:
-                    cursor.execute(
-                        "UPDATE projects SET updates = %s WHERE id = %s",
-                        (serialized_updates, project_id),
-                    )
-                if cursor.rowcount == 0 and not is_d1:
-                    raise HTTPException(status_code=404, detail="项目不存在")
+                cursor.execute("BEGIN IMMEDIATE")
+                cursor.execute("SELECT asset_dir FROM projects WHERE id=%s", (project_id,))
+                latest = cursor.fetchone()
+                if not latest or latest["asset_dir"] != row["asset_dir"]:
+                    raise HTTPException(409, "项目或资源目录已变更")
+            write_update(conn, project_id, item, operator_id)
+            with conn.cursor() as cursor:
+                cursor.execute("INSERT INTO governance_audit(actor_id,action,details) VALUES(%s,%s,%s)",
+                               (operator_id, "update.publish", json.dumps({"projectId": project_id, "updateId": update_id})))
     except Exception:
         _cleanup_project_photo_files(created_files)
         raise
@@ -1007,6 +950,7 @@ async def admin_create_project_update(
             "name": member["display_name_snapshot"],
             "role": member["role"],
         },
+        operator_id=admin["id"],
     )
 
 
@@ -1016,22 +960,22 @@ def admin_reorder_project_updates(
     payload: dict[str, Any],
     _: dict[str, Any] = Depends(require_admin_user),
 ):
-    _, updates = _project_row_and_updates(project_id)
-    update_ids = payload.get("updateIds")
-    if not isinstance(update_ids, list) or any(not isinstance(item, str) for item in update_ids):
-        raise HTTPException(status_code=422, detail="updateIds 必须是字符串数组")
-    if len(update_ids) != len(set(update_ids)):
-        raise HTTPException(status_code=422, detail="updateIds 不能重复")
-    current = {update["id"]: update for update in updates}
-    if set(update_ids) != set(current):
-        raise HTTPException(status_code=422, detail="updateIds 必须完整包含当前项目的全部动态")
-    reordered = [current[update_id] for update_id in update_ids]
+    project_row, updates = _project_row_and_updates(project_id)
+    ids = payload.get("updateIds")
+    if not isinstance(ids, list) or any(not isinstance(i, str) for i in ids) or len(ids)!=len(set(ids)) or set(ids)!={u["id"] for u in updates}:
+        raise HTTPException(422, "updateIds 必须完整且不重复地包含已发布动态")
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute(
-                "UPDATE projects SET updates = %s WHERE id = %s",
-                (json.dumps(reordered, ensure_ascii=False), project_id),
-            )
+            cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute("SELECT id FROM project_updates WHERE project_id=%s", (project_id,))
+            current = {r["id"] for r in cursor.fetchall()}
+            if current != {f"{project_id}:{ident}" for ident in ids}:
+                raise HTTPException(409, "动态已变化，请刷新后重试")
+            for position, ident in enumerate(ids):
+                cursor.execute("UPDATE project_updates SET sort_order=%s WHERE id=%s", (position, f"{project_id}:{ident}"))
+            cursor.execute("UPDATE projects SET updated_at=CURRENT_TIMESTAMP WHERE id=%s", (project_id,))
+            cursor.execute("INSERT INTO governance_audit(actor_id,action,details) VALUES(%s,%s,%s)",
+                           (_["id"], "update.reorder", json.dumps({"projectId": project_id, "updateIds": ids})))
     return _fetch_project(project_id)
 
 
@@ -1044,30 +988,36 @@ async def admin_update_project_update(
     photos: list[UploadFile] | None = File(default=None),
     _: dict[str, Any] = Depends(require_admin_user),
 ):
-    row, updates = _project_row_and_updates(project_id)
-    target = next((item for item in updates if item["id"] == update_id), None)
-    if target is None:
-        raise HTTPException(status_code=404, detail="项目动态不存在")
-    clean_content = content.strip()
-    retained_images = _project_update_images_form(images, row["asset_dir"])
-    uploaded_images, created_files = await _store_project_update_photos(
-        photos or [], row["asset_dir"], update_id
-    )
-    all_images = [*retained_images, *uploaded_images]
-    if not clean_content and not all_images:
+    row, items = _project_row_and_updates(project_id)
+    target = next((item for item in items if item["id"] == update_id), None)
+    if not target:
+        raise HTTPException(404, "项目动态不存在")
+    try:
+        requested = json.loads(images)
+    except (TypeError, ValueError):
+        raise HTTPException(422, "图片列表无效") from None
+    if not isinstance(requested, list) or not all(isinstance(value, str) for value in requested):
+        raise HTTPException(422, "图片列表无效")
+    private_images = [value for value in requested if value.startswith("/api/content-media/")]
+    if not set(private_images).issubset(target["images"]):
+        raise HTTPException(422, "只能保留该动态原有的审核图片")
+    public_images = [value for value in requested if value not in private_images]
+    retained = [*_project_update_images_form(json.dumps(public_images), row["asset_dir"]), *private_images]
+    uploaded, created_files = await _store_project_update_photos(photos or [], row["asset_dir"], update_id)
+    if not content.strip() and not retained and not uploaded:
         _cleanup_project_photo_files(created_files)
-        raise HTTPException(status_code=422, detail="动态内容和图片不能同时为空")
-    target["content"] = clean_content
-    target["images"] = all_images
+        raise HTTPException(422, "动态内容和图片不能同时为空")
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute(
-                    "UPDATE projects SET updates = %s WHERE id = %s",
-                    (json.dumps(updates, ensure_ascii=False), project_id),
-                )
-                if cursor.rowcount == 0:
-                    raise HTTPException(status_code=404, detail="项目不存在")
+                cursor.execute("BEGIN IMMEDIATE")
+                cursor.execute("UPDATE project_updates SET content=%s,images=%s,operator_id=%s WHERE id=%s AND project_id=%s",
+                               (content.strip(), json.dumps([*retained,*uploaded]), _["id"], f"{project_id}:{update_id}", project_id))
+                if not cursor.rowcount:
+                    raise HTTPException(409, "动态已被删除")
+                cursor.execute("INSERT INTO governance_audit(actor_id,action,details) VALUES(%s,%s,%s)",
+                               (_["id"], "update.edit", json.dumps({"projectId": project_id, "updateId": update_id})))
+                cursor.execute("UPDATE projects SET updated_at=CURRENT_TIMESTAMP WHERE id=%s", (project_id,))
     except Exception:
         _cleanup_project_photo_files(created_files)
         raise
@@ -1096,72 +1046,29 @@ def delete_project_update_record(
     update_id: str,
     publisher: dict[str, Any],
 ) -> dict[str, Any]:
-    try:
-        clean_update_id = normalize_update_id(update_id, generate=False)
-    except ProjectAssetError as error:
-        raise HTTPException(status_code=404, detail="项目动态不存在") from error
-
-    asset_dir = ""
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
-            is_d1 = getattr(conn, "_adapter", None) is not None
-            if not is_d1:
-                cursor.execute("BEGIN IMMEDIATE")
-            cursor.execute(
-                "SELECT asset_dir, updates FROM projects WHERE id = %s LIMIT 1",
-                (project_id,),
-            )
+            cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute("SELECT * FROM project_updates WHERE id=%s AND project_id=%s", (f"{project_id}:{update_id}", project_id))
             row = cursor.fetchone()
-            if row is None:
-                raise HTTPException(status_code=404, detail="项目不存在")
-            asset_dir = _normalize_project_asset_dir(row.get("asset_dir"))
-            try:
-                updates = normalize_project_updates(
-                    row.get("updates"),
-                    asset_dir,
-                    allow_legacy=True,
-                )
-            except ProjectAssetError as error:
-                raise HTTPException(status_code=422, detail=str(error)) from error
-            target = next((item for item in updates if item["id"] == clean_update_id), None)
-            if target is None:
-                raise HTTPException(status_code=404, detail="项目动态不存在")
-            can_delete_all = publisher["role"] in {"admin", "leader"}
-            is_author = bool(
-                publisher.get("personId")
-                and target.get("authorPersonId") == int(publisher["personId"])
-            ) or bool(
-                not target.get("authorPersonId")
-                and publisher.get("userId")
-                and target.get("authorUserId") == int(publisher["userId"])
-            )
-            if not can_delete_all and not is_author:
-                raise HTTPException(status_code=403, detail="只能删除自己发布的动态")
-            retained = [item for item in updates if item["id"] != clean_update_id]
-            serialized_updates = json.dumps(retained, ensure_ascii=False)
-            if is_d1:
-                cursor.execute(
-                    """
-                    UPDATE projects SET updates = %s
-                    WHERE id = %s AND updates = %s
-                    RETURNING id
-                    """,
-                    (serialized_updates, project_id, row.get("updates")),
-                )
-                if cursor.fetchone() is None:
-                    raise HTTPException(status_code=409, detail="项目动态已被其他人更新，请重试")
-            else:
-                cursor.execute(
-                    "UPDATE projects SET updates = %s WHERE id = %s",
-                    (serialized_updates, project_id),
-                )
-            if cursor.rowcount == 0 and not is_d1:
-                raise HTTPException(status_code=404, detail="项目不存在")
-
-    try:
-        _delete_managed_project_update_files(asset_dir, clean_update_id)
-    except (OSError, MediaStorageError) as error:
-        raise HTTPException(status_code=500, detail="动态记录已删除，但媒体照片清理失败") from error
+            if not row:
+                raise HTTPException(404, "项目动态不存在")
+            meta = json.loads(row["metadata"])
+            is_author = (publisher.get("personId") and meta.get("authorPersonId") == publisher["personId"]) or (publisher.get("userId") and meta.get("authorUserId") == publisher["userId"])
+            if publisher["role"] not in {"admin", "leader"} and not is_author:
+                raise HTTPException(403, "只能删除自己的动态")
+            cursor.execute("DELETE FROM project_updates WHERE id=%s", (row["id"],))
+            cursor.execute("UPDATE _private_content_submissions SET status='withdrawn',updated_at=CURRENT_TIMESTAMP WHERE id=%s AND kind='update'", (update_id,))
+            cursor.execute("UPDATE _moderation_content_jobs SET state='cancelled',token='' WHERE submission_id=%s", (update_id,))
+            cursor.execute("UPDATE projects SET updated_at=CURRENT_TIMESTAMP WHERE id=%s", (project_id,))
+            cursor.execute("INSERT INTO governance_audit(actor_id,action,details) VALUES(%s,%s,%s)",
+                           (publisher.get("userId"), "update.delete", json.dumps({"projectId": project_id, "updateId": update_id})))
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT asset_dir FROM projects WHERE id=%s", (project_id,))
+            project = cursor.fetchone()
+    if project and project["asset_dir"]:
+        _delete_managed_project_update_files(project["asset_dir"], update_id)
     return _fetch_project(project_id)
 
 
@@ -1197,7 +1104,6 @@ def admin_update_project(
         "casCreativity": "cas_creativity",
         "casActivity": "cas_activity",
         "casService": "cas_service",
-        "updates": "updates",
     }
     unknown = sorted(set(payload) - set(field_map))
     if unknown:
@@ -1221,16 +1127,6 @@ def admin_update_project(
             if "assetDir" in payload:
                 next_asset_dir = _normalize_project_asset_dir(payload["assetDir"])
                 payload["assetDir"] = next_asset_dir
-                if "updates" not in payload:
-                    # Changing the root must not silently break stored relative paths.
-                    _project_updates_json(
-                        normalize_project_updates(
-                            current.get("updates"),
-                            current.get("asset_dir"),
-                            allow_legacy=True,
-                        ),
-                        next_asset_dir,
-                    )
             is_d1 = getattr(conn, "_adapter", None) is not None
             if "category" in payload and not is_d1:
                 _ensure_project_category(cursor, payload["category"])
@@ -1242,8 +1138,6 @@ def admin_update_project(
                     value = _normalize_int(value, api_field)
                 if api_field in {"casCreativity", "casActivity", "casService"}:
                     value = _normalize_bool(value)
-                if api_field == "updates":
-                    value = _project_updates_json(value, next_asset_dir)
                 updates.append(f"{column} = %s")
                 params.append(value)
             if not updates:

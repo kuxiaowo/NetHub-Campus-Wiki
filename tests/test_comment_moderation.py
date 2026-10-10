@@ -27,7 +27,7 @@ class ModerationStoreTest(unittest.TestCase):
             CREATE TABLE galleries(id INTEGER PRIMARY KEY,title TEXT,status TEXT);
             INSERT INTO galleries VALUES(1,'学习图集','published');
             CREATE TABLE comments(id INTEGER PRIMARY KEY,user_id INTEGER REFERENCES users(id),
-              content TEXT,status TEXT DEFAULT 'visible',parent_id INTEGER,
+              content TEXT,status TEXT DEFAULT 'hidden',parent_id INTEGER,
               target_type TEXT DEFAULT 'project',target_id INTEGER DEFAULT 1,gallery_id INTEGER DEFAULT 1);
             CREATE TABLE comment_reports(comment_id INTEGER,status TEXT,decision TEXT,review_note TEXT,resolved_by INTEGER,resolved_at TEXT);
             """ + SCHEMA)
@@ -98,9 +98,9 @@ class ModerationStoreTest(unittest.TestCase):
         self.assertEqual(
             self.site.cases("review", 1, 20)["data"][0]["content"], "侮辱词"
         )
-        self.site.decide(job["id"], 2, "ignore")
+        self.site.decide(job["id"], 2, "ignore", note="人工核验通过")
         self.assertFalse(self.site.complete(job, self.review(job)))
-        self.site.decide(job["id"], 2, "ignore")
+        self.site.decide(job["id"], 2, "ignore", note="人工核验通过")
         with self.connect() as conn:
             self.assertEqual(
                 conn.execute("SELECT status FROM comments").fetchone()[0], "visible"
@@ -116,7 +116,7 @@ class ModerationStoreTest(unittest.TestCase):
         }))
         self.assertEqual(self.site.cases("passed", 1, 20)["data"][0]["commentId"], ident)
         self.assertEqual(self.site.cases("history", 1, 20)["total"], 0)
-        self.site.decide(job["id"], 2, "ignore")
+        self.site.decide(job["id"], 2, "ignore", note="人工核验通过")
         with self.connect() as conn:
             self.assertEqual(conn.execute("SELECT status FROM comments WHERE id=?", (ident,)).fetchone()[0], "visible")
         self.assertEqual(self.site.cases("passed", 1, 20)["total"], 0)
@@ -145,7 +145,7 @@ class ModerationStoreTest(unittest.TestCase):
                 result = client.get("/api/admin/moderation/cases?state=passed")
                 self.assertEqual(result.status_code, 200)
                 self.assertEqual(result.json()["data"][0]["commentId"], ident)
-                payload = {"action": action}
+                payload = {"action": action, "note": "人工核验通过"}
                 if action == "delete":
                     payload["reasons"] = ["spam"]
                 result = client.post(
@@ -160,7 +160,7 @@ class ModerationStoreTest(unittest.TestCase):
                     self.assertEqual(content, "AI 通过的新评论" if action == "ignore" else "")
                     self.assertEqual(conn.execute(
                         "SELECT content,status FROM comments WHERE id=?", (reply,)
-                    ).fetchone()[1], "visible")
+                    ).fetchone()[1], "hidden")
                 self.assertEqual(client.get(
                     "/api/admin/moderation/cases?state=passed"
                 ).json()["total"], 0)
@@ -174,7 +174,7 @@ class ModerationStoreTest(unittest.TestCase):
                 "/api/admin/moderation/cases?state=passed"
             ).status_code, 403)
             self.assertEqual(client.post(
-                f"/api/admin/moderation/cases/{job['id']}/decision", json={"action": "ignore"}
+                f"/api/admin/moderation/cases/{job['id']}/decision", json={"action": "ignore", "note": "人工核验通过"}
             ).status_code, 403)
 
     def test_override_reason_soft_delete_and_private_body_free_notification(self):
@@ -214,7 +214,7 @@ class ModerationStoreTest(unittest.TestCase):
         self.assertEqual(self.site.unread(1), 0)
         with self.connect() as conn:
             self.assertEqual(
-                conn.execute("SELECT status FROM comments").fetchone()[0], "visible"
+                conn.execute("SELECT status FROM comments").fetchone()[0], "hidden"
             )
 
     def test_deleted_author_content_cannot_be_resurrected(self):
@@ -228,7 +228,7 @@ class ModerationStoreTest(unittest.TestCase):
         self.assertFalse(self.site.complete(job, self.review(job)))
         self.assertEqual(self.site.unread(1), 0)
 
-    def test_retry_budget_keeps_failed_content_public(self):
+    def test_retry_budget_keeps_failed_content_private(self):
         ident = self.publish()
         self.site.release(ident)
         for attempt in range(3):
@@ -239,7 +239,7 @@ class ModerationStoreTest(unittest.TestCase):
         self.assertEqual(self.site.claim(2, 180)["commentId"], ident)
         with self.connect() as conn:
             self.assertEqual(
-                conn.execute("SELECT status FROM comments").fetchone()[0], "visible"
+                conn.execute("SELECT status FROM comments").fetchone()[0], "hidden"
             )
 
     def test_quota_does_not_exhaust_attempt_budget(self):
@@ -262,23 +262,6 @@ class ModerationStoreTest(unittest.TestCase):
         self.assertNotEqual(old["token"], new["token"])
         self.assertFalse(self.site.complete(old, self.review(old)))
         self.assertTrue(self.site.complete(new, self.review(new)))
-
-    def test_cas_uses_same_privacy_and_reply_preservation_contract(self):
-        self.site = Site(self.connect, "cas")
-        ident = self.publish()
-        reply = self.publish("回复", ident)
-        self.site.delete(ident, 2, ["spam"])
-        self.assertEqual(
-            self.site.notifications(1, 1, 20)["data"][0]["target"]["url"],
-            "/galleries/1",
-        )
-        with self.connect() as conn:
-            self.assertEqual(
-                conn.execute(
-                    "SELECT parent_id FROM comments WHERE id=?", (reply,)
-                ).fetchone()[0],
-                ident,
-            )
 
     def test_result_requires_matching_id_real_evidence_and_known_category(self):
         job = self.job(self.publish())

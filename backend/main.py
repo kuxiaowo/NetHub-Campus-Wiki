@@ -152,6 +152,8 @@ app.include_router(messaging_router)
 app.include_router(announcements_router)
 app.include_router(comments_router)
 app.include_router(moderation_router)
+from backend.content_review import router as content_review_router
+app.include_router(content_review_router)
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -182,7 +184,7 @@ async def cookie_session_security(request: Request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "same-origin")
-    if request.url.path.startswith(("/api/auth", "/api/admin", "/api/comments", "/api/system-notifications", "/api/message-center", "/api/comment-notifications")):
+    if request.url.path.startswith(("/api/auth", "/api/admin", "/api/comments", "/api/system-notifications", "/api/message-center", "/api/comment-notifications", "/api/content-submissions")):
         response.headers.setdefault("Cache-Control", "no-store")
     return response
 
@@ -205,15 +207,15 @@ def _resolve_public_file(file_path: str) -> Path:
 def _get_file_request_user(request: Request) -> dict:
     cookie = request.cookies.get(SESSION_COOKIE_NAME)
     if cookie:
-        return get_current_user_from_token(cookie)
+        return get_current_user_from_token(cookie, request)
     if not settings.oidc_client_secret:
         authorization = request.headers.get("authorization", "")
         if authorization.lower().startswith("bearer "):
-            return get_current_user_from_token(authorization.split(" ", 1)[1].strip())
+            return get_current_user_from_token(authorization.split(" ", 1)[1].strip(), request)
 
         token = request.query_params.get("token")
         if token:
-            return get_current_user_from_token(token)
+            return get_current_user_from_token(token, request)
 
     raise HTTPException(status_code=401, detail="需要登录")
 

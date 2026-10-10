@@ -532,6 +532,10 @@ def create_comment(
     background_tasks: BackgroundTasks,
     user: dict[str, Any] = Depends(get_current_user),
 ):
+    from backend.content_review import require_speaker
+    if settings.database_backend != "sqlite":
+        raise HTTPException(503, "内容预审仅支持 SQLite 主库")
+    require_speaker(user)
     session_id = getattr(request.state, "auth_session_id", None)
     verification_required = not turnstile_session_is_fresh(session_id)
     if verification_required:
@@ -554,6 +558,7 @@ def create_comment(
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             is_d1 = getattr(conn, "_adapter", None) is not None
+            conn._connection.execute("BEGIN IMMEDIATE")
             _validate_target(cursor, target_type, target_id)
             cursor.execute(
                 """
@@ -603,8 +608,8 @@ def create_comment(
             insert_sql = f"""
                 INSERT INTO comments
                   (target_type, target_id, user_id, parent_id, root_id,
-                   reply_to_user_id, content)
-                SELECT %s, %s, %s, %s, %s, %s, %s
+                   reply_to_user_id, content, status)
+                SELECT %s, %s, %s, %s, %s, %s, %s, %s
                 WHERE (
                   SELECT COUNT(*) FROM comments
                   WHERE user_id = %s AND created_at >= datetime('now', '-1 minute')
@@ -634,6 +639,7 @@ def create_comment(
                 root_id,
                 reply_to_user_id,
                 content,
+                "visible" if user["role"] == "admin" else "hidden",
                 user["id"],
                 COMMENT_RATE_PER_MINUTE,
                 target_id,
@@ -702,7 +708,7 @@ def create_comment(
                 comment_id = inserted["id"]
                 if parent_id is None:
                     cursor.execute("UPDATE comments SET root_id = %s WHERE id = %s", (comment_id, comment_id))
-                elif reply_to_user_id is not None:
+                elif reply_to_user_id is not None and user["role"] == "admin":
                     _create_notification(
                         cursor,
                         kind="reply",
@@ -712,13 +718,16 @@ def create_comment(
                         target_type=target_type,
                         target_id=target_id,
                     )
-                enqueue(conn._connection, comment_id)
-    if not is_d1:
+                from backend.content_review import assert_unmuted
+                assert_unmuted(conn._connection, user["id"])
+                if user["role"] != "admin":
+                    enqueue(conn._connection, comment_id)
+    if not is_d1 and user["role"] != "admin":
         from backend.moderation import site
         background_tasks.add_task(site.release, comment_id)
     if verification_required:
         mark_turnstile_session_verified(session_id)
-    return {"data": {"id": comment_id, "moderationStatus": "pending"}}
+    return {"data": {"id": comment_id, "moderationStatus": "published" if user["role"] == "admin" else "pending"}}
 
 
 @router.delete("/comments/{comment_id}")

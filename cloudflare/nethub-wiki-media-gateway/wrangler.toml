@@ -14,6 +14,7 @@ binding = "ACCOUNTS_AVATARS"
 bucket_name = "nethub-accounts-avatars"
 
 [vars]
+PRIVATE_REVIEW_MEDIA_ENABLED = "true"
 ALLOWED_KEY_PREFIXES = "Photos/,avatars/,project-media/,thumbnails/,yearbook-pages/,yearbook-pdfs/,documents/,video-thumbnails/,CAS/"
 PUBLIC_MEDIA_PREFIXES = "Photos/,avatars/,project-media/,thumbnails/,yearbook-pages/,video-thumbnails/,CAS/"
 ALLOWED_UPLOAD_EXTENSIONS = "jpg,jpeg,png,webp,gif,avif,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,md,zip"

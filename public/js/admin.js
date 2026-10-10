@@ -863,12 +863,14 @@ async function loadUsers() {
       { key: 'displayName', label: '姓名' },
       { key: 'role', label: '角色', render: (row) => adminText(roleLabel(row.role)) },
       { key: 'isActive', label: '状态', render: (row) => row.isActive ? '启用' : '禁用' },
+      { key: 'isMuted', label: '本站发言', render: (row) => row.isMuted ? adminText(`禁言：${row.muteReason || '查看处理记录'}；${row.mutedUntil ? new Date(row.mutedUntil * 1000).toLocaleString('zh-CN', {timeZone:'Asia/Shanghai'}) : '永久'}`) : '正常' },
       { key: 'createdAt', label: 'Wiki 档案创建时间（北京时间）', render: (row) => adminText(adminUserCreatedTime(row.createdAt)) },
     ],
     adminState.users,
     (row) => `
       <div class="admin-inline-actions">
         <button class="button secondary compact" type="button" data-edit-user="${adminText(row.id)}">编辑</button>
+        ${Number(row.id) === Number(adminState.currentUser?.id) ? '' : `<button class="button secondary compact" type="button" data-mute-user="${adminText(row.id)}">${row.isMuted ? '解除禁言' : '本站禁言'}</button>`}
         ${Number(row.id) === Number(adminState.currentUser?.id) ? '' : `<button class="button secondary compact danger" type="button" data-delete-user="${adminText(row.id)}">删除</button>`}
       </div>
     `,
@@ -2525,6 +2527,16 @@ function bindAdminEvents() {
     }
     if (target.dataset.editUser) {
       openUserModal(adminState.users.find((item) => String(item.id) === target.dataset.editUser));
+    }
+    if (target.dataset.muteUser) {
+      const row = adminState.users.find((item) => String(item.id) === target.dataset.muteUser);
+      const reason = window.prompt('填写禁言或解除原因（必填，最多 500 字）');
+      if (!reason?.trim()) return;
+      const duration = row.isMuted ? '0' : window.prompt('期限：0 永久、1 天、7 天或 30 天', '7');
+      if (duration === null) return;
+      if (!['0','1','7','30'].includes(duration)) { window.alert('期限只能填写 0、1、7、30'); return; }
+      adminEndpoint(`/admin/users/${row.id}/mute`, {method:'POST',body:JSON.stringify({action:row.isMuted ? 'unmute' : 'mute',days:Number(duration),reason})})
+        .then(loadUsers).catch((error) => window.alert(error.message));
     }
     if (target.dataset.deleteUser) {
       deleteUser(target.dataset.deleteUser).catch((error) => window.alert(error.message));

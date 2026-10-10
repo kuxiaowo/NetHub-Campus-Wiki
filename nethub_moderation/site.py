@@ -25,6 +25,7 @@ def _table_columns(conn, table):
     except sqlite3.DatabaseError:
         return set()
 
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS _moderation_jobs (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,21 +105,12 @@ class Site:
             )
 
     def target(self, conn, comment):
-        if self.name == "cas":
-            kind, ident, table, field, path = (
-                "gallery",
-                comment["gallery_id"],
-                "galleries",
-                "title",
-                "/galleries/",
-            )
-        else:
-            kind, ident = comment["target_type"], comment["target_id"]
-            table, field, path = {
-                "announcement": ("announcements", "title", "/announcement.html?id="),
-                "project": ("projects", "name", "/detail.html?id="),
-                "resource": ("resources", "title", "/resource.html?id="),
-            }[kind]
+        kind, ident = comment["target_type"], comment["target_id"]
+        table, field, path = {
+            "announcement": ("announcements", "title", "/announcement.html?id="),
+            "project": ("projects", "name", "/detail.html?id="),
+            "resource": ("resources", "title", "/resource.html?id="),
+        }[kind]
         row = conn.execute(
             f"SELECT {field} AS title, * FROM {table} WHERE id=?", (ident,)
         ).fetchone()
@@ -158,7 +150,7 @@ class Site:
             if row is None:
                 return None
             if (
-                row["status"] != "visible"
+                row["status"] != "hidden"
                 or fingerprint(row["content"]) != row["content_hash"]
             ):
                 conn.execute(
@@ -196,6 +188,33 @@ class Site:
                 "pageTitle": self.target(conn, comment)["title"],
             }
 
+    def _notify_published(self, conn, comment_id):
+        if self.name != "wiki":
+            return
+        row = conn.execute(
+            "SELECT * FROM comments WHERE id=?", (comment_id,)
+        ).fetchone()
+        if not row or row["status"] != "visible" or not row["parent_id"]:
+            return
+        parent = conn.execute(
+            "SELECT user_id,status FROM comments WHERE id=?", (row["parent_id"],)
+        ).fetchone()
+        if (
+            parent
+            and parent["status"] == "visible"
+            and parent["user_id"] != row["user_id"]
+        ):
+            conn.execute(
+                "INSERT INTO comment_notifications(kind,recipient_id,actor_id,comment_id,target_type,target_id) VALUES('reply',?,?,?,?,?) ON CONFLICT(kind,recipient_id,actor_id,comment_id) DO NOTHING",
+                (
+                    parent["user_id"],
+                    row["user_id"],
+                    comment_id,
+                    row["target_type"],
+                    row["target_id"],
+                ),
+            )
+
     def complete(self, job, result=None, error="", retry_at=None):
         with self.db(True) as conn:
             row = conn.execute(
@@ -210,7 +229,7 @@ class Site:
             ):
                 return False
             if (
-                row["status"] != "visible"
+                row["status"] != "hidden"
                 or fingerprint(row["content"]) != row["content_hash"]
             ):
                 conn.execute(
@@ -223,11 +242,12 @@ class Site:
                     result, {**job, "currentComment": row["content"]}
                 )
                 state = "review" if validated["decision"] == "review" else "passed"
-                if state == "review":
+                if state == "passed":
                     conn.execute(
-                        "UPDATE comments SET status='hidden' WHERE id=?",
+                        "UPDATE comments SET status='visible' WHERE id=? AND status='hidden'",
                         (row["comment_id"],),
                     )
+                    self._notify_published(conn, row["comment_id"])
                 conn.execute(
                     "UPDATE _moderation_jobs SET state=?,result_json=?,error_code='',token='',updated_at=CURRENT_TIMESTAMP WHERE id=?",
                     (state, json.dumps(validated, ensure_ascii=False), row["id"]),
@@ -277,20 +297,27 @@ class Site:
         if action == "ignore":
             if not job or job["state"] not in {"review", "failed", "passed"}:
                 raise ValueError("仅待复核、审核失败或 AI 已通过记录可以忽略")
-            if job["state"] == "review":
+            if not isinstance(note, str) or not 1 <= len(note.strip()) <= 500:
+                raise ValueError("人工处理须填写 1–500 字原因")
+            if job["state"] in {"review", "failed"}:
                 conn.execute(
                     "UPDATE comments SET status='visible' WHERE id=? AND status='hidden'",
                     (comment["id"],),
                 )
+            self._notify_published(conn, comment["id"])
             conn.execute(
-                "UPDATE _moderation_jobs SET state='dismissed',token='',reviewed_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                (admin, job["id"]),
+                "UPDATE _moderation_jobs SET state='dismissed',token='',reviewed_by=?,final_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (admin, note.strip(), job["id"]),
             )
             return
         target = self.target(conn, comment)
         pending_reports = []
         report_columns = _table_columns(conn, "comment_reports")
-        if self.name == "wiki" and {"id", "reporter_id"}.issubset(report_columns) and _table_columns(conn, "report_notifications"):
+        if (
+            self.name == "wiki"
+            and {"id", "reporter_id"}.issubset(report_columns)
+            and _table_columns(conn, "report_notifications")
+        ):
             pending_reports = conn.execute(
                 "SELECT id,reporter_id FROM comment_reports WHERE comment_id=? AND status='pending'",
                 (comment["id"],),
@@ -332,15 +359,26 @@ class Site:
                          decision=excluded.decision,original_excerpt=excluded.original_excerpt,
                          note=excluded.note,created_at=CURRENT_TIMESTAMP,read_at=NULL""",
                     (
-                        report["reporter_id"], "comment", report["id"],
-                        report_excerpt(comment["content"]), "deleted", note.strip(),
-                        target["type"], target["id"], target["title"],
+                        report["reporter_id"],
+                        "comment",
+                        report["id"],
+                        report_excerpt(comment["content"]),
+                        "deleted",
+                        note.strip(),
+                        target["type"],
+                        target["id"],
+                        target["title"],
                     ),
                 )
         notification_values = (
-            comment["user_id"], comment["id"], int(comment["parent_id"] is not None),
-            target["type"], target["id"], target["title"],
-            json.dumps(reasons), note.strip(),
+            comment["user_id"],
+            comment["id"],
+            int(comment["parent_id"] is not None),
+            target["type"],
+            target["id"],
+            target["title"],
+            json.dumps(reasons),
+            note.strip(),
         )
         if "original_excerpt" in _table_columns(conn, "system_notifications"):
             conn.execute(
@@ -383,7 +421,7 @@ class Site:
     def retry(self, case_id):
         with self.db(True) as conn:
             changed = conn.execute(
-                "UPDATE _moderation_jobs SET state='queued',attempts=0,ready_at=0,error_code='',token='' WHERE id=? AND state='failed' AND EXISTS(SELECT 1 FROM comments WHERE id=_moderation_jobs.comment_id AND status='visible')",
+                "UPDATE _moderation_jobs SET state='queued',attempts=0,ready_at=0,error_code='',token='' WHERE id=? AND state='failed' AND EXISTS(SELECT 1 FROM comments WHERE id=_moderation_jobs.comment_id AND status='hidden')",
                 (case_id,),
             ).rowcount
             if not changed:
@@ -478,18 +516,15 @@ class Site:
                     (user, window, 0),
                 ).fetchall()
                 report_total, report_latest = conn.execute(
-                    "SELECT COUNT(*),COALESCE(MAX(id),0) FROM report_notifications WHERE recipient_id=?", (user,)
+                    "SELECT COUNT(*),COALESCE(MAX(id),0) FROM report_notifications WHERE recipient_id=?",
+                    (user,),
                 ).fetchone()
             data = []
             for row in rows:
-                synthetic = (
-                    {"gallery_id": row["target_id"]}
-                    if self.name == "cas"
-                    else {
-                        "target_type": row["target_type"],
-                        "target_id": row["target_id"],
-                    }
-                )
+                synthetic = {
+                    "target_type": row["target_type"],
+                    "target_id": row["target_id"],
+                }
                 target = self.target(conn, synthetic)
                 target["title"] = row["target_title"]
                 codes = json.loads(row["reason_codes"])
@@ -502,7 +537,9 @@ class Site:
                         "reasonCodes": codes,
                         "reasons": [CATEGORIES.get(c, "其他") for c in codes],
                         "note": row["reason_note"],
-                        "excerpt": row["original_excerpt"] if "original_excerpt" in system_columns else "",
+                        "excerpt": row["original_excerpt"]
+                        if "original_excerpt" in system_columns
+                        else "",
                         "createdAt": row["created_at"],
                         "read": row["read_at"] is not None,
                     }
@@ -512,7 +549,9 @@ class Site:
                     {
                         "id": row["id"],
                         "type": "report",
-                        "title": "私信处理通知" if row["audience"] == "author" else "举报处理通知",
+                        "title": "私信处理通知"
+                        if row["audience"] == "author"
+                        else "举报处理通知",
                         "decision": row["decision"],
                         "audience": row["audience"],
                         "excerpt": row["original_excerpt"],
@@ -529,9 +568,11 @@ class Site:
                         "read": row["read_at"] is not None,
                     }
                 )
-            data.sort(key=lambda item: (item.get("createdAt") or "", item["id"]), reverse=True)
+            data.sort(
+                key=lambda item: (item.get("createdAt") or "", item["id"]), reverse=True
+            )
             start = (page - 1) * size
-            data = data[start:start + size]
+            data = data[start : start + size]
             return {
                 "data": data,
                 "page": page,

@@ -1,0 +1,13 @@
+[Unit]
+Description=Wiki governance retention cleanup
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=nethub
+Group=nethub
+WorkingDirectory=/srv/nethub/apps/wiki/current
+EnvironmentFile=/srv/nethub/secrets/wiki.production.env
+ExecStart=/srv/nethub/venvs/wiki/bin/python -m scripts.cleanup_governance
+UMask=0077
+NoNewPrivileges=true

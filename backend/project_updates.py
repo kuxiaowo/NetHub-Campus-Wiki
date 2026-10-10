@@ -45,7 +45,7 @@ def _project_detail_response(project_id: int, user: dict[str, Any]) -> dict[str,
     return {"data": decorate_project_for_viewer(project, user)}
 
 
-@router.post("/{project_id}/updates", response_model=ProjectDetailResponse)
+@router.post("/{project_id}/updates", status_code=202)
 async def create_member_project_update(
     project_id: int,
     content: str = Form(default=""),
@@ -68,14 +68,30 @@ async def create_member_project_update(
             detail=f"每条动态最多上传 {MAX_MEMBER_UPDATE_PHOTOS} 张照片",
         )
 
-    await create_project_update_record(
-        project_id,
-        clean_content,
-        "[]",
-        uploads,
-        publisher,
-    )
-    return _project_detail_response(project_id, user)
+    from backend.content_review import require_speaker, store_private_image, delete_private_image, submit
+    from starlette.concurrency import run_in_threadpool
+    require_speaker(user)
+    if user["role"] == "admin":
+        await create_project_update_record(project_id, clean_content, "[]", uploads, publisher, operator_id=user["id"])
+        return {"data": {"moderationStatus": "published"}}
+    stored = []
+    try:
+        for photo in uploads:
+            raw = await photo.read(5 * 1024 * 1024 + 1)
+            stored.append(await run_in_threadpool(store_private_image, raw))
+        if not clean_content and not stored:
+            raise HTTPException(422, "动态内容和图片不能同时为空")
+        metadata = {"authorName": publisher["name"], "authorRole": publisher["role"], "authorUserId": user["id"]}
+        if publisher.get("personId"):
+            metadata["authorPersonId"] = publisher["personId"]
+        return await run_in_threadpool(submit, "update", project_id, user, clean_content, metadata, stored)
+    except Exception:
+        for image in stored:
+            try:
+                await run_in_threadpool(delete_private_image, image["key"])
+            except Exception:
+                pass
+        raise
 
 
 @router.delete("/{project_id}/updates/{update_id}", response_model=ProjectDetailResponse)

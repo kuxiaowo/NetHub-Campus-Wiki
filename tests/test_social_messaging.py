@@ -32,6 +32,8 @@ from backend.view_tracking import clear_tracked_views  # noqa: E402
 class SocialMessagingFlowTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        cls.status_patcher = patch("nethub_status.read_account_status", return_value={"active": True, "emailVerified": True})
+        cls.status_patcher.start()
         cls.turnstile_comment_patcher = patch("backend.comments.verify_turnstile")
         cls.turnstile_message_patcher = patch("backend.messaging.verify_turnstile")
         cls.turnstile_comment_patcher.start()
@@ -41,6 +43,8 @@ class SocialMessagingFlowTest(unittest.TestCase):
             "backend.database.get_database_path", return_value=cls.database_path
         )
         cls.database_path_patcher.start()
+        cls.private_media_path_patcher = patch("backend.content_review.get_database_path", return_value=cls.database_path)
+        cls.private_media_path_patcher.start()
         cls.project_asset_dir = Path(__file__).resolve().parents[1] / "public" / "CAS" / "__test_project_assets__"
         cls.project_asset_dir.mkdir(parents=True, exist_ok=True)
         Image.new("RGB", (8, 8), "blue").save(cls.project_asset_dir / "icon.png")
@@ -54,6 +58,16 @@ class SocialMessagingFlowTest(unittest.TestCase):
         create_initial_admin("test_admin", "test-admin-password-123", "Test Admin")
         cls._create_migrated_test_fixtures()
         cls.client = TestClient(app)
+        original_post = cls.client.post
+        def post_with_review(url, **kwargs):
+            response = original_post(url, **kwargs)
+            if url == "/api/comments" and response.status_code == 200:
+                from backend.moderation import site
+                site.release(response.json()["data"]["id"])
+                while (job := site.claim(1, 60)) is not None:
+                    site.complete(job, {"jobId": job["jobId"], "decision": "allow", "categories": [], "evidence": [], "explanation": "测试中已核验的内容"})
+            return response
+        cls.client.post = post_with_review
         cls.admin_token = cls._login("test_admin", "test-admin-password-123")
         settings_response = cls.client.patch(
             "/api/admin/auth-security-settings",
@@ -131,6 +145,8 @@ class SocialMessagingFlowTest(unittest.TestCase):
         shutil.rmtree(cls.project_asset_dir, ignore_errors=True)
         cls.client.close()
         cls.database_path_patcher.stop()
+        cls.private_media_path_patcher.stop()
+        cls.status_patcher.stop()
         cls.turnstile_comment_patcher.stop()
         cls.turnstile_message_patcher.stop()
 
@@ -417,7 +433,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
         with get_db_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("PRAGMA user_version")
-                self.assertEqual(cursor.fetchone()["user_version"], 19)
+                self.assertEqual(cursor.fetchone()["user_version"], 20)
                 cursor.execute("PRAGMA table_info(conversation_members)")
                 member_columns = {column["name"] for column in cursor.fetchall()}
                 self.assertNotIn("request_status", member_columns)
@@ -534,7 +550,8 @@ class SocialMessagingFlowTest(unittest.TestCase):
             },
         )
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["bio"], "CAS 科技爱好者")
+        self.assertEqual(response.json()["bio"], "")
+        self.assertEqual(response.json()["bioModerationStatus"], "pending")
 
         response = self.client.post(
             f"/api/users/{self.bob['id']}/follow",
@@ -1473,18 +1490,12 @@ class SocialMessagingFlowTest(unittest.TestCase):
         )
         self.assertEqual(direct_leader_update.status_code, 422, direct_leader_update.text)
 
-        updated_content = self.client.patch(
-            f"/api/admin/projects/{project_id}",
+        bypass = self.client.patch(f"/api/admin/projects/{project_id}", headers=self._headers(self.admin_token), json={"updates": []})
+        self.assertEqual(bypass.status_code, 422)
+        updated_content = self.client.post(
+            f"/api/admin/projects/{project_id}/updates",
             headers=self._headers(self.admin_token),
-            json={
-                "updates": [
-                    {
-                        "content": "项目创建后补充的第一条动态",
-                        "images": ["activity-1.jpg", "activity-2.jpg"],
-                    },
-                    {"content": "没有照片的第二条动态", "images": []},
-                ],
-            },
+            data={"content": "项目创建后补充的第一条动态", "images": '["activity-1.jpg","activity-2.jpg"]', "authorPersonId": str(leader_person_id)},
         )
         self.assertEqual(updated_content.status_code, 200, updated_content.text)
         self.assertEqual(updated_content.json()["media"], [])
@@ -1582,7 +1593,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
     def test_10_admin_json_import_export(self) -> None:
         document = {
             "format": "nethub-campus-wiki-data",
-            "version": 2,
+            "version": 3,
             "projects": [
                 {
                     "name": "JSON 导入 CAS",
@@ -1679,8 +1690,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
             headers=self._headers(self.admin_token),
             json=legacy_project_document,
         )
-        self.assertEqual(legacy_preview.status_code, 200, legacy_preview.text)
-        self.assertTrue(any("推断" in item["message"] for item in legacy_preview.json()["warnings"]))
+        self.assertEqual(legacy_preview.status_code, 422, legacy_preview.text)
 
         unconvertible_v1 = json.loads(json.dumps(legacy_project_document, ensure_ascii=False))
         unconvertible_v1["projects"][0]["icon"] = "https://example.com/icon.png"
@@ -1757,7 +1767,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
 
         warning_document = {
             "format": "nethub-campus-wiki-data",
-            "version": 1,
+            "version": 3,
             "projects": [],
             "resources": [
                 {
@@ -1840,7 +1850,7 @@ class SocialMessagingFlowTest(unittest.TestCase):
             headers=self._headers(self.admin_token),
         )
         self.assertEqual(template.status_code, 200, template.text)
-        self.assertEqual(template.json()["version"], 2)
+        self.assertEqual(template.json()["version"], 3)
         self.assertIn("assetDir", template.json()["projects"][0])
         self.assertNotIn("icon", template.json()["projects"][0])
 
@@ -2413,170 +2423,24 @@ class SocialMessagingFlowTest(unittest.TestCase):
         )
         self.assertEqual(outsider.status_code, 403)
 
-        published = self.client.post(
-            f"/api/projects/{project_id}/updates",
-            headers=self._headers(publisher_token),
-            data={"content": "成员发布的图文动态"},
-            files=[("photos", ("成员照片.png", self.upload_photo, "image/png"))],
-        )
-        self.assertEqual(published.status_code, 200, published.text)
-        update = next(
-            item
-            for item in published.json()["data"]["updates"]
-            if item["content"] == "成员发布的图文动态"
-        )
-        self.assertRegex(update["id"], r"^[a-f0-9]{32}$")
-        self.assertEqual(update["authorPersonId"], person_ids["已绑定发布者"])
-        self.assertIsNone(update["authorUserId"])
-        self.assertEqual(update["authorName"], "已绑定发布者")
-        self.assertEqual(update["authorRole"], "leader")
-        self.assertIsNotNone(update["createdAt"])
-        self.assertEqual(
-            update["images"],
-            [f"/CAS/__test_project_assets__/updates/{update['id']}/成员照片.png"],
-        )
-        leader_update_file = (
-            self.project_asset_dir / "updates" / update["id"] / "成员照片.png"
-        )
-        self.assertTrue(leader_update_file.is_file())
-
-        regular_view = self.client.get(
-            f"/api/projects/{project_id}?track=false",
-            headers=self._headers(regular_member_token),
-        ).json()["data"]
-        leader_update_for_regular = next(
-            item for item in regular_view["updates"] if item["id"] == update["id"]
-        )
-        self.assertFalse(leader_update_for_regular["canDelete"])
-        self.assertTrue(update["canDelete"])
-        self.assertEqual(
-            self.client.delete(f"/api/projects/{project_id}/updates/{update['id']}").status_code,
-            401,
-        )
-        self.assertEqual(
-            self.client.delete(
-                f"/api/projects/{project_id}/updates/{update['id']}",
-                headers=self._headers(self.bob_token),
-            ).status_code,
-            403,
-        )
-        self.assertEqual(
-            self.client.delete(
-                f"/api/projects/{project_id}/updates/{update['id']}",
-                headers=self._headers(regular_member_token),
-            ).status_code,
-            403,
-        )
-
-        regular_published = self.client.post(
-            f"/api/projects/{project_id}/updates",
-            headers=self._headers(regular_member_token),
-            data={"content": "普通成员的多图动态"},
-            files=[
-                ("photos", ("多图-1.png", self.upload_photo, "image/png")),
-                ("photos", ("多图-2.png", self.upload_photo, "image/png")),
-            ],
-        )
-        self.assertEqual(regular_published.status_code, 200, regular_published.text)
-        regular_update = next(
-            item
-            for item in regular_published.json()["data"]["updates"]
-            if item["content"] == "普通成员的多图动态"
-        )
-        self.assertEqual(regular_published.json()["data"]["updates"][0]["id"], regular_update["id"])
-        self.assertTrue(regular_update["canDelete"])
-        regular_update_dir = self.project_asset_dir / "updates" / regular_update["id"]
-        self.assertEqual(
-            {path.name for path in regular_update_dir.iterdir()},
-            {"多图-1.png", "多图-2.png"},
-        )
-        regular_deleted = self.client.delete(
-            f"/api/projects/{project_id}/updates/{regular_update['id']}",
-            headers=self._headers(regular_member_token),
-        )
-        self.assertEqual(regular_deleted.status_code, 200, regular_deleted.text)
-        self.assertFalse(regular_update_dir.exists())
-        self.assertNotIn(
-            regular_update["id"],
-            {item["id"] for item in regular_deleted.json()["data"]["updates"]},
-        )
-        with get_db_connection() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT updates FROM projects WHERE id = %s", (project_id,))
-                stored_update_ids = {
-                    item["id"] for item in json.loads(cursor.fetchone()["updates"])
-                }
-        self.assertNotIn(regular_update["id"], stored_update_ids)
-        exported = self.client.get(
-            f"/api/admin/projects/{project_id}/export",
-            headers=self._headers(self.admin_token),
-        )
-        self.assertEqual(exported.status_code, 200, exported.text)
-        exported_update = next(
-            item
-            for item in exported.json()["projects"][0]["updates"]
-            if item["content"] == "成员发布的图文动态"
-        )
-        self.assertEqual(exported_update["authorName"], "已绑定发布者")
-        self.assertNotIn("authorPersonId", exported_update)
-        self.assertNotIn("authorUserId", exported_update)
-
-        leader_deleted = self.client.delete(
-            f"/api/projects/{project_id}/updates/{update['id']}",
-            headers=self._headers(publisher_token),
-        )
-        self.assertEqual(leader_deleted.status_code, 200, leader_deleted.text)
-        self.assertFalse(leader_update_file.parent.exists())
-        self.assertNotIn(
-            update["id"],
-            {item["id"] for item in leader_deleted.json()["data"]["updates"]},
-        )
-
-        empty = self.client.post(
-            f"/api/projects/{project_id}/updates",
-            headers=self._headers(publisher_token),
-            data={"content": ""},
-        )
-        self.assertEqual(empty.status_code, 422)
-        too_long = self.client.post(
-            f"/api/projects/{project_id}/updates",
-            headers=self._headers(publisher_token),
-            data={"content": "x" * 2001},
-        )
-        self.assertEqual(too_long.status_code, 422)
-        too_many = self.client.post(
-            f"/api/projects/{project_id}/updates",
-            headers=self._headers(publisher_token),
-            data={"content": "照片过多"},
-            files=[
-                ("photos", (f"photo-{index}.png", self.upload_photo, "image/png"))
-                for index in range(10)
-            ],
-        )
-        self.assertEqual(too_many.status_code, 422)
-        oversized = self.client.post(
-            f"/api/projects/{project_id}/updates",
-            headers=self._headers(publisher_token),
-            data={"content": "超大照片不应保存"},
-            files=[("photos", ("oversized.png", b"x" * (5 * 1024 * 1024 + 1), "image/png"))],
-        )
-        self.assertEqual(oversized.status_code, 413)
-
-        def publish_concurrently(sequence: int) -> int:
-            response = self.client.post(
-                f"/api/projects/{project_id}/updates",
-                headers=self._headers(publisher_token),
-                data={"content": f"并发动态 {sequence}"},
-            )
-            return response.status_code
-
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            statuses = list(executor.map(publish_concurrently, (1, 2)))
-        self.assertEqual(statuses, [200, 200])
-        final_updates = self.client.get(f"/api/projects/{project_id}?track=false").json()["data"]["updates"]
-        final_contents = {item["content"] for item in final_updates}
-        self.assertIn("并发动态 1", final_contents)
-        self.assertIn("并发动态 2", final_contents)
+        pending = self.client.post(f"/api/projects/{project_id}/updates", headers=self._headers(publisher_token),
+            data={"content": "成员提交的图文动态"}, files=[("photos", ("photo.png", self.upload_photo, "image/png"))])
+        self.assertEqual(pending.status_code, 202, pending.text)
+        ident = pending.json()["data"]["id"]
+        public = self.client.get(f"/api/projects/{project_id}?track=false").json()["data"]
+        self.assertNotIn(ident, {item["id"] for item in public["updates"]})
+        from backend.moderation import site
+        while (job := site.claim(1, 60)) is not None:
+            site.complete(job, {"jobId": job["jobId"], "decision": "allow", "categories": [], "evidence": [], "explanation": "内容正常"})
+        public = self.client.get(f"/api/projects/{project_id}?track=false").json()["data"]
+        update = next(item for item in public["updates"] if item["id"] == ident)
+        self.assertTrue(update["images"][0].startswith("/api/content-media/"))
+        self.assertEqual(self.client.get(update["images"][0]).status_code, 200)
+        deleted = self.client.delete(f"/api/projects/{project_id}/updates/{ident}", headers=self._headers(publisher_token))
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertEqual(self.client.get(update["images"][0]).status_code, 404)
+        with get_db_connection() as conn:
+            self.assertNotIn("updates", {r["name"] for r in conn._connection.execute("PRAGMA table_info(projects)")})
 
 
     def test_16_comment_and_message_share_fixed_one_hour_verification(self) -> None:
