@@ -33,6 +33,7 @@ def read_account_status(issuer, client_id, client_secret, sub):
         headers={
             "Authorization": "Basic " + authorization,
             "Accept": "application/json",
+            "User-Agent": "NetHub-AccountStatus/1.0",
         },
     )
     try:
