@@ -20,7 +20,7 @@ function renderProfileSummary(user) {
   profileEls.accountLink.href = user.accountUrl || profileEls.accountLink.href;
   profileEls.avatar.dataset.initial = String(name).slice(0, 1).toUpperCase();
   profileEls.avatar.innerHTML = user.avatarUrl
-    ? `<img src="${escapeHtml(safeExternalUrl(user.avatarUrl))}" alt="" />`
+    ? ui`<img src="${escapeHtml(safeExternalUrl(user.avatarUrl))}" alt="" />`
     : '';
 }
 
@@ -50,7 +50,7 @@ async function initProfile() {
     event.preventDefault();
     const submit = profileEls.form.querySelector('[type="submit"]');
     submit.disabled = true;
-    setProfileMessage('正在保存...');
+    setProfileMessage(tr('正在保存...'));
     try {
       const data = new FormData(profileEls.form);
       profileUser = await request('/users/me/profile', {
@@ -62,7 +62,7 @@ async function initProfile() {
         }),
       });
       saveProfileUser(profileUser);
-      setProfileMessage(profileUser.bioModerationStatus === 'pending' ? '资料已保存；新个人简介将在审核通过后公开。' : '资料已保存。');
+      setProfileMessage(profileUser.bioModerationStatus === 'pending' ? tr('资料已保存；新个人简介将在审核通过后公开。') : tr('资料已保存。'));
       document.dispatchEvent(new Event('profile-saved'));
     } catch (error) {
       setProfileMessage(error.message, true);
@@ -74,5 +74,5 @@ async function initProfile() {
 
 initProfile().catch((error) => {
   profileEls.gate.classList.remove('is-hidden');
-  profileEls.gate.innerHTML = `<h1>个人中心暂时不可用</h1><p>${escapeHtml(error.message)}</p>`;
+  profileEls.gate.innerHTML = ui`<h1>个人中心暂时不可用</h1><p>${escapeHtml(error.message)}</p>`;
 });

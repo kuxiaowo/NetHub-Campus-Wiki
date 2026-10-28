@@ -5,16 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="认识 NetHub：由学生发起，为校园制作实用的网站和数字工具。" />
   <title>关于我们 - NetHub Campus Wiki</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=4" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/favicon-32.png" />
   <link rel="stylesheet" href="/css/styles.css?v=friend-links1" />
   <link rel="stylesheet" href="/css/about.css?v=8" />
   <script src="/__nethub/client.js?v=1" defer></script>
+  <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg" />
+  <link rel="stylesheet" href="/css/ui-refresh.css?v=1" />
+  <script src="/js/translations.js?v=ui-bilingual-1"></script>
+  <script src="/js/translations-static.js?v=ui-bilingual-1"></script>
+  <script src="/js/i18n.js?v=ui-bilingual-1"></script>
 </head>
 <body class="about-page">
   <header class="site-header">
     <nav class="navbar container">
       <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
-        <img class="site-logo" src="/assets/about/nethub-icon.webp" alt="" />
+        <img class="site-logo" data-nethub-logo src="/assets/brand/nethub-mark.svg" alt="" />
         <span class="brand-copy">
           <strong>NetHub</strong>
           <small>Campus Wiki</small>
@@ -22,11 +27,11 @@
       </a>
       <div class="nav-links" aria-label="主导航">
         <a href="/index.html">首页</a>
-        <a href="/projects.html">CAS 项目库</a>
-        <a href="/resources.html">资源中心</a>
-        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到<span class="nav-new-badge">new</span></a>
-        <a href="/links.html">友情链接</a>
-        <a class="active" href="/about.html" aria-current="page">关于我们</a>
+        <a href="/projects.html">项目</a>
+        <a href="/resources.html">资源</a>
+        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到</a>
+        <a href="/links.html">友链</a>
+        <a class="active" href="/about.html" aria-current="page">关于</a>
       </div>
     </nav>
   </header>
@@ -36,10 +41,10 @@
       <div class="about-hero-stage">
         <img class="about-hero-photo" src="/assets/about/campus-courtyard.webp" alt="" width="2400" height="1350" fetchpriority="high" />
         <div class="about-hero-card">
-          <img class="about-hero-logo" src="/assets/about/nethub-icon.webp" alt="" />
+          <img class="about-hero-logo" data-nethub-logo src="/assets/brand/nethub-mark.svg" alt="" />
           <p class="about-kicker">学生发起 · 校园技术小组</p>
           <h1 id="aboutTitle">把校园里的想法，<br />真正落地。</h1>
-          <p class="about-hero-summary">从校园资料整理，到 DDL 时间管理，我们把学生真正会用到的工具做出来。</p>
+          <p class="about-hero-summary">为校园制作实用工具。</p>
           <div class="about-actions">
             <a class="button" href="#our-work">浏览我们的产品</a>
             <a class="button secondary" href="https://todolist.nethub.wiki" target="_blank" rel="noreferrer">打开 TodoList <span aria-hidden="true">↗</span></a>
@@ -52,14 +57,14 @@
       <header class="about-section-head">
         <p class="about-kicker">NetHub Products</p>
         <h2 id="workTitle">从时间管理，到校园连接。</h2>
-        <p>这些产品从真实的校园需求出发，也在使用中继续生长。</p>
+        <p>由学生制作，持续改进。</p>
       </header>
 
       <article class="about-feature">
         <div class="about-feature-copy">
           <p class="about-feature-index">产品 01 · 已上线</p>
           <h3>更适合国际学生的<br />To Do List</h3>
-          <p>把 DDL、课程任务和每日安排放进同一张日历，让接下来该做什么一目了然。</p>
+          <p>课程、任务与截止日期，集中管理。</p>
           <a class="about-product-link" href="https://todolist.nethub.wiki" target="_blank" rel="noreferrer">打开 TodoList <span aria-hidden="true">↗</span><small>todolist.nethub.wiki</small></a>
         </div>
         <figure class="about-feature-media about-feature-todo">
@@ -143,7 +148,7 @@
     </section>
 
     <section class="container about-final" aria-label="继续浏览">
-      <img src="/assets/about/nethub-icon.webp" alt="" />
+      <img data-nethub-logo src="/assets/brand/nethub-mark.svg" alt="" />
       <h2>继续探索 Campus Wiki</h2>
       <p>看看校园里正在发生什么。</p>
       <a class="button" href="/projects.html">浏览 CAS 项目</a>
@@ -153,23 +158,24 @@
   <footer class="site-footer">
     <div class="container site-footer-inner">
       <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
-        <img class="site-logo" src="/assets/about/nethub-icon.webp" alt="" />
+        <img class="site-logo" data-nethub-logo src="/assets/brand/nethub-mark.svg" alt="" />
         <span class="brand-copy">
           <strong>NetHub</strong>
           <small>Campus Wiki</small>
         </span>
       </a>
       <nav class="site-footer-links" aria-label="页脚导航">
-        <a href="/projects.html">CAS 项目库</a>
-        <a href="/resources.html">资源中心</a>
-        <a href="/about.html">关于我们</a>
+        <a href="/projects.html">项目</a>
+        <a href="/resources.html">资源</a>
+        <a href="/about.html">关于</a>
       </nav>
       <p class="site-footer-copy">© 2026 NetHub Campus Wiki</p>
     </div>
   </footer>
+  <script>NetHubI18n.initialize();</script>
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=timezone-20260929"></script>
-  <script src="/js/members.js?v=1"></script>
-  <script src="/js/about.js?v=4"></script>
+  <script src="/js/api.js?v=ui-bilingual-1"></script>
+  <script src="/js/members.js?v=ui-bilingual-1"></script>
+  <script src="/js/about.js?v=ui-bilingual-1"></script>
 </body>
 </html>

@@ -264,8 +264,8 @@ class FrontendServerTest(unittest.TestCase):
         self.assertNotIn("选择一位成员，通过微信联系。".encode("utf-8"), about_page)
         self.assertIn(b'id="aboutMembers"', about_page)
         self.assertNotIn(b"data-account-member=", about_page)
-        self.assertIn(b'/js/members.js?v=1', about_page)
-        self.assertIn(b'/js/members.js?v=1', detail_page)
+        self.assertIn(b'/js/members.js?v=', about_page)
+        self.assertIn(b'/js/members.js?v=', detail_page)
         self.assertIn(about_script_type, {"application/javascript", "text/javascript"})
         self.assertIn(b"/projects?search=NetHub", about_script)
         self.assertIn(b"projectMembers.render(result.data)", about_script)
@@ -282,30 +282,29 @@ class FrontendServerTest(unittest.TestCase):
         self.assertNotIn(b'href="https://www.nethub.wiki"', about_page)
         self.assertIn(b'src="/assets/about/mood-meter-redacted.png"', about_page)
         self.assertNotIn(b'/assets/nethub-icon.png', about_page)
-        self.assertEqual(about_page.count(b'src="/assets/about/nethub-icon.webp"'), 4)
+        self.assertEqual(about_page.count(b'src="/assets/brand/nethub-mark.svg"'), 4)
 
         status, mood_meter, content_type = self.fetch("/assets/about/mood-meter-redacted.png")
         self.assertEqual(status, 200)
         self.assertEqual(content_type, "image/png")
         self.assertTrue(mood_meter.startswith(b"\x89PNG\r\n\x1a\n"))
 
-        status, about_icon, content_type = self.fetch("/assets/about/nethub-icon.webp")
+        status, about_icon, content_type = self.fetch("/assets/brand/nethub-mark.svg")
         self.assertEqual(status, 200)
-        self.assertEqual(content_type, "image/webp")
-        self.assertEqual(about_icon[:4], b"RIFF")
-        self.assertEqual(about_icon[8:12], b"WEBP")
+        self.assertEqual(content_type, "image/svg+xml")
+        self.assertIn(b"<svg", about_icon)
 
         _, home_page, _ = self.fetch("/index.html")
         self.assertIn(b'href="https://todolist.nethub.wiki"', home_page)
-        self.assertIn(b'class="home-todo-preview" href="https://todolist.nethub.wiki"', home_page)
-        self.assertIn(b'src="/assets/about/todolist.webp"', home_page)
+        self.assertIn(b'class="home-todo-entry"', home_page)
+        self.assertGreater(home_page.index(b'class="home-todo-entry"'), home_page.index(b'id="popularResourceList"'))
         self.assertIn(b'class="about-feature-image-link" href="https://todolist.nethub.wiki"', about_page)
 
     def test_friend_links_page_uses_previews_and_safe_external_links(self) -> None:
         status, links_page, content_type = self.fetch("/links.html")
         self.assertEqual(status, 200)
         self.assertEqual(content_type, "text/html")
-        self.assertIn('aria-current="page">友情链接'.encode("utf-8"), links_page)
+        self.assertIn('aria-current="page">友链'.encode("utf-8"), links_page)
 
         destinations = (
             ("TodoList", "https://todolist.nethub.wiki/", "/assets/about/todolist.webp"),
@@ -375,7 +374,7 @@ class FrontendServerTest(unittest.TestCase):
             self.assertGreater(teacher_index, resource_index, path)
             self.assertGreater(links_index, teacher_index, path)
             self.assertGreater(about_index, links_index, path)
-            self.assertIn(b'class="nav-new-badge">new</span>', body, path)
+            self.assertNotIn(b'class="nav-new-badge">new</span>', body, path)
 
         _, resource_page, _ = self.fetch("/resources.html")
         _, admin_page, _ = self.fetch("/admin.html")

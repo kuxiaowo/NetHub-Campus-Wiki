@@ -22,7 +22,7 @@ function activeFilterCount() {
 function setFilterPanelOpen(isOpen) {
   projectAdvancedFilters.hidden = !isOpen;
   projectFilterToggle.setAttribute('aria-expanded', String(isOpen));
-  projectFilterToggle.setAttribute('aria-label', isOpen ? '收起详细筛选' : '显示详细筛选');
+  projectFilterToggle.setAttribute('aria-label', isOpen ? tr('收起详细筛选') : tr('显示详细筛选'));
   projectFilterToggle.classList.toggle('is-open', isOpen);
 }
 
@@ -40,16 +40,15 @@ function updateFilterIndicator() {
 function projectRow(project) {
   const projectId = encodeURIComponent(project.id);
 
-  return `
+  return ui`
     <a class="project-row" href="/detail.html?id=${projectId}">
       ${projectIconImage(project)}
       <div>
         <h3>${escapeHtml(project.name)}</h3>
         <div class="meta">
-          <span class="badge">${escapeHtml(project.category)}</span>
+          <span class="badge">${categoryMarkup(project.category)}</span>
           <span>${escapeHtml(project.year)}</span>
-          <span>负责人：${escapeHtml(project.leader || '待确认')}</span>
-          <span>成员：${escapeHtml(project.members || '待添加')}</span>
+          <span>负责人：${escapeHtml(project.leader || tr('待确认'))}</span>
         </div>
         <p>${escapeHtml(project.description)}</p>
         ${casTags(project.cas)}
@@ -64,16 +63,16 @@ async function loadMeta() {
   if (!meta.categories.includes(selectedCategory)) selectedCategory = '';
 
   categoryList.innerHTML = [
-    `<button class="category-button ${selectedCategory ? '' : 'active'}" type="button" data-category="">全部分类</button>`,
+    ui`<button class="category-button ${selectedCategory ? '' : 'active'}" type="button" data-category="">全部分类</button>`,
     ...meta.categories.map((category) => {
       const safeCategory = escapeHtml(category);
       const active = category === selectedCategory ? 'active' : '';
-      return `<button class="category-button ${active}" type="button" data-category="${safeCategory}">${safeCategory}</button>`;
+      return ui`<button class="category-button ${active}" type="button" data-category="${safeCategory}">${categoryMarkup(category)}</button>`;
     }),
   ].join('');
 
-  yearSelect.innerHTML = `<option value="">全部年份</option>` +
-    meta.years.map((year) => `<option value="${escapeHtml(year)}">${escapeHtml(year)}</option>`).join('');
+  yearSelect.innerHTML = ui`<option value="">全部年份</option>` +
+    meta.years.map((year) => ui`<option value="${escapeHtml(year)}">${escapeHtml(year)}</option>`).join('');
 
   const initialYear = initialParams.get('year') || '';
   const initialSort = initialParams.get('sort') || 'latest';
@@ -96,7 +95,7 @@ async function loadMeta() {
 
 // 根据当前筛选状态查询项目列表。
 async function loadProjects() {
-  projectList.innerHTML = '<div class="empty">正在加载项目...</div>';
+  projectList.innerHTML = ui`<div class="empty">正在加载项目...</div>`;
   const params = new URLSearchParams();
   if (selectedCategory) params.set('category', selectedCategory);
   if (yearSelect.value) params.set('year', yearSelect.value);
@@ -104,10 +103,10 @@ async function loadProjects() {
   params.set('sort', sortSelect.value);
 
   const result = await request(`/projects?${params.toString()}`);
-  projectCount.textContent = `共 ${result.data.length} 个项目`;
+  setUiText(projectCount, () => ut`共 ${result.data.length} 个项目`);
   projectList.innerHTML = result.data.length
     ? result.data.map(projectRow).join('')
-    : '<div class="empty">没有找到符合条件的项目，换个筛选试试。</div>';
+    : ui`<div class="empty">没有找到符合条件的项目，换个筛选试试。</div>`;
 }
 
 [yearSelect, sortSelect].forEach((el) => el.addEventListener('change', () => {
@@ -144,5 +143,9 @@ searchInput.addEventListener('input', () => {
 });
 
 loadMeta().then(loadProjects).catch((error) => {
-  projectList.innerHTML = `<div class="empty error">${escapeHtml(error.message)}。请确认后端和数据库已启动。</div>`;
+  projectList.innerHTML = ui`<div class="empty error">${escapeHtml(error.message)}。请确认后端和数据库已启动。</div>`;
+});
+
+window.addEventListener('nethub-language-change', () => {
+  setFilterPanelOpen(!projectAdvancedFilters.hidden);
 });

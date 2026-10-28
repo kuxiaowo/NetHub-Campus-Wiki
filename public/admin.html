@@ -4,16 +4,21 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>管理后台</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=4" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/favicon-32.png" />
   <link rel="stylesheet" href="/css/styles.css?v=governance-20261001" />
   <link rel="stylesheet" href="/css/moderation.css?v=governance-20261001">
   <script src="/__nethub/client.js?v=1" defer></script>
+  <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg" />
+  <link rel="stylesheet" href="/css/ui-refresh.css?v=1" />
+  <script src="/js/translations.js?v=ui-bilingual-1"></script>
+  <script src="/js/translations-static.js?v=ui-bilingual-1"></script>
+  <script src="/js/i18n.js?v=ui-bilingual-1"></script>
 </head>
 <body>
   <main class="admin-shell">
     <aside class="admin-sidebar">
       <a class="brand site-brand admin-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
-        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
+        <img class="site-logo" data-nethub-logo src="/assets/brand/nethub-mark.svg" alt="" />
         <span class="brand-copy">
           <strong>NetHub</strong>
           <small>Campus Wiki</small>
@@ -188,7 +193,7 @@
               <div id="adminProjectListView">
                 <div class="section-title">
                   <div>
-                    <h1>CAS 项目库</h1>
+                    <h1>项目</h1>
                     <span id="adminProjectCount">加载中...</span>
                   </div>
                 </div>
@@ -271,7 +276,7 @@
               <div id="adminResourceView">
                 <div class="section-title">
                   <div>
-                    <h1>资源中心</h1>
+                    <h1>资源</h1>
                     <span id="adminResourceCount">加载中...</span>
                   </div>
                 </div>
@@ -454,11 +459,12 @@
     </section>
   </div>
 
+  <script>NetHubI18n.initialize();</script>
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=timezone-20260929"></script>
-  <script src="/js/resource-ui.js?v=timezone-20260929"></script>
-  <script src="/js/moderation-ui.js?v=governance-20261001"></script>
-  <script src="/js/admin.js?v=governance-20261001"></script>
-  <script src="/js/content-governance.js?v=20261001"></script>
+  <script src="/js/api.js?v=ui-bilingual-1"></script>
+  <script src="/js/resource-ui.js?v=ui-bilingual-1"></script>
+  <script src="/js/moderation-ui.js?v=ui-bilingual-1"></script>
+  <script src="/js/admin.js?v=ui-bilingual-1"></script>
+  <script src="/js/content-governance.js?v=ui-bilingual-1"></script>
 </body>
 </html>

@@ -47,17 +47,17 @@ const messageEls = {
 };
 
 function displayUserName(user) {
-  return String(user?.displayName || user?.username || '校园用户');
+  return String(user?.displayName || user?.username || tr('校园用户'));
 }
 
 function initialsFor(user) {
-  return escapeHtml(displayUserName(user).trim().slice(0, 1).toUpperCase() || '用');
+  return escapeHtml(displayUserName(user).trim().slice(0, 1).toUpperCase() || tr('用'));
 }
 
 function avatarMarkup(user, className = 'user-avatar') {
   const url = user?.avatarUrl ? safeExternalUrl(user.avatarUrl) : null;
-  return `<span class="${className}" data-initial="${initialsFor(user)}">${url && url !== '#'
-    ? `<img src="${escapeHtml(url)}" alt="" loading="lazy" />`
+  return ui`<span class="${className}" data-initial="${initialsFor(user)}">${url && url !== '#'
+    ? ui`<img src="${escapeHtml(url)}" alt="" loading="lazy" />`
     : ''}</span>`;
 }
 
@@ -90,37 +90,37 @@ function activityTime(value) {
 }
 
 function activityTitle(kind) {
-  return kind === 'system' ? '系统消息' : kind === 'reply' ? '回复我的' : '收到的赞';
+  return kind === 'system' ? tr('系统消息') : kind === 'reply' ? tr('回复我的') : tr('收到的赞');
 }
 
 function activityEmptyText(kind) {
-  return kind === 'reply' ? '还没有人回复你的留言' : '还没有收到留言点赞';
+  return kind === 'reply' ? tr('还没有人回复你的留言') : tr('还没有收到留言点赞');
 }
 
 function renderActivityItem(item) {
   const actorName = displayUserName(item.actor);
   const unavailable = !item.comment?.available || !item.target?.available || !item.target?.url;
-  const action = item.kind === 'reply' ? '回复了你的留言' : '赞了你的留言';
-  const missing = item.kind === 'reply' ? '该回复已删除或不存在' : '该留言已删除或不存在';
+  const action = item.kind === 'reply' ? tr('回复了你的留言') : tr('赞了你的留言');
+  const missing = item.kind === 'reply' ? tr('该回复已删除或不存在') : tr('该留言已删除或不存在');
   const content = unavailable ? missing : (item.comment.content || missing);
-  const body = `
+  const body = ui`
     ${avatarMarkup(item.actor)}
     <span class="message-activity-copy">
       <p><strong>${escapeHtml(actorName)}</strong> ${action}</p>
       <small>${escapeHtml(content)}</small>
       <time>${escapeHtml(activityTime(item.createdAt))}</time>
     </span>
-    <span class="message-activity-target">${escapeHtml(item.target?.title || '原内容已不存在')}</span>
+    <span class="message-activity-target">${escapeHtml(item.target?.title || tr('原内容已不存在'))}</span>
   `;
   if (unavailable) {
-    return `<article class="message-activity-item disabled ${item.read ? '' : 'unread'}">${body}</article>`;
+    return ui`<article class="message-activity-item disabled ${item.read ? '' : 'unread'}">${body}</article>`;
   }
-  return `<a class="message-activity-item ${item.read ? '' : 'unread'}" href="${escapeHtml(item.target.url)}">${body}</a>`;
+  return ui`<a class="message-activity-item ${item.read ? '' : 'unread'}" href="${escapeHtml(item.target.url)}">${body}</a>`;
 }
 
 function renderActivityList() {
   if (!messageState.activityItems.length) {
-    messageEls.activityList.innerHTML = `<div class="message-activity-empty">${activityEmptyText(messageState.activityKind)}</div>`;
+    messageEls.activityList.innerHTML = ui`<div class="message-activity-empty">${activityEmptyText(messageState.activityKind)}</div>`;
   } else {
     messageEls.activityList.innerHTML = messageState.activityItems.map(renderActivityItem).join('');
   }
@@ -133,7 +133,7 @@ async function loadActivity(kind, { append = false } = {}) {
     messageState.activityKind = kind;
     messageState.activityPage = 1;
     messageState.activityItems = [];
-    messageEls.activityList.innerHTML = '<div class="message-activity-empty">正在加载...</div>';
+    messageEls.activityList.innerHTML = ui`<div class="message-activity-empty">正在加载...</div>`;
   }
   const query = new URLSearchParams({
     kind,
@@ -201,7 +201,7 @@ async function setMessageView(view, { updateHistory = true } = {}) {
     try {
       await loadActivity(kind);
     } catch (error) {
-      messageEls.activityList.innerHTML = `<div class="message-activity-empty error-text">${escapeHtml(error.message)}</div>`;
+      messageEls.activityList.innerHTML = ui`<div class="message-activity-empty error-text">${escapeHtml(error.message)}</div>`;
       messageEls.activityMore.classList.add('is-hidden');
     }
   }
@@ -209,13 +209,13 @@ async function setMessageView(view, { updateHistory = true } = {}) {
 
 function renderConversationList() {
   if (!messageState.conversations.length) {
-    messageEls.list.innerHTML = '<div class="conversation-empty">还没有私信，点击“＋”找同学聊聊</div>';
+    messageEls.list.innerHTML = ui`<div class="conversation-empty">还没有私信，点击“＋”找同学聊聊</div>`;
     return;
   }
   messageEls.list.innerHTML = messageState.conversations.map((conversation) => {
     const user = conversation.otherUser;
     const active = Number(messageState.active?.id) === Number(conversation.id);
-    return `
+    return ui`
       <button class="conversation-item ${active ? 'active' : ''}" type="button" data-conversation-id="${escapeHtml(conversation.id)}">
         ${avatarMarkup(user)}
         <span class="conversation-copy">
@@ -223,9 +223,9 @@ function renderConversationList() {
             <strong>${escapeHtml(displayUserName(user))}</strong>
             <time>${escapeHtml(messageTime(conversation.lastMessageAt))}</time>
           </span>
-          <span class="conversation-preview">${escapeHtml(conversation.lastMessage?.body || '开始聊天')}</span>
+          <span class="conversation-preview">${escapeHtml(conversation.lastMessage?.body || tr('开始聊天'))}</span>
         </span>
-        ${conversation.unreadCount ? `<span class="conversation-unread">${escapeHtml(Math.min(conversation.unreadCount, 99))}</span>` : ''}
+        ${conversation.unreadCount ? ui`<span class="conversation-unread">${escapeHtml(Math.min(conversation.unreadCount, 99))}</span>` : ''}
       </button>
     `;
   }).join('');
@@ -240,7 +240,7 @@ async function loadUnreadCounts() {
       badge.classList.toggle('is-hidden', !total);
       badge.closest('.message-nav-link')?.setAttribute(
         'aria-label',
-        total ? `消息中心，${total} 条未读消息` : '消息中心',
+        total ? ut`消息中心，${total} 条未读消息` : tr('消息中心'),
       );
     });
     document.querySelectorAll('[data-message-view-badge]').forEach((badge) => {
@@ -276,38 +276,38 @@ function renderChatHeader() {
   }
   messageEls.chatAvatar.dataset.initial = displayUserName(user).slice(0, 1).toUpperCase();
   messageEls.chatAvatar.innerHTML = user.avatarUrl
-    ? `<img src="${escapeHtml(safeExternalUrl(user.avatarUrl))}" alt="" />`
+    ? ui`<img src="${escapeHtml(safeExternalUrl(user.avatarUrl))}" alt="" />`
     : '';
   messageEls.chatName.textContent = displayUserName(user);
-  messageEls.chatUsername.textContent = user.deleted ? '账号已注销' : `@${user.username || ''}`;
+  setUiText(messageEls.chatUsername, () => user.deleted ? tr('账号已注销') : `@${user.username || ''}`);
   messageEls.input.disabled = Boolean(user.deleted);
   messageEls.composer.querySelector('[type="submit"]').disabled = Boolean(user.deleted);
   messageEls.input.placeholder = user.deleted
-    ? '对方账号已注销，不能继续发送消息'
-    : '输入消息，Enter 发送，Shift + Enter 换行';
-  messageEls.status.textContent = user.deleted ? '历史消息仍会保留' : '';
+    ? tr('对方账号已注销，不能继续发送消息')
+    : tr('输入消息，Enter 发送，Shift + Enter 换行');
+  setUiText(messageEls.status, () => user.deleted ? tr('历史消息仍会保留') : '');
 }
 
 function renderMessage(message) {
   const own = Number(message.sender.id) === Number(messageState.user.id);
-  const project = message.project ? `
+  const project = message.project ? ui`
     <a class="message-project-card" href="/detail.html?id=${encodeURIComponent(message.project.id)}">
       <strong>${escapeHtml(message.project.name)}</strong>
       <span>${escapeHtml(message.project.year || '')} · 查看 CAS 项目</span>
     </a>
   ` : '';
-  return `
+  return ui`
     <article class="message-row ${own ? 'own' : ''}" data-message-id="${escapeHtml(message.id)}">
       ${own ? '' : avatarMarkup(message.sender, 'message-avatar')}
       <div class="message-bubble-wrap">
         <div class="message-bubble ${message.recalled ? 'recalled' : ''}">
-          ${message.recalled ? '消息已撤回' : `<p>${escapeHtml(message.body)}</p>${project}`}
+          ${message.recalled ? tr('消息已撤回') : ui`<p>${escapeHtml(message.body)}</p>${project}`}
         </div>
         <div class="message-meta">
           <time>${escapeHtml(fullMessageTime(message.createdAt))}</time>
-          ${own && Number(message.id) <= Number(messageState.otherLastReadMessageId || 0) ? '<span>已读</span>' : ''}
-          ${!own && !message.recalled ? `<button type="button" data-report-message="${escapeHtml(message.id)}">举报</button>` : ''}
-          ${own && !message.recalled ? `<button type="button" data-recall-message="${escapeHtml(message.id)}">撤回</button>` : ''}
+          ${own && Number(message.id) <= Number(messageState.otherLastReadMessageId || 0) ? ui`<span>已读</span>` : ''}
+          ${!own && !message.recalled ? ui`<button type="button" data-report-message="${escapeHtml(message.id)}">举报</button>` : ''}
+          ${own && !message.recalled ? ui`<button type="button" data-recall-message="${escapeHtml(message.id)}">撤回</button>` : ''}
         </div>
       </div>
     </article>
@@ -319,7 +319,7 @@ function renderMessages({ scrollToBottom = false } = {}) {
   const previousTop = list.scrollTop;
   const wasAtBottom = list.scrollHeight - list.clientHeight - previousTop <= 48;
   if (!messageState.messages.length) {
-    list.innerHTML = '<div class="message-day-tip">还没有消息，打个招呼吧。</div>';
+    list.innerHTML = ui`<div class="message-day-tip">还没有消息，打个招呼吧。</div>`;
     return;
   }
   list.innerHTML = messageState.messages.map(renderMessage).join('');
@@ -375,29 +375,29 @@ async function openUserConversation(user) {
 async function searchUsers() {
   const keyword = messageEls.searchInput.value.trim();
   if (!keyword) {
-    messageEls.searchResults.innerHTML = '<p>输入昵称或姓名开始查找。</p>';
+    messageEls.searchResults.innerHTML = ui`<p>输入昵称或姓名开始查找。</p>`;
     return;
   }
   try {
     const result = await request(`/users?search=${encodeURIComponent(keyword)}&limit=20`);
     const users = result.data || [];
-    messageEls.searchResults.innerHTML = users.length ? users.map((user) => `
+    messageEls.searchResults.innerHTML = users.length ? users.map((user) => ui`
       <button class="message-user-result" type="button" data-start-user="${escapeHtml(user.id)}">
         ${avatarMarkup(user)}
         <span><strong>${escapeHtml(displayUserName(user))}</strong><small>@${escapeHtml(user.username)}</small></span>
-        ${user.campusVerified ? '<span class="verified-dot" title="已关联校园档案">✓</span>' : ''}
+        ${user.campusVerified ? ui`<span class="verified-dot" title="已关联校园档案">✓</span>` : ''}
       </button>
-    `).join('') : '<p>没有找到匹配的用户。</p>';
+    `).join('') : ui`<p>没有找到匹配的用户。</p>`;
     messageEls.searchResults.querySelectorAll('[data-start-user]').forEach((button) => {
       button.addEventListener('click', () => {
         const user = users.find((item) => String(item.id) === button.dataset.startUser);
         if (user) openUserConversation(user).catch((error) => {
-          messageEls.searchResults.innerHTML = `<p class="error-text">${escapeHtml(error.message)}</p>`;
+          messageEls.searchResults.innerHTML = ui`<p class="error-text">${escapeHtml(error.message)}</p>`;
         });
       });
     });
   } catch (error) {
-    messageEls.searchResults.innerHTML = `<p class="error-text">${escapeHtml(error.message)}</p>`;
+    messageEls.searchResults.innerHTML = ui`<p class="error-text">${escapeHtml(error.message)}</p>`;
   }
 }
 
@@ -406,7 +406,7 @@ async function sendCurrentMessage() {
   if ((!body && !messageState.sharedProject) || !messageState.active || messageState.active.otherUser?.deleted) return;
   const submit = messageEls.composer.querySelector('[type="submit"]');
   submit.disabled = true;
-  messageEls.status.textContent = '正在发送...';
+  setUiText(messageEls.status, () => tr('正在发送...'));
   try {
     const turnstileToken = await getContentTurnstileToken(
       'message',
@@ -478,7 +478,7 @@ function bindMessageEvents() {
   messageEls.viewButtons.forEach((button) => {
     button.addEventListener('click', () => {
       setMessageView(button.dataset.messageView).catch((error) => {
-        messageEls.activityList.innerHTML = `<div class="message-activity-empty error-text">${escapeHtml(error.message)}</div>`;
+        messageEls.activityList.innerHTML = ui`<div class="message-activity-empty error-text">${escapeHtml(error.message)}</div>`;
       });
     });
   });
@@ -492,7 +492,7 @@ function bindMessageEvents() {
       messageEls.activityMore.disabled = false;
       messageEls.activityList.insertAdjacentHTML(
         'beforeend',
-        `<div class="message-activity-empty error-text">${escapeHtml(error.message)}</div>`,
+        ui`<div class="message-activity-empty error-text">${escapeHtml(error.message)}</div>`,
       );
     }
   });
@@ -503,7 +503,7 @@ function bindMessageEvents() {
   messageEls.list.addEventListener('click', (event) => {
     const button = event.target.closest('[data-conversation-id]');
     if (button) selectConversation(button.dataset.conversationId).catch((error) => {
-      messageEls.list.innerHTML = `<div class="conversation-empty error-text">${escapeHtml(error.message)}</div>`;
+      messageEls.list.innerHTML = ui`<div class="conversation-empty error-text">${escapeHtml(error.message)}</div>`;
     });
   });
   messageEls.newButton.addEventListener('click', () => {
@@ -537,14 +537,14 @@ function bindMessageEvents() {
         await loadConversations();
       }
       if (reportButton) {
-        const reason = window.prompt('请简要说明举报原因。', '');
+        const reason = window.prompt(tr('请简要说明举报原因。'), '');
         if (reason === null || !reason.trim()) return;
         const turnstileToken = await getTurnstileToken('message-report');
         await request(`/messages/${encodeURIComponent(reportButton.dataset.reportMessage)}/reports`, {
           method: 'POST',
           body: JSON.stringify({ reason: reason.trim(), turnstileToken }),
         });
-        messageEls.status.textContent = '举报已提交';
+        setUiText(messageEls.status, () => tr('举报已提交'));
       }
     } catch (error) {
       messageEls.status.textContent = error.message;
@@ -593,14 +593,14 @@ async function initMessages() {
       if (sharedProjectId) {
         const project = await request(`/projects/${encodeURIComponent(sharedProjectId)}`);
         messageState.sharedProject = project.data;
-        messageEls.projectShare.innerHTML = `
+        messageEls.projectShare.innerHTML = ui`
           <span><strong>${escapeHtml(project.data.name)}</strong><small>将随消息发送 CAS 项目卡片</small></span>
           <button type="button" data-remove-shared-project aria-label="移除项目卡片">×</button>
         `;
         messageEls.projectShare.classList.remove('is-hidden');
       }
     } catch (error) {
-      messageEls.list.innerHTML = `<div class="conversation-empty error-text">${escapeHtml(error.message)}</div>`;
+      messageEls.list.innerHTML = ui`<div class="conversation-empty error-text">${escapeHtml(error.message)}</div>`;
     }
   }
   connectMessageStream();
@@ -621,5 +621,5 @@ window.addEventListener('campusWikiAuthChange', (event) => {
 initMessages().catch((error) => {
   messageEls.app.classList.add('is-hidden');
   messageEls.gate.classList.remove('is-hidden');
-  messageEls.gate.innerHTML = `<h1>消息中心暂时不可用</h1><p>${escapeHtml(error.message)}</p>`;
+  messageEls.gate.innerHTML = ui`<h1>消息中心暂时不可用</h1><p>${escapeHtml(error.message)}</p>`;
 });

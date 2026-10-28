@@ -97,7 +97,7 @@ function normalizeMembers(project) {
 
   return members.map((member) => ({
     ...member,
-    role: member.role || (leader && member.name === leader ? '负责人' : '成员'),
+    role: member.role || (leader && member.name === leader ? 'leader' : 'member'),
   }));
 }
 
@@ -106,37 +106,37 @@ function renderMemberContact(member) {
   const value = cleanText(member.contactValue);
   if (value) {
     const labels = { wechat: '微信', phone: '电话', email: '邮箱', other: '其他联系方式' };
-    return `<span>${escapeHtml(labels[type] || '联系方式')} ${escapeHtml(value)}</span>`;
+    return ui`<span>${escapeHtml(tr(labels[type] || '联系方式'))} ${escapeHtml(value)}</span>`;
   }
   return `
-    ${member.phone ? `<span>电话 ${escapeHtml(member.phone)}</span>` : ''}
-    ${member.email ? `<span>邮箱 ${escapeHtml(member.email)}</span>` : ''}
+    ${member.phone ? ui`<span>电话 ${escapeHtml(member.phone)}</span>` : ''}
+    ${member.email ? ui`<span>邮箱 ${escapeHtml(member.email)}</span>` : ''}
   `;
 }
 
 function renderMembers(project) {
   const members = normalizeMembers(project);
   const collapsed = members.length > 5;
-  return `
+  return ui`
     <aside class="detail-panel member-panel">
       <div class="detail-panel-head">
         <h2><span></span>成员列表 / 联系方式</h2>
       </div>
-      ${members.length ? `
+      ${members.length ? ui`
         <div class="member-list">
-          ${members.map((member, index) => `
+          ${members.map((member, index) => ui`
             <article class="member-card ${collapsed && index >= 5 ? 'is-collapsed' : ''}">
               <span class="member-avatar" data-initial="${initials(member.name)}">
-                ${member.avatar ? `<img src="${escapeHtml(member.avatar)}" alt="${escapeHtml(member.name)}" data-fallback loading="lazy" />` : ''}
+                ${member.avatar ? ui`<img src="${escapeHtml(member.avatar)}" alt="${escapeHtml(member.name)}" data-fallback loading="lazy" />` : ''}
               </span>
               <div class="member-body">
                 <div class="member-title">
                   ${member.userId
-                    ? `<a href="/user.html?id=${encodeURIComponent(member.userId)}"><strong>${escapeHtml(member.name)}</strong></a>`
-                    : `<strong>${escapeHtml(member.name)}</strong>`}
-                  ${member.role ? `<span>${escapeHtml(member.role === 'leader' ? '负责人' : member.role === 'member' ? '成员' : member.role)}</span>` : ''}
+                    ? ui`<a href="/user.html?id=${encodeURIComponent(member.userId)}"><strong>${escapeHtml(member.name)}</strong></a>`
+                    : ui`<strong>${escapeHtml(member.name)}</strong>`}
+                  ${member.role ? ui`<span>${memberRoleMarkup(member.role)}</span>` : ''}
                 </div>
-                ${member.info ? `<p>${escapeHtml(member.info)}</p>` : ''}
+                ${member.info ? ui`<p>${escapeHtml(member.info)}</p>` : ''}
                 <div class="member-contact">
                   ${renderMemberContact(member)}
                 </div>
@@ -144,8 +144,8 @@ function renderMembers(project) {
             </article>
           `).join('')}
         </div>
-        ${collapsed ? '<button class="member-more" type="button" data-toggle-members>查看全部成员</button>' : ''}
-      ` : '<div class="empty detail-empty">暂无成员信息。</div>'}
+        ${collapsed ? ui`<button class="member-more" type="button" data-toggle-members>查看全部成员</button>` : ''}
+      ` : ui`<div class="empty detail-empty">暂无成员信息。</div>`}
     </aside>
   `;
 }
@@ -159,7 +159,7 @@ function bindMemberInteractions(root = document) {
   });
   root.querySelector('[data-toggle-members]')?.addEventListener('click', (event) => {
     const expanded = event.currentTarget.closest('.member-panel').classList.toggle('is-expanded');
-    event.currentTarget.textContent = expanded ? '收起成员列表' : '查看全部成员';
+    setUiText(event.currentTarget, () => expanded ? tr('收起成员列表') : tr('查看全部成员'));
   });
 }
 return { render: renderMembers, bind: bindMemberInteractions };

@@ -10,16 +10,21 @@
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="description" content="发现 NetHub Campus Wiki 中的校园 CAS 项目、共享资源、活动影像与 TodoList 时间管理工具。" />
   <title>首页 - NetHub Campus Wiki</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=4" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/favicon-32.png" />
   <link rel="stylesheet" href="/css/styles.css?v=friend-links1" />
   <link rel="stylesheet" href="/css/home.css?v=home-todolist2" />
   <script src="/__nethub/client.js?v=1" defer></script>
+  <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg" />
+  <link rel="stylesheet" href="/css/ui-refresh.css?v=1" />
+  <script src="/js/translations.js?v=ui-bilingual-1"></script>
+  <script src="/js/translations-static.js?v=ui-bilingual-1"></script>
+  <script src="/js/i18n.js?v=ui-bilingual-1"></script>
 </head>
 <body class="home-content">
   <header class="site-header">
     <nav class="navbar container">
       <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
-        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
+        <img class="site-logo" data-nethub-logo src="/assets/brand/nethub-mark.svg" alt="" />
         <span class="brand-copy">
           <strong>NetHub</strong>
           <small>Campus Wiki</small>
@@ -27,11 +32,11 @@
       </a>
       <div class="nav-links" aria-label="主导航">
         <a class="active" href="/index.html" aria-current="page">首页</a>
-        <a href="/projects.html">CAS 项目库</a>
-        <a href="/resources.html">资源中心</a>
-        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到<span class="nav-new-badge">new</span></a>
-        <a href="/links.html">友情链接</a>
-        <a href="/about.html">关于我们</a>
+        <a href="/projects.html">项目</a>
+        <a href="/resources.html">资源</a>
+        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到</a>
+        <a href="/links.html">友链</a>
+        <a href="/about.html">关于</a>
       </div>
     </nav>
   </header>
@@ -40,8 +45,8 @@
     <div class="home-top-grid">
       <section class="home-intro" aria-labelledby="homeTitle">
         <div>
-          <p class="home-intro-label">NetHub Campus Wiki</p>
-          <h1 id="homeTitle">校园项目与资料，<br /><span>一处查找。</span></h1>
+          <p class="home-intro-label">Campus Wiki</p>
+          <h1 id="homeTitle">校园项目与资料</h1>
         </div>
         <div class="home-intro-actions" aria-label="主要入口">
           <a class="button" href="/projects.html">CAS 项目</a>
@@ -60,26 +65,11 @@
       </section>
     </div>
 
-    <section class="home-todo-entry" aria-labelledby="homeTodoTitle">
-      <div class="home-todo-copy">
-        <p class="home-todo-label"><span aria-hidden="true"></span>NetHub 工具 · 已上线</p>
-        <h2 id="homeTodoTitle">把 DDL 放进日历，<br />把今天留给行动。</h2>
-        <p>用周视图整理课程任务与每日安排，清楚看到截止时间，也更容易决定下一步先做什么。</p>
-        <div class="home-todo-actions">
-          <a class="button" href="https://todolist.nethub.wiki" target="_blank" rel="noreferrer">打开 TodoList <span aria-hidden="true">↗</span></a>
-          <a class="home-todo-about" href="/about.html#our-work">了解这个产品 <span aria-hidden="true">→</span></a>
-        </div>
-      </div>
-      <a class="home-todo-preview" href="https://todolist.nethub.wiki" target="_blank" rel="noreferrer" aria-label="打开 NetHub TodoList">
-        <img src="/assets/about/todolist.webp" alt="NetHub TodoList 的深色周视图界面" width="1600" height="749" loading="lazy" />
-      </a>
-    </section>
-
     <section class="card home-popular-section" aria-labelledby="popularProjectsTitle">
       <div class="section-title with-control">
         <div>
           <h2 id="popularProjectsTitle">热门项目</h2>
-          <span>按项目浏览热度排序</span>
+
         </div>
         <a class="home-section-link" href="/projects.html?sort=popular">全部项目 <span aria-hidden="true">→</span></a>
       </div>
@@ -92,7 +82,7 @@
       <div class="section-title with-control">
         <div>
           <h2 id="popularResourcesTitle">热门资源</h2>
-          <span>按资源浏览热度排序</span>
+
         </div>
         <a class="home-section-link" href="/resources.html?sort=hot">全部资源 <span aria-hidden="true">→</span></a>
       </div>
@@ -101,8 +91,13 @@
       </div>
     </section>
 
+    <section class="home-todo-entry" aria-labelledby="homeTodoTitle">
+      <div class="home-todo-copy"><h2 id="homeTodoTitle">TodoList</h2><p>课程、任务与截止日期。</p></div>
+      <a class="button secondary" href="https://todolist.nethub.wiki" target="_blank" rel="noreferrer">打开日历 <span aria-hidden="true">↗</span></a>
+    </section>
+
     <section class="home-contact-entry">
-      <p><strong>有项目或资料想补充？</strong><span>也可以联系我们获取网站搭建支持。</span></p>
+      <p>分享你的项目或资料。</p>
       <a href="/about.html">联系我们 <span aria-hidden="true">→</span></a>
     </section>
   </main>
@@ -110,7 +105,7 @@
   <footer class="site-footer">
     <div class="container site-footer-inner">
       <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
-        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
+        <img class="site-logo" data-nethub-logo src="/assets/brand/nethub-mark.svg" alt="" />
         <span class="brand-copy">
           <strong>NetHub</strong>
           <small>Campus Wiki</small>
@@ -118,15 +113,16 @@
       </a>
       <nav class="site-footer-links" aria-label="页脚导航">
         <a href="/index.html">首页</a>
-        <a href="/projects.html">CAS 项目库</a>
-        <a href="/resources.html">资源中心</a>
-        <a href="/about.html">关于我们</a>
+        <a href="/projects.html">项目</a>
+        <a href="/resources.html">资源</a>
+        <a href="/about.html">关于</a>
       </nav>
       <p class="site-footer-copy">© 2026 NetHub Campus Wiki</p>
     </div>
   </footer>
+  <script>NetHubI18n.initialize();</script>
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=timezone-20260929"></script>
-  <script src="/js/index.js?v=timezone-20260929"></script>
+  <script src="/js/api.js?v=ui-bilingual-1"></script>
+  <script src="/js/index.js?v=ui-bilingual-1"></script>
 </body>
 </html>

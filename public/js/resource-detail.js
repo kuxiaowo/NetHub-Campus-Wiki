@@ -7,7 +7,7 @@ const resourceId = resourceParams.get('id');
 const isAdminPreview = resourceParams.get('preview') === 'admin';
 
 async function loadResourceDetail() {
-  if (!resourceId) throw new Error('缺少资源 ID');
+  if (!resourceId) throw new Error(tr('缺少资源 ID'));
   const result = await request(`/resources/${encodeURIComponent(resourceId)}${isAdminPreview ? '?track=false' : ''}`);
   const resource = result.data;
   if (resource.category === 'yearbook') {
@@ -37,23 +37,23 @@ async function loadResourceDetail() {
     });
   }
   const media = isTeacherVideo
-    ? `<div class="resource-detail-video-frame">
+    ? ui`<div class="resource-detail-video-frame">
         <video id="resourceDetailVideo" class="resource-detail-video" controls preload="auto" playsinline src="${escapeHtml(videoUrl)}" ${image && image !== '#' ? `poster="${escapeHtml(image)}"` : ''} aria-label="${escapeHtml(resource.title)}">
           您的浏览器不支持 HTML5 视频。
         </video>
         <a id="resourceDetailVideoFallback" class="resource-video-fallback is-hidden" href="${videoUrl}" target="_blank" rel="noopener noreferrer">无法播放？打开视频</a>
       </div>`
-    : `<div class="resource-detail-cover"><img src="${escapeHtml(image)}" alt="${escapeHtml(resource.title)}" /></div>`;
+    : ui`<div class="resource-detail-cover"><img src="${escapeHtml(image)}" alt="${escapeHtml(resource.title)}" /></div>`;
   const openAction = isTeacherVideo
     ? ''
-    : `<a id="openResourceFile" class="button" href="${escapeHtml(authenticatedPublicFileUrl(resource.resourceUrl) || safeExternalUrl(resource.resourceUrl))}" target="_blank" rel="noopener noreferrer">打开资源</a>`;
-  resourceDetail.innerHTML = `
+    : ui`<a id="openResourceFile" class="button" href="${escapeHtml(authenticatedPublicFileUrl(resource.resourceUrl) || safeExternalUrl(resource.resourceUrl))}" target="_blank" rel="noopener noreferrer">打开资源</a>`;
+  resourceDetail.innerHTML = ui`
     ${media}
     <div class="resource-detail-copy">
-      <div class="resource-detail-tags"><span class="badge">${escapeHtml(resource.label)}</span><span>${escapeHtml(resource.year)}</span></div>
+      <div class="resource-detail-tags"><span class="badge">${categoryMarkup(resource.label)}</span><span>${escapeHtml(resource.year)}</span></div>
       <h1>${escapeHtml(resource.title)}</h1>
       <p>${escapeHtml(resource.description)}</p>
-      ${isTeacherVideo ? '' : `<div class="resource-detail-stats"><span>热度 ${escapeHtml(resource.hot)}</span><span>下载 ${escapeHtml(resource.downloads)}</span></div>`}
+      ${isTeacherVideo ? '' : ui`<div class="resource-detail-stats"><span>热度 ${escapeHtml(resource.hot)}</span><span>下载 ${escapeHtml(resource.downloads)}</span></div>`}
       <div class="resource-detail-actions">${openAction}<a class="button secondary" href="${isTeacherVideo ? '/resources.html?category=teacher' : '/resources.html'}">返回资源中心</a></div>
     </div>
   `;
@@ -84,6 +84,6 @@ async function loadResourceDetail() {
 }
 
 loadResourceDetail().catch((error) => {
-  resourceDetail.innerHTML = `<div class="empty error">${escapeHtml(error.message)}</div>`;
+  resourceDetail.innerHTML = ui`<div class="empty error">${escapeHtml(error.message)}</div>`;
   resourceComments.classList.add('is-hidden');
 });

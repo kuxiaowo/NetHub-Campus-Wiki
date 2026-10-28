@@ -18,19 +18,19 @@ function announcementParagraphs(content) {
     .split(/\n+/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean)
-    .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
+    .map((paragraph) => ui`<p>${escapeHtml(paragraph)}</p>`)
     .join('');
 }
 
 async function loadAnnouncementDetail() {
-  if (!announcementId) throw new Error('缺少公告 ID');
+  if (!announcementId) throw new Error(tr('缺少公告 ID'));
   const result = await request(`/announcements/${encodeURIComponent(announcementId)}`);
   const announcement = result.data;
   document.title = `${announcement.title} - NetHub Campus Wiki`;
   announcementBreadcrumb.textContent = announcement.title;
-  announcementDetail.innerHTML = `
+  announcementDetail.innerHTML = ui`
     <header>
-      <div class="announcement-detail-flags">${announcement.isPinned ? '<span class="announcement-pinned">置顶</span>' : ''}<span>校园公告</span></div>
+      <div class="announcement-detail-flags">${announcement.isPinned ? ui`<span class="announcement-pinned">置顶</span>` : ''}<span>校园公告</span></div>
       <h1>${escapeHtml(announcement.title)}</h1>
       <p class="announcement-detail-summary">${escapeHtml(announcement.summary)}</p>
       <div class="announcement-detail-meta">
@@ -45,6 +45,6 @@ async function loadAnnouncementDetail() {
 }
 
 loadAnnouncementDetail().catch((error) => {
-  announcementDetail.innerHTML = `<div class="empty error">${escapeHtml(error.message)}</div>`;
+  announcementDetail.innerHTML = ui`<div class="empty error">${escapeHtml(error.message)}</div>`;
   announcementComments.classList.add('is-hidden');
 });

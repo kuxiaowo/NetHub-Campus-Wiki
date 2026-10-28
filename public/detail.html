@@ -9,16 +9,21 @@
   <meta property="og:image" content="/og.png" />
   <meta name="twitter:card" content="summary_large_image" />
   <title>项目详情</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=4" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/favicon-32.png" />
   <link rel="stylesheet" href="/css/styles.css?v=turnstile-inline-20260929" />
   <link rel="stylesheet" href="/css/moderation.css?v=reports-20260929">
   <script src="/__nethub/client.js?v=1" defer></script>
+  <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg" />
+  <link rel="stylesheet" href="/css/ui-refresh.css?v=1" />
+  <script src="/js/translations.js?v=ui-bilingual-1"></script>
+  <script src="/js/translations-static.js?v=ui-bilingual-1"></script>
+  <script src="/js/i18n.js?v=ui-bilingual-1"></script>
 </head>
 <body>
   <header class="site-header">
     <nav class="navbar container">
       <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
-        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
+        <img class="site-logo" data-nethub-logo src="/assets/brand/nethub-mark.svg" alt="" />
         <span class="brand-copy">
           <strong>NetHub</strong>
           <small>Campus Wiki</small>
@@ -26,11 +31,11 @@
       </a>
       <div class="nav-links" aria-label="主导航">
         <a href="/index.html">首页</a>
-        <a class="active" href="/projects.html" aria-current="page">CAS 项目库</a>
-        <a href="/resources.html">资源中心</a>
-        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到<span class="nav-new-badge">new</span></a>
-        <a href="/links.html">友情链接</a>
-        <a href="/about.html">关于我们</a>
+        <a class="active" href="/projects.html" aria-current="page">项目</a>
+        <a href="/resources.html">资源</a>
+        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到</a>
+        <a href="/links.html">友链</a>
+        <a href="/about.html">关于</a>
       </div>
     </nav>
   </header>
@@ -85,7 +90,7 @@
   <footer class="site-footer">
     <div class="container site-footer-inner">
       <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
-        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
+        <img class="site-logo" data-nethub-logo src="/assets/brand/nethub-mark.svg" alt="" />
         <span class="brand-copy">
           <strong>NetHub</strong>
           <small>Campus Wiki</small>
@@ -93,20 +98,21 @@
       </a>
       <nav class="site-footer-links" aria-label="页脚导航">
         <a href="/index.html">首页</a>
-        <a href="/projects.html">CAS 项目库</a>
-        <a href="/resources.html">资源中心</a>
-        <a href="/about.html">关于我们</a>
+        <a href="/projects.html">项目</a>
+        <a href="/resources.html">资源</a>
+        <a href="/about.html">关于</a>
         <a href="/admin.html">管理后台</a>
       </nav>
       <p class="site-footer-copy">© 2026 NetHub Campus Wiki</p>
     </div>
   </footer>
 
+  <script>NetHubI18n.initialize();</script>
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=timezone-20260929"></script>
-  <script src="/js/moderation-ui.js?v=reports-20260929"></script>
-  <script src="/js/comments.js?v=timezone-20260929"></script>
-  <script src="/js/members.js?v=1"></script>
-  <script src="/js/detail.js?v=timezone-20260929"></script>
+  <script src="/js/api.js?v=ui-bilingual-1"></script>
+  <script src="/js/moderation-ui.js?v=ui-bilingual-1"></script>
+  <script src="/js/comments.js?v=ui-bilingual-1"></script>
+  <script src="/js/members.js?v=ui-bilingual-1"></script>
+  <script src="/js/detail.js?v=ui-bilingual-1"></script>
 </body>
 </html>

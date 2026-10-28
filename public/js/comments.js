@@ -13,15 +13,15 @@
   }
 
   function commentDisplayName(user) {
-    return String(user?.displayName || user?.username || '校园用户');
+    return String(user?.displayName || user?.username || tr('校园用户'));
   }
 
   function commentAvatar(user, className = 'comment-avatar') {
     const name = commentDisplayName(user);
     const avatar = user?.avatarUrl ? safeExternalUrl(user.avatarUrl) : null;
-    return `
+    return ui`
       <span class="${className}" data-initial="${escapeHtml(name.slice(0, 1).toUpperCase())}">
-        ${avatar && avatar !== '#' ? `<img src="${escapeHtml(avatar)}" alt="" loading="lazy" />` : ''}
+        ${avatar && avatar !== '#' ? ui`<img src="${escapeHtml(avatar)}" alt="" loading="lazy" />` : ''}
       </span>
     `;
   }
@@ -32,25 +32,25 @@
   }
 
   function renderCommentBody(comment) {
-    if (comment.status === 'hidden') return '<p class="comment-deleted">该留言正在复核</p>';
-    if (comment.status === 'deleted') return '<p class="comment-deleted">该留言已删除</p>';
+    if (comment.status === 'hidden') return ui`<p class="comment-deleted">该留言正在复核</p>`;
+    if (comment.status === 'deleted') return ui`<p class="comment-deleted">该留言已删除</p>`;
     const replyTo = comment.replyToUser
       ? comment.replyToUser.deleted
-        ? `<span class="comment-reply-to">回复 ${escapeHtml(commentDisplayName(comment.replyToUser))}</span>`
-        : `<a class="comment-reply-to" href="/user.html?id=${encodeURIComponent(comment.replyToUser.id)}">回复 @${escapeHtml(commentDisplayName(comment.replyToUser))}</a>`
+        ? ui`<span class="comment-reply-to">回复 ${escapeHtml(commentDisplayName(comment.replyToUser))}</span>`
+        : ui`<a class="comment-reply-to" href="/user.html?id=${encodeURIComponent(comment.replyToUser.id)}">回复 @${escapeHtml(commentDisplayName(comment.replyToUser))}</a>`
       : '';
-    return `<p class="comment-content">${replyTo}${replyTo ? '：' : ''}${escapeHtml(comment.content)}</p>`;
+    return ui`<p class="comment-content">${replyTo}${replyTo ? '：' : ''}${escapeHtml(comment.content)}</p>`;
   }
 
   function renderCommentActions(state, comment) {
     if (comment.status !== 'visible') {
       if (comment.status === 'hidden' && String(state.currentUser?.id) === String(comment.author.id)) {
-        return `<div class="comment-actions"><button type="button" data-comment-action="delete" data-comment-id="${escapeHtml(comment.id)}" data-comment-owner="${escapeHtml(comment.author.id)}">删除自己的留言</button></div>`;
+        return ui`<div class="comment-actions"><button type="button" data-comment-action="delete" data-comment-id="${escapeHtml(comment.id)}" data-comment-owner="${escapeHtml(comment.author.id)}">删除自己的留言</button></div>`;
       }
       return '';
     }
-    const likeLabel = comment.liked ? '取消点赞' : '点赞';
-    return `
+    const likeLabel = comment.liked ? tr('取消点赞') : tr('点赞');
+    return ui`
       <div class="comment-actions">
         <button class="comment-like-button ${comment.liked ? 'liked' : ''}" type="button"
           data-comment-action="like" data-comment-id="${escapeHtml(comment.id)}"
@@ -59,26 +59,26 @@
             <path d="M7.5 10.2 11 3.7c.35-.65 1.15-.9 1.82-.58.6.29.9.98.72 1.62l-.9 3.26h4.78a2.4 2.4 0 0 1 2.34 2.95l-1.65 7A2.65 2.65 0 0 1 15.53 20H7.5V10.2Z"></path>
             <path d="M3.5 9.5h4v10h-4z"></path>
           </svg>
-          ${comment.likeCount ? `<span>${escapeHtml(comment.likeCount)}</span>` : ''}
+          ${comment.likeCount ? ui`<span>${escapeHtml(comment.likeCount)}</span>` : ''}
         </button>
         <button type="button" data-comment-action="reply" data-comment-id="${escapeHtml(comment.id)}" data-comment-author="${escapeHtml(commentDisplayName(comment.author))}">回复</button>
         ${canDeleteComment(state, comment)
-          ? `<button type="button" data-comment-action="delete" data-comment-id="${escapeHtml(comment.id)}" data-comment-owner="${escapeHtml(comment.author.id)}">删除</button>`
-          : `<button type="button" data-comment-action="report" data-comment-id="${escapeHtml(comment.id)}">举报</button>`}
+          ? ui`<button type="button" data-comment-action="delete" data-comment-id="${escapeHtml(comment.id)}" data-comment-owner="${escapeHtml(comment.author.id)}">删除</button>`
+          : ui`<button type="button" data-comment-action="report" data-comment-id="${escapeHtml(comment.id)}">举报</button>`}
       </div>
     `;
   }
 
   function renderSingleComment(state, comment, reply = false) {
-    return `
+    return ui`
       <article id="comment-${escapeHtml(comment.id)}" class="${reply ? 'comment-reply' : 'comment-root'}" data-comment-item="${escapeHtml(comment.id)}">
         ${commentAvatar(comment.author, reply ? 'comment-avatar small' : 'comment-avatar')}
         <div class="comment-main">
           <header class="comment-author-line">
             ${comment.author.deleted
-              ? `<span>${escapeHtml(commentDisplayName(comment.author))}</span>`
-              : `<a href="/user.html?id=${encodeURIComponent(comment.author.id)}">${escapeHtml(commentDisplayName(comment.author))}</a>`}
-            ${comment.author.campusVerified ? '<span class="comment-verified" title="已关联校园档案">✓</span>' : ''}
+              ? ui`<span>${escapeHtml(commentDisplayName(comment.author))}</span>`
+              : ui`<a href="/user.html?id=${encodeURIComponent(comment.author.id)}">${escapeHtml(commentDisplayName(comment.author))}</a>`}
+            ${comment.author.campusVerified ? ui`<span class="comment-verified" title="已关联校园档案">✓</span>` : ''}
             <time>${escapeHtml(commentDate(comment.createdAt))}</time>
           </header>
           ${renderCommentBody(comment)}
@@ -90,10 +90,10 @@
   }
 
   function renderThread(state, root) {
-    return `
+    return ui`
       <section class="comment-thread">
         ${renderSingleComment(state, root)}
-        ${root.replies?.length ? `
+        ${root.replies?.length ? ui`
           <div class="comment-replies">
             ${root.replies.map((reply) => renderSingleComment(state, reply, true)).join('')}
           </div>
@@ -104,14 +104,14 @@
 
   function renderComposer(state) {
     if (!state.currentUser) {
-      return `
+      return ui`
         <div class="comment-login-tip">
           <span>登录后可以留言、回复和点赞。</span>
           <button class="button compact" type="button" data-comment-login>去登录</button>
         </div>
       `;
     }
-    return `
+    return ui`
       <form class="comment-composer" data-comment-composer>
         ${commentAvatar(state.currentUser)}
         <div>
@@ -127,7 +127,7 @@
   }
 
   function renderShell(state) {
-    state.element.innerHTML = `
+    state.element.innerHTML = ui`
       <header class="comments-head">
         <div>
           <p class="home-section-kicker">Discussion</p>
@@ -150,7 +150,7 @@
     if (append) {
       list.insertAdjacentHTML('beforeend', markup);
     } else {
-      list.innerHTML = markup || '<div class="empty">还没有留言，来做第一个发言的人吧。</div>';
+      list.innerHTML = markup || ui`<div class="empty">还没有留言，来做第一个发言的人吧。</div>`;
     }
     state.element.querySelector('[data-comment-total]').textContent = response.total ? `(${response.total})` : '';
     const more = state.element.querySelector('[data-comment-more]');
@@ -167,7 +167,7 @@
       const list = state.element.querySelector('[data-comment-list]');
       list.insertAdjacentHTML(
         'afterbegin',
-        `<div class="comment-focus-context">${renderThread(state, response.data)}</div>`,
+        ui`<div class="comment-focus-context">${renderThread(state, response.data)}</div>`,
       );
       focused = state.element.querySelector(selector);
     }
@@ -207,7 +207,7 @@
       }),
     });
     if (submitted.data?.moderationStatus === 'pending') {
-      window.alert('留言已提交审核，通过后公开。');
+      window.alert(tr('留言已提交审核，通过后公开。'));
     }
     state.page = 1;
     await loadComments(state);
@@ -215,14 +215,14 @@
 
   function openReplyForm(state, button) {
     if (!state.currentUser) {
-      window.alert('请先登录再回复。');
+      window.alert(tr('请先登录再回复。'));
       return;
     }
     const commentId = button.dataset.commentId;
     const slot = state.element.querySelector(`[data-reply-slot-for="${CSS.escape(commentId)}"]`);
     if (!slot) return;
     state.element.querySelectorAll('.inline-reply-form').forEach((form) => form.remove());
-    slot.innerHTML = `
+    slot.innerHTML = ui`
       <form class="inline-reply-form" data-inline-reply data-parent-id="${escapeHtml(commentId)}">
         <textarea maxlength="1000" placeholder="回复 @${escapeHtml(button.dataset.commentAuthor || '')}" required></textarea>
         <div>
@@ -304,7 +304,7 @@
         return;
       }
       if (!state.currentUser) {
-        window.alert('请先登录再进行操作。');
+        window.alert(tr('请先登录再进行操作。'));
         return;
       }
       const commentId = action.dataset.commentId;
@@ -318,19 +318,19 @@
           if (state.currentUser?.role === 'admin' && String(state.currentUser.id) !== action.dataset.commentOwner) {
             if (!await window.NetHubModeration.deleteComment(commentId)) return;
           } else {
-            if (!window.confirm('确认删除这条留言？回复关系会保留。')) return;
+            if (!window.confirm(tr('确认删除这条留言？回复关系会保留。'))) return;
             await request(`/comments/${encodeURIComponent(commentId)}`, { method: 'DELETE' });
           }
         }
         if (action.dataset.commentAction === 'report') {
-          const reason = window.prompt('请填写举报理由。', '');
+          const reason = window.prompt(tr('请填写举报理由。'), '');
           if (reason === null || !reason.trim()) return;
           const turnstileToken = await getTurnstileToken('comment-report');
           await request(`/comments/${encodeURIComponent(commentId)}/reports`, {
             method: 'POST',
             body: JSON.stringify({ reason: reason.trim(), turnstileToken }),
           });
-          window.alert('举报已提交');
+          window.alert(tr('举报已提交'));
         }
         state.page = 1;
         await loadComments(state);
@@ -390,7 +390,7 @@
     try {
       await loadComments(state);
     } catch (error) {
-      element.querySelector('[data-comment-list]').innerHTML = `<div class="empty error">${escapeHtml(error.message)}</div>`;
+      element.querySelector('[data-comment-list]').innerHTML = ui`<div class="empty error">${escapeHtml(error.message)}</div>`;
     }
   }
 
@@ -401,7 +401,7 @@
       state.page = 1;
       renderShell(state);
       loadComments(state).catch((error) => {
-        state.element.querySelector('[data-comment-list]').innerHTML = `<div class="empty error">${escapeHtml(error.message)}</div>`;
+        state.element.querySelector('[data-comment-list]').innerHTML = ui`<div class="empty error">${escapeHtml(error.message)}</div>`;
       });
     });
   });

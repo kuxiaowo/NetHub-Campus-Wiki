@@ -5,16 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="浏览与 NetHub Campus Wiki 相关的校园网站和数字工具。" />
   <title>友情链接 - NetHub Campus Wiki</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=4" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/favicon-32.png" />
   <link rel="stylesheet" href="/css/styles.css?v=friend-links1" />
   <link rel="stylesheet" href="/css/links.css?v=3" />
   <script src="/__nethub/client.js?v=1" defer></script>
+  <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg" />
+  <link rel="stylesheet" href="/css/ui-refresh.css?v=1" />
+  <script src="/js/translations.js?v=ui-bilingual-1"></script>
+  <script src="/js/translations-static.js?v=ui-bilingual-1"></script>
+  <script src="/js/i18n.js?v=ui-bilingual-1"></script>
 </head>
 <body class="links-page">
   <header class="site-header">
     <nav class="navbar container">
       <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
-        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
+        <img class="site-logo" data-nethub-logo src="/assets/brand/nethub-mark.svg" alt="" />
         <span class="brand-copy">
           <strong>NetHub</strong>
           <small>Campus Wiki</small>
@@ -22,11 +27,11 @@
       </a>
       <div class="nav-links" aria-label="主导航">
         <a href="/index.html">首页</a>
-        <a href="/projects.html">CAS 项目库</a>
-        <a href="/resources.html">资源中心</a>
-        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到<span class="nav-new-badge">new</span></a>
-        <a class="active" href="/links.html" aria-current="page">友情链接</a>
-        <a href="/about.html">关于我们</a>
+        <a href="/projects.html">项目</a>
+        <a href="/resources.html">资源</a>
+        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到</a>
+        <a class="active" href="/links.html" aria-current="page">友链</a>
+        <a href="/about.html">关于</a>
       </div>
     </nav>
   </header>
@@ -34,8 +39,8 @@
   <main class="container friend-links-main">
     <header class="friend-links-hero">
       <p class="eyebrow">NetHub Sites</p>
-      <h1>友情链接</h1>
-      <p>从时间管理、心情记录、课程笔记到竞赛练习，继续探索这些由真实需求生长出来的网站。</p>
+      <h1>友链</h1>
+      <p>校园工具与合作伙伴。</p>
     </header>
 
     <section class="friend-links-list" aria-label="友情链接列表">
@@ -43,7 +48,7 @@
         <div class="friend-link-copy">
           <p class="friend-link-index">网站 01 · 时间管理</p>
           <h2>TodoList</h2>
-          <p>把 DDL、课程任务和每日安排放进同一张日历，更清楚地规划接下来要做的事。</p>
+          <p>课程、任务与截止日期，集中管理。</p>
           <a class="button" href="https://todolist.nethub.wiki/" target="_blank" rel="noopener noreferrer">访问网站 <span aria-hidden="true">↗</span></a>
           <small>todolist.nethub.wiki</small>
         </div>
@@ -56,7 +61,7 @@
         <div class="friend-link-copy">
           <p class="friend-link-index">网站 02 · 心情记录</p>
           <h2>TechX心情晴雨表</h2>
-          <p>用 10 项心情量表记录每天的真实感受，并在日历和趋势中回顾自己的变化。</p>
+          <p>记录心情，回顾变化。</p>
           <a class="button" href="https://sdgj.tech/" target="_blank" rel="noopener noreferrer">访问网站 <span aria-hidden="true">↗</span></a>
           <small>sdgj.tech</small>
         </div>
@@ -69,7 +74,7 @@
         <div class="friend-link-copy">
           <p class="friend-link-index">网站 03 · 笔记整理</p>
           <h2>Codex笔记中心</h2>
-          <p>按学科和栏目收纳图片笔记，从图集封面进入后即可顺序阅读完整内容。</p>
+          <p>按学科浏览图片笔记。</p>
           <a class="button" href="https://codex.nethub.wiki/" target="_blank" rel="noopener noreferrer">访问网站 <span aria-hidden="true">↗</span></a>
           <small>codex.nethub.wiki</small>
         </div>
@@ -96,7 +101,7 @@
   <footer class="site-footer">
     <div class="container site-footer-inner">
       <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
-        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
+        <img class="site-logo" data-nethub-logo src="/assets/brand/nethub-mark.svg" alt="" />
         <span class="brand-copy">
           <strong>NetHub</strong>
           <small>Campus Wiki</small>
@@ -104,14 +109,15 @@
       </a>
       <nav class="site-footer-links" aria-label="页脚导航">
         <a href="/index.html">首页</a>
-        <a href="/projects.html">CAS 项目库</a>
-        <a href="/resources.html">资源中心</a>
-        <a href="/about.html">关于我们</a>
+        <a href="/projects.html">项目</a>
+        <a href="/resources.html">资源</a>
+        <a href="/about.html">关于</a>
       </nav>
       <p class="site-footer-copy">© 2026 NetHub Campus Wiki</p>
     </div>
   </footer>
+  <script>NetHubI18n.initialize();</script>
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=timezone-20260929"></script>
+  <script src="/js/api.js?v=ui-bilingual-1"></script>
 </body>
 </html>

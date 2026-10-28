@@ -3,7 +3,10 @@ const popularProjectList = document.querySelector('#popularProjectList');
 const popularResourceList = document.querySelector('#popularResourceList');
 
 function shortDate(value) {
-  return formatSiteTimestamp(value, { month: '2-digit', day: '2-digit' });
+  const date = parseSiteTimestamp(value);
+  // Fixed MM-DD display avoids ambiguous day/month changes when switching UI
+  // language; siteCalendarDay still applies the Beijing timezone.
+  return date ? siteCalendarDay(date).slice(5) : '';
 }
 
 function projectUpdateMediaUrl(item) {
@@ -43,17 +46,17 @@ function latestProjectUpdatePhoto(project) {
 
 function popularProjectCard(project, index) {
   const updatePhoto = latestProjectUpdatePhoto(project);
-  return `
+  return ui`
     <a class="home-popular-card" href="/detail.html?id=${encodeURIComponent(project.id)}">
       <div class="home-popular-media project-media${updatePhoto ? ' has-update-photo' : ''}">
-        ${updatePhoto ? `<img class="home-project-update-photo" src="${escapeHtml(updatePhoto)}" alt="" loading="lazy" decoding="async" data-project-update-photo>` : ''}
+        ${updatePhoto ? ui`<img class="home-project-update-photo" src="${escapeHtml(updatePhoto)}" alt="" loading="lazy" decoding="async" data-project-update-photo>` : ''}
         <b class="home-popular-rank">${index + 1}</b>
         ${projectIconImage(project)}
       </div>
       <div class="home-popular-body">
-        <span class="home-popular-meta"><em>${escapeHtml(project.category)}</em><small>${escapeHtml(project.year)}</small></span>
+        <span class="home-popular-meta"><em>${categoryMarkup(project.category)}</em><small>${escapeHtml(project.year)}</small></span>
         <strong>${escapeHtml(project.name)}</strong>
-        <span class="home-popular-hot">热度 ${escapeHtml(project.popularity || 0)} <i aria-hidden="true">→</i></span>
+        <span class="home-popular-hot"><span>热度 ${escapeHtml(project.popularity || 0)}</span><i aria-hidden="true">→</i></span>
       </div>
     </a>
   `;
@@ -73,18 +76,18 @@ function popularResourceCard(resource, index) {
     : `/resource.html?id=${encodeURIComponent(resource.id)}`);
   const thumbnail = image === '#'
     ? '<span class="home-popular-placeholder" aria-hidden="true"></span>'
-    : `<img src="${image}" alt="" loading="lazy" decoding="async">`;
+    : ui`<img src="${image}" alt="" loading="lazy" decoding="async">`;
 
-  return `
+  return ui`
     <a class="home-popular-card" href="${escapeHtml(href)}">
       <div class="home-popular-media resource-media">
         <b class="home-popular-rank">${index + 1}</b>
         ${thumbnail}
       </div>
       <div class="home-popular-body">
-        <span class="home-popular-meta"><em>${escapeHtml(resource.label || '资源')}</em><small>${escapeHtml(resource.year)}</small></span>
+        <span class="home-popular-meta"><em>${categoryMarkup(resource.label || '资源')}</em><small>${escapeHtml(resource.year)}</small></span>
         <strong>${escapeHtml(resource.title)}</strong>
-        <span class="home-popular-hot">热度 ${escapeHtml(resource.hot || 0)} <i aria-hidden="true">→</i></span>
+        <span class="home-popular-hot"><span>热度 ${escapeHtml(resource.hot || 0)}</span><i aria-hidden="true">→</i></span>
       </div>
     </a>
   `;
@@ -93,15 +96,15 @@ function popularResourceCard(resource, index) {
 async function loadNotifications() {
   const result = await request('/announcements?page=1&pageSize=3');
   notificationList.innerHTML = result.data.length
-    ? result.data.map((notification) => `
+    ? result.data.map((notification) => ui`
         <li>
           <a href="/announcement.html?id=${encodeURIComponent(notification.id)}">
-            <span>${notification.isPinned ? '<b>置顶</b>' : ''}<strong>${escapeHtml(notification.title)}</strong></span>
+            <span>${notification.isPinned ? ui`<b>置顶</b>` : ''}<strong>${escapeHtml(notification.title)}</strong></span>
             <time>${escapeHtml(shortDate(notification.publishedAt))}</time>
           </a>
         </li>
       `).join('')
-    : '<li class="home-notification-empty">暂无通知</li>';
+    : ui`<li class="home-notification-empty">暂无通知</li>`;
 }
 
 async function loadPopularProjects() {
@@ -109,7 +112,20 @@ async function loadPopularProjects() {
   const projects = result.data;
   popularProjectList.innerHTML = projects.length
     ? projects.map(popularProjectCard).join('')
-    : '<div class="empty">还没有项目。</div>';
+    : ui`<div class="empty">还没有项目。</div>`;
+}
+
+function photoActivityResource(activity) {
+  return {
+    id: activity.id,
+    label: '活动照片',
+    title: activity.activity,
+    year: activity.year,
+    hot: activity.hot,
+    image: activity.coverThumbSrc || activity.coverSrc || '',
+    href: '/resources.html?category=photos',
+    createdAt: activity.createdAt,
+  };
 }
 
 async function loadPopularResources() {
@@ -119,30 +135,21 @@ async function loadPopularResources() {
   ]);
   const resources = [
     ...resourceResult.data,
-    ...photoResult.data.map((activity) => ({
-      id: activity.id,
-      label: '活动照片',
-      title: activity.activity,
-      year: activity.year,
-      hot: activity.hot,
-      image: activity.coverThumbSrc || activity.coverSrc || '',
-      href: '/resources.html?category=photos',
-      createdAt: activity.createdAt,
-    })),
+    ...photoResult.data.map(photoActivityResource),
   ].sort((left, right) => (right.hot || 0) - (left.hot || 0)).slice(0, 3);
   popularResourceList.innerHTML = resources.length
     ? resources.map(popularResourceCard).join('')
-    : '<div class="empty">还没有资源。</div>';
+    : ui`<div class="empty">还没有资源。</div>`;
 }
 
 loadNotifications().catch(() => {
-  notificationList.innerHTML = '<li class="home-notification-empty error">通知暂时无法加载</li>';
+  notificationList.innerHTML = ui`<li class="home-notification-empty error">通知暂时无法加载</li>`;
 });
 
 loadPopularProjects().catch((error) => {
-  popularProjectList.innerHTML = `<div class="empty error">${escapeHtml(error.message)}。热门项目暂时无法加载。</div>`;
+  popularProjectList.innerHTML = ui`<div class="empty error">${escapeHtml(error.message)}。热门项目暂时无法加载。</div>`;
 });
 
 loadPopularResources().catch((error) => {
-  popularResourceList.innerHTML = `<div class="empty error">${escapeHtml(error.message)}。热门资源暂时无法加载。</div>`;
+  popularResourceList.innerHTML = ui`<div class="empty error">${escapeHtml(error.message)}。热门资源暂时无法加载。</div>`;
 });
