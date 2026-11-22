@@ -7,6 +7,7 @@
     set(key, value) { try { localStorage.setItem(key, value); } catch { /* Private browsing still works. */ } },
   };
   let language = storage.get('nethub-language', 'zh') === 'en' ? 'en' : 'zh';
+  let layout = storage.get('nethub-layout', 'classic') === 'modern' ? 'modern' : 'classic';
   let theme = storage.get('nethub-theme', 'system');
   if (!['light', 'dark', 'system'].includes(theme)) theme = 'system';
   const darkMedia = global.matchMedia?.('(prefers-color-scheme: dark)');
@@ -28,11 +29,14 @@
     return strings.reduce((result, part, index) => result + translate(part) + (index < values.length ? String(values[index] ?? '') : ''), '');
   }
   function applyTheme() {
-    const resolved = theme === 'system' ? (darkMedia?.matches ? 'dark' : 'light') : theme;
+    const dark = layout === 'modern' && (theme === 'dark' || (theme === 'system' && darkMedia?.matches));
+    const resolved = dark ? 'dark' : 'light';
     document.documentElement.dataset.theme = resolved;
     document.documentElement.style.colorScheme = resolved;
     document.querySelectorAll('img[data-nethub-logo]').forEach((image) => {
-      image.src = `/assets/brand/nethub-mark${resolved === 'dark' ? '-light' : ''}.svg`;
+      image.src = layout === 'classic'
+        ? image.dataset.nethubLogo
+        : `/assets/brand/nethub-mark${dark ? '-light' : ''}.svg`;
     });
     document.querySelectorAll('[data-theme-toggle]').forEach((button) => {
       const label = translate(resolved === 'dark' ? '切换浅色主题' : '切换深色主题');
@@ -41,6 +45,24 @@
       button.title = label;
       button.dataset.preference = theme;
     });
+  }
+  function applyLayout() {
+    document.documentElement.dataset.layout = layout;
+    document.querySelectorAll('[data-modern-styles]').forEach((sheet) => {
+      sheet.media = layout === 'modern' ? 'all' : 'not all';
+    });
+    document.querySelectorAll('[data-layout-icon]').forEach((icon) => {
+      icon.href = layout === 'modern' ? '/assets/brand/favicon.svg' : '/assets/nethub-favicon-32.png?v=classic';
+    });
+    document.querySelectorAll('[data-layout-toggle]').forEach((button) => {
+      button.textContent = translate(layout === 'classic' ? '切换新版' : '切回旧版');
+    });
+    applyTheme();
+  }
+  function setLayout(next) {
+    layout = next === 'modern' ? 'modern' : 'classic';
+    storage.set('nethub-layout', layout);
+    applyLayout();
   }
   function updateMarked(root = document) {
     root.querySelectorAll('[data-ui-text]').forEach((element) => {
@@ -167,19 +189,22 @@
       button.textContent = language === 'en' ? '中文' : 'EN';
       button.setAttribute('aria-label', language === 'en' ? '切换到中文' : 'Switch to English');
     });
-    applyTheme();
+    applyLayout();
     global.dispatchEvent(new CustomEvent('nethub-language-change', { detail: { language } }));
   }
   function initialize() {
     const title = document.querySelector('title');
     if (title) { title.dataset.uiText = title.textContent; title.textContent = translate(title.textContent); }
     markAuthored(document.body);
-    const navbar = document.querySelector('.navbar');
-    if (navbar) {
+    const toolbar = document.querySelector('.navbar, .admin-topbar');
+    if (toolbar) {
       const controls = document.createElement('div');
       controls.className = 'site-preferences';
-      controls.innerHTML = '<button type="button" data-language-toggle>EN</button><button type="button" data-theme-toggle></button>';
-      navbar.append(controls);
+      controls.innerHTML = '<button type="button" data-layout-toggle></button><button type="button" data-language-toggle>EN</button><button type="button" data-theme-toggle data-layout-only="modern"></button>';
+      toolbar.append(controls);
+      controls.querySelector('[data-layout-toggle]').addEventListener('click', () => {
+        setLayout(layout === 'classic' ? 'modern' : 'classic');
+      });
       controls.querySelector('[data-language-toggle]').addEventListener('click', () => setLanguage(language === 'en' ? 'zh' : 'en'));
       controls.querySelector('[data-theme-toggle]').addEventListener('click', () => {
         theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
@@ -190,13 +215,17 @@
     setLanguage(language);
   }
   document.documentElement.lang = language === 'en' ? 'en' : 'zh-CN';
-  applyTheme();
+  applyLayout();
   darkMedia?.addEventListener?.('change', applyTheme);
   global.addEventListener('storage', (event) => {
     if (event.key === 'nethub-language') setLanguage(event.newValue);
+    if (event.key === 'nethub-layout') {
+      layout = event.newValue === 'modern' ? 'modern' : 'classic';
+      applyLayout();
+    }
     if (event.key === 'nethub-theme') { theme = ['light', 'dark'].includes(event.newValue) ? event.newValue : 'system'; applyTheme(); }
   });
-  global.NetHubI18n = Object.freeze({ translate, html: htmlTemplate, text: textTemplate, setText, setLanguage, initialize, get language() { return language; } });
+  global.NetHubI18n = Object.freeze({ translate, html: htmlTemplate, text: textTemplate, setText, setLanguage, setLayout, initialize, get language() { return language; } });
   global.ui = htmlTemplate;
   global.tr = translate;
   global.ut = textTemplate;

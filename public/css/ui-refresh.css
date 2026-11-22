@@ -38,10 +38,6 @@ button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 .nav-links { gap: 2px; min-width: 0; flex-wrap: wrap; }
 .nav-links a { padding: 8px 10px; font-size: 14px; font-weight: 600; white-space: nowrap; }
 .nav-links .teacher-nav-link { padding-right: 10px; }
-.site-preferences { margin-left: auto; display: flex; align-items: center; gap: 6px; }
-.site-preferences button { min-width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text-main); font-size: 12px; font-weight: 650; cursor: pointer; }
-.site-preferences button:hover { background: var(--surface-soft); }
-.site-preferences [data-theme-toggle] { font-size: 18px; }
 .auth-area { margin-left: 0; gap: 6px; }
 .auth-avatar { width: 36px; height: 36px; box-shadow: none; }
 .button { padding: 10px 16px; font-weight: 650; box-shadow: 0 2px 4px rgb(25 42 85 / 12%); border: 1px solid transparent; }

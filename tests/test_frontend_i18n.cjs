@@ -29,7 +29,25 @@ function runtime(initial = {}) {
 const zh = runtime();
 assert.equal(zh.run('NetHubI18n.language'), 'zh');
 assert.equal(zh.context.document.documentElement.lang, 'zh-CN');
+assert.equal(zh.context.document.documentElement.dataset.layout, 'classic');
+assert.equal(zh.context.document.documentElement.dataset.theme, 'light');
+const sheet = {};
+const toggle = {};
+zh.context.document.querySelectorAll = selector => (
+  selector === '[data-modern-styles]' ? [sheet] : selector === '[data-layout-toggle]' ? [toggle] : []
+);
+zh.run('NetHubI18n.setLayout("modern")');
+assert.equal(zh.saved.get('nethub-layout'), 'modern');
 assert.equal(zh.context.document.documentElement.dataset.theme, 'dark');
+assert.equal(sheet.media, 'all');
+assert.equal(toggle.textContent, '切回旧版');
+zh.run('NetHubI18n.setLanguage("en")');
+assert.equal(toggle.textContent, 'Use classic UI');
+zh.run('NetHubI18n.setLayout("classic")');
+assert.equal(sheet.media, 'not all');
+assert.equal(toggle.textContent, 'Use modern UI');
+zh.run('NetHubI18n.setLanguage("zh")');
+assert.equal(runtime({ 'nethub-layout': 'modern' }).context.document.documentElement.dataset.layout, 'modern');
 assert.equal(zh.run('tr("保存")'), '保存');
 
 const en = runtime({ 'nethub-language': 'en', 'nethub-theme': 'light' });
@@ -115,6 +133,7 @@ for (const name of htmlFiles) {
   assert.ok(html.indexOf('/js/translations.js') < html.indexOf('/js/translations-static.js'), name);
   assert.ok(html.indexOf('/js/translations-static.js') < html.indexOf('/js/i18n.js'), name);
   assert.ok(html.indexOf('NetHubI18n.initialize()') < html.indexOf('/js/api.js'), name);
-  assert.ok(html.includes('/assets/brand/favicon.svg'), name);
+  assert.ok(html.includes('data-layout-icon'), name);
+  assert.ok(html.includes('data-modern-styles media="not all"'), name);
 }
 console.log('Frontend localization tests passed (content boundaries, markup, preferences, and page wiring).');

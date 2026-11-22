@@ -282,7 +282,7 @@ class FrontendServerTest(unittest.TestCase):
         self.assertNotIn(b'href="https://www.nethub.wiki"', about_page)
         self.assertIn(b'src="/assets/about/mood-meter-redacted.png"', about_page)
         self.assertNotIn(b'/assets/nethub-icon.png', about_page)
-        self.assertEqual(about_page.count(b'src="/assets/brand/nethub-mark.svg"'), 4)
+        self.assertEqual(about_page.count(b'data-nethub-logo="/assets/about/nethub-icon.webp"'), 4)
 
         status, mood_meter, content_type = self.fetch("/assets/about/mood-meter-redacted.png")
         self.assertEqual(status, 200)
@@ -297,14 +297,17 @@ class FrontendServerTest(unittest.TestCase):
         _, home_page, _ = self.fetch("/index.html")
         self.assertIn(b'href="https://todolist.nethub.wiki"', home_page)
         self.assertIn(b'class="home-todo-entry"', home_page)
-        self.assertGreater(home_page.index(b'class="home-todo-entry"'), home_page.index(b'id="popularResourceList"'))
+        classic = home_page.index(b'class="home-todo-entry" data-layout-only="classic"')
+        modern = home_page.index(b'class="home-todo-entry" data-layout-only="modern"')
+        self.assertLess(classic, home_page.index(b'id="popularProjectList"'))
+        self.assertGreater(modern, home_page.index(b'id="popularResourceList"'))
         self.assertIn(b'class="about-feature-image-link" href="https://todolist.nethub.wiki"', about_page)
 
     def test_friend_links_page_uses_previews_and_safe_external_links(self) -> None:
         status, links_page, content_type = self.fetch("/links.html")
         self.assertEqual(status, 200)
         self.assertEqual(content_type, "text/html")
-        self.assertIn('aria-current="page">友链'.encode("utf-8"), links_page)
+        self.assertIn(b'href="/links.html" aria-current="page"', links_page)
 
         destinations = (
             ("TodoList", "https://todolist.nethub.wiki/", "/assets/about/todolist.webp"),

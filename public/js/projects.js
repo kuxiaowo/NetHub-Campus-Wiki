@@ -49,6 +49,7 @@ function projectRow(project) {
           <span class="badge">${categoryMarkup(project.category)}</span>
           <span>${escapeHtml(project.year)}</span>
           <span>负责人：${escapeHtml(project.leader || tr('待确认'))}</span>
+          <span data-layout-only="classic">成员：${project.members ? escapeHtml(project.members) : ui`待添加`}</span>
         </div>
         <p>${escapeHtml(project.description)}</p>
         ${casTags(project.cas)}

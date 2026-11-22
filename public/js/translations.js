@@ -1,5 +1,18 @@
 /* English UI copy. Keys are authored Chinese fragments, never API content. */
 window.NETHUB_TRANSLATIONS = {
+  "切换新版": "Use modern UI",
+  "切回旧版": "Use classic UI",
+  "校园项目与资料，": "Campus projects and resources,",
+  "NetHub 工具 · 已上线": "NetHub tool · Available now",
+  "把 DDL 放进日历，": "Put deadlines on your calendar.",
+  "把今天留给行动。": "Make time for today.",
+  "用周视图整理课程任务与每日安排，清楚看到截止时间，也更容易决定下一步先做什么。": "Use the weekly view to organize coursework, see deadlines, and plan what to do next.",
+  "了解这个产品": "About this tool",
+  "NetHub TodoList 的深色周视图界面": "NetHub TodoList weekly view in dark mode",
+  "按项目浏览热度排序": "Ranked by project views",
+  "按资源浏览热度排序": "Ranked by resource views",
+  "友情链接": "Friend links",
+  "关于我们": "About us",
   "清除所有筛选": "Clear all filters",
   "登录 NetHub": "Sign in to NetHub", "登录后可参与讨论。": "Sign in to join the discussion.", "登录或注册": "Sign in / Register",
   "待审核": "Pending", "待人工复核": "Awaiting review", "已公开": "Published", "未通过": "Rejected", "已撤回": "Withdrawn", "提交时间：": "Submitted: ", "审核服务异常，内容保持待审：": "Review service unavailable; still pending: ", "审核结论：": "Review outcome: ", "处理说明：": "Decision note: ", "至 ": "until ",

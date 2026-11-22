@@ -5,21 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="认识 NetHub：由学生发起，为校园制作实用的网站和数字工具。" />
   <title>关于我们 - NetHub Campus Wiki</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/favicon-32.png" />
-  <link rel="stylesheet" href="/css/styles.css?v=friend-links1" />
+  <link rel="icon" data-layout-icon href="/assets/nethub-favicon-32.png?v=classic" />
+  <link rel="stylesheet" href="/css/styles.css?v=layouts-1" />
   <link rel="stylesheet" href="/css/about.css?v=8" />
   <script src="/__nethub/client.js?v=1" defer></script>
-  <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg" />
-  <link rel="stylesheet" href="/css/ui-refresh.css?v=1" />
-  <script src="/js/translations.js?v=ui-bilingual-1"></script>
+  <link rel="stylesheet" data-modern-styles media="not all" href="/css/ui-refresh.css?v=2" />
+  <script src="/js/translations.js?v=layouts-1"></script>
   <script src="/js/translations-static.js?v=ui-bilingual-1"></script>
-  <script src="/js/i18n.js?v=ui-bilingual-1"></script>
+  <script src="/js/i18n.js?v=layouts-1"></script>
 </head>
 <body class="about-page">
   <header class="site-header">
     <nav class="navbar container">
       <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
-        <img class="site-logo" data-nethub-logo src="/assets/brand/nethub-mark.svg" alt="" />
+        <img class="site-logo" data-nethub-logo="/assets/about/nethub-icon.webp" src="/assets/about/nethub-icon.webp" alt="" />
         <span class="brand-copy">
           <strong>NetHub</strong>
           <small>Campus Wiki</small>
@@ -27,11 +26,11 @@
       </a>
       <div class="nav-links" aria-label="主导航">
         <a href="/index.html">首页</a>
-        <a href="/projects.html">项目</a>
-        <a href="/resources.html">资源</a>
-        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到</a>
-        <a href="/links.html">友链</a>
-        <a class="active" href="/about.html" aria-current="page">关于</a>
+        <a href="/projects.html"><span data-layout-only="classic">CAS 项目库</span><span data-layout-only="modern">项目</span></a>
+        <a href="/resources.html"><span data-layout-only="classic">资源中心</span><span data-layout-only="modern">资源</span></a>
+        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到<span class="nav-new-badge" data-layout-only="classic">new</span></a>
+        <a href="/links.html"><span data-layout-only="classic">友情链接</span><span data-layout-only="modern">友链</span></a>
+        <a class="active" href="/about.html" aria-current="page"><span data-layout-only="classic">关于我们</span><span data-layout-only="modern">关于</span></a>
       </div>
     </nav>
   </header>
@@ -41,7 +40,7 @@
       <div class="about-hero-stage">
         <img class="about-hero-photo" src="/assets/about/campus-courtyard.webp" alt="" width="2400" height="1350" fetchpriority="high" />
         <div class="about-hero-card">
-          <img class="about-hero-logo" data-nethub-logo src="/assets/brand/nethub-mark.svg" alt="" />
+          <img class="about-hero-logo" data-nethub-logo="/assets/about/nethub-icon.webp" src="/assets/about/nethub-icon.webp" alt="" />
           <p class="about-kicker">学生发起 · 校园技术小组</p>
           <h1 id="aboutTitle">把校园里的想法，<br />真正落地。</h1>
           <p class="about-hero-summary">为校园制作实用工具。</p>
@@ -148,7 +147,7 @@
     </section>
 
     <section class="container about-final" aria-label="继续浏览">
-      <img data-nethub-logo src="/assets/brand/nethub-mark.svg" alt="" />
+      <img data-nethub-logo="/assets/about/nethub-icon.webp" src="/assets/about/nethub-icon.webp" alt="" />
       <h2>继续探索 Campus Wiki</h2>
       <p>看看校园里正在发生什么。</p>
       <a class="button" href="/projects.html">浏览 CAS 项目</a>
@@ -158,7 +157,7 @@
   <footer class="site-footer">
     <div class="container site-footer-inner">
       <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
-        <img class="site-logo" data-nethub-logo src="/assets/brand/nethub-mark.svg" alt="" />
+        <img class="site-logo" data-nethub-logo="/assets/about/nethub-icon.webp" src="/assets/about/nethub-icon.webp" alt="" />
         <span class="brand-copy">
           <strong>NetHub</strong>
           <small>Campus Wiki</small>
