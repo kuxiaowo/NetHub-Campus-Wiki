@@ -2,6 +2,7 @@
 :root {
   --page-bg: #f7f8fa;
   --surface: #fff;
+  --site-bar-bg: #fff;
   --surface-soft: #f2f4f7;
   --primary: #3157d5;
   --primary-dark: #2444b0;
@@ -16,6 +17,7 @@
 :root[data-theme="dark"] {
   --page-bg: #11151c;
   --surface: #1b222d;
+  --site-bar-bg: #000;
   --surface-soft: #232d3b;
   --primary: #a9c7ff;
   --primary-dark: #c5d9ff;
@@ -30,7 +32,7 @@ body { font-size: 15px; line-height: 1.6; }
 button, input, select, textarea { font: inherit; }
 button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 :focus-visible { outline: 3px solid var(--primary); outline-offset: 3px; }
-.site-header { background: var(--surface); border-color: var(--border); backdrop-filter: none; }
+.site-header { background: var(--site-bar-bg); border-color: var(--border); backdrop-filter: none; }
 .navbar { gap: 18px; min-height: 74px; flex-wrap: wrap; padding-block: 12px; }
 .site-logo { width: 32px; height: 32px; }
 .brand-copy strong { font-size: 19px; font-weight: 750; letter-spacing: -.5px; }
@@ -94,7 +96,7 @@ button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 
 .home-contact-entry { background: none; border: 0; padding: 0; }
 .home-contact-entry p, .home-contact-entry a { color: var(--text-secondary); font-size: 13px; }
-.site-footer { background: var(--surface); border-top: 1px solid var(--border); }
+.site-footer { background: var(--site-bar-bg); border-top: 1px solid var(--border); }
 
 /* The dark header and footer frame the blue–teal page background. */
 :root[data-theme="dark"] :is(.site-header, .site-footer) {
@@ -106,7 +108,6 @@ button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
   --border: rgb(151 205 203 / 21%);
   --focus-ring: 0 0 0 3px var(--primary);
   border-color: var(--border);
-  background: #142d34;
 }
 :root[data-theme="dark"] .site-footer-copy { color: var(--text-secondary); }
 :root[data-theme="dark"] .site-header .site-preferences button {
