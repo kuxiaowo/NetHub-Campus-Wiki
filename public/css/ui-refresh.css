@@ -95,6 +95,36 @@ button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 .home-contact-entry { background: none; border: 0; padding: 0; }
 .home-contact-entry p, .home-contact-entry a { color: var(--text-secondary); font-size: 13px; }
 .site-footer { background: var(--surface); border-top: 1px solid var(--border); }
+
+/* The dark header and footer frame the blue–teal page background. */
+:root[data-theme="dark"] :is(.site-header, .site-footer) {
+  --text-main: #eff8f6;
+  --text-secondary: #b9cdd1;
+  --primary: #a2e7da;
+  --primary-soft: #224347;
+  --surface-soft: #253e43;
+  --border: rgb(151 205 203 / 21%);
+  --focus-ring: 0 0 0 3px var(--primary);
+  border-color: var(--border);
+  background: linear-gradient(105deg, #182139, #142a36 54%, #123936);
+}
+:root[data-theme="dark"] .site-footer {
+  background: linear-gradient(105deg, #11192c, #11222d 54%, #102d2c);
+}
+:root[data-theme="dark"] .site-footer-copy { color: var(--text-secondary); }
+:root[data-theme="dark"] .site-header .site-preferences button {
+  background-color: rgb(224 248 244 / 5%);
+}
+:root[data-theme="dark"] .site-header .site-preferences button:hover {
+  background-color: var(--surface-soft);
+}
+:root[data-theme="dark"] .site-header .nav-links a.active {
+  box-shadow: inset 0 -2px 0 var(--primary);
+}
+:root[data-theme="dark"] .site-header .auth-avatar:not(.logged-out) {
+  color: #10292a;
+}
+
 .friend-links-hero { padding-top: 16px; }
 .friend-links-hero h1 { font-size: 34px; }
 .friend-link-card { padding: 28px; }
