@@ -38,7 +38,7 @@ function parseSiteTimestamp(value) {
 function formatSiteTimestamp(value, options, fallback = '') {
   const date = parseSiteTimestamp(value);
   if (!date) return fallback;
-  return new Intl.DateTimeFormat('zh-CN', {
+  return new Intl.DateTimeFormat(typeof NetHubI18n !== 'undefined' && NetHubI18n.language === 'en' ? 'en-GB' : 'zh-CN', {
     timeZone: SITE_TIME_ZONE,
     hourCycle: 'h23',
     ...options,
@@ -88,11 +88,11 @@ async function request(path, options = {}) {
     } else if (detail && typeof detail === 'object') {
       const issueItems = Array.isArray(detail.errors) ? detail.errors : detail.warnings;
       const issueText = Array.isArray(issueItems)
-        ? issueItems.map((item) => `${item.path || 'document'}：${item.message || '格式不正确'}`).join('\n')
+        ? issueItems.map((item) => `${item.path || 'document'}：${item.message || tr('格式不正确')}`).join('\n')
         : '';
       detail = [detail.message, issueText].filter(Boolean).join('\n');
     }
-    throw new Error(detail || error.message || `请求失败：${response.status}`);
+    throw new Error(detail || error.message || ut`请求失败：${response.status}`);
   }
   if (response.status === 204) return null;
   return response.json();
@@ -108,7 +108,7 @@ function loadTurnstileScript() {
       script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
       script.async = true;
       script.onload = resolve;
-      script.onerror = () => reject(new Error('人机验证组件加载失败，请重试'));
+      script.onerror = () => reject(new Error(tr('人机验证组件加载失败，请重试')));
       document.head.append(script);
     }).catch((error) => {
       turnstileScriptPromise = null;
@@ -135,17 +135,17 @@ async function getTurnstileToken(action, inlineHost = null) {
       });
   }
   const siteKey = await turnstileSiteKeyPromise;
-  if (!siteKey) throw new Error('人机验证暂不可用');
+  if (!siteKey) throw new Error(tr('人机验证暂不可用'));
   await loadTurnstileScript();
   return new Promise((resolve, reject) => {
     const previousFocus = inlineHost ? null : document.activeElement;
     const host = inlineHost || document.createElement('div');
     if (!inlineHost) {
       host.className = 'turnstile-overlay';
-      host.innerHTML = '<div class="turnstile-dialog" role="dialog" aria-modal="true" aria-label="人机验证"><p>请完成人机验证后继续提交</p><div class="turnstile-widget"></div><button type="button" class="turnstile-cancel">取消</button></div>';
+      host.innerHTML = ui`<div class="turnstile-dialog" role="dialog" aria-modal="true" aria-label="人机验证"><p>请完成人机验证后继续提交</p><div class="turnstile-widget"></div><button type="button" class="turnstile-cancel">取消</button></div>`;
       document.body.append(host);
       const cancel = host.querySelector('.turnstile-cancel');
-      cancel.addEventListener('click', () => finish(null, '已取消人机验证'));
+      cancel.addEventListener('click', () => finish(null, tr('已取消人机验证')));
       cancel.focus();
     }
     let widgetId;
@@ -160,7 +160,7 @@ async function getTurnstileToken(action, inlineHost = null) {
       if (error) reject(new Error(error));
       else resolve(token);
     };
-    const timer = setTimeout(() => finish(null, '人机验证超时，请重试'), 240000);
+    const timer = setTimeout(() => finish(null, tr('人机验证超时，请重试')), 240000);
     try {
       widgetId = window.turnstile.render(inlineHost || host.querySelector('.turnstile-widget'), {
         sitekey: siteKey,
@@ -169,11 +169,11 @@ async function getTurnstileToken(action, inlineHost = null) {
         appearance: 'always',
         execution: 'render',
         callback: (token) => finish(token),
-        'error-callback': () => finish(null, '人机验证失败，请重试'),
-        'expired-callback': () => finish(null, '人机验证已过期，请重试'),
+        'error-callback': () => finish(null, tr('人机验证失败，请重试')),
+        'expired-callback': () => finish(null, tr('人机验证已过期，请重试')),
       });
     } catch {
-      finish(null, '人机验证组件无法启动，请重试');
+      finish(null, tr('人机验证组件无法启动，请重试'));
     }
   });
 }
@@ -203,18 +203,18 @@ function clearAuthSession() {
 }
 
 function roleLabel(role) {
-  return role === 'admin' ? '管理员' : '普通用户';
+  return role === 'admin' ? tr('管理员') : tr('普通用户');
 }
 
 function userInitial(user) {
-  const name = String(user?.displayName || user?.username || '登').trim();
-  return (name[0] || '登').toUpperCase();
+  const name = String(user?.displayName || user?.username || tr('登')).trim();
+  return (name[0] || tr('登')).toUpperCase();
 }
 
 function userAvatarImage(user) {
   const avatarUrl = user?.avatarUrl ? safeExternalUrl(user.avatarUrl) : null;
   return avatarUrl && avatarUrl !== '#'
-    ? `<img src="${escapeHtml(avatarUrl)}" alt="" draggable="false" data-avatar-image />`
+    ? ui`<img src="${escapeHtml(avatarUrl)}" alt="" draggable="false" data-avatar-image />`
     : '';
 }
 
@@ -234,7 +234,7 @@ function ensureSocialNav() {
 
 function messageNavMarkup() {
   const isCurrentPage = window.location.pathname === '/messages.html';
-  return `
+  return ui`
     <a class="message-nav-link${isCurrentPage ? ' active' : ''}" href="/messages.html"
       aria-label="消息中心"${isCurrentPage ? ' aria-current="page"' : ''}>
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -252,7 +252,7 @@ async function refreshGlobalMessageBadge() {
   if (!getAuthToken()) {
     badges.forEach((badge) => {
       badge.classList.add('is-hidden');
-      badge.closest('.message-nav-link')?.setAttribute('aria-label', '消息中心');
+      badge.closest('.message-nav-link')?.setAttribute('aria-label', tr('消息中心'));
     });
     return;
   }
@@ -264,13 +264,13 @@ async function refreshGlobalMessageBadge() {
       badge.classList.toggle('is-hidden', !total);
       badge.closest('.message-nav-link')?.setAttribute(
         'aria-label',
-        total ? `消息中心，${total} 条未读消息` : '消息中心',
+        total ? ut`消息中心，${total} 条未读消息` : tr('消息中心'),
       );
     });
   } catch {
     badges.forEach((badge) => {
       badge.classList.add('is-hidden');
-      badge.closest('.message-nav-link')?.setAttribute('aria-label', '消息中心');
+      badge.closest('.message-nav-link')?.setAttribute('aria-label', tr('消息中心'));
     });
   }
 }
@@ -324,6 +324,22 @@ function escapeHtml(value) {
     '"': '&quot;',
     "'": '&#39;',
   }[char]));
+}
+
+// Only built-in taxonomy labels are localized. Custom categories and all
+// project/resource titles remain exactly as their authors supplied them.
+const BUILTIN_CATEGORY_LABELS = new Set(['公益服务', '运动健康', '科技创新', '创意实践', '活动照片', '老师驾到', '其他资源', '资源']);
+function categoryMarkup(value) {
+  const label = String(value ?? '');
+  return BUILTIN_CATEGORY_LABELS.has(label)
+    ? `<span data-ui-text="${escapeHtml(label)}">${escapeHtml(tr(label))}</span>`
+    : escapeHtml(label);
+}
+
+function memberRoleMarkup(value) {
+  const role = String(value ?? '');
+  const source = ({ admin: '管理员', leader: '负责人', member: '成员', 管理员: '管理员', 负责人: '负责人', 成员: '成员' })[role];
+  return source ? `<span data-ui-text="${source}">${escapeHtml(tr(source))}</span>` : escapeHtml(role);
 }
 
 /**
@@ -399,7 +415,7 @@ function authenticatedPublicFileUrl(value) {
 
 function requireAuthForDownload() {
   if (getAuthToken()) return true;
-  window.alert('抱歉，需要登陆');
+  window.alert(tr('抱歉，需要登陆'));
   return false;
 }
 
@@ -440,7 +456,7 @@ function uniqueLocalFileName(filename, usedNames) {
 }
 
 async function createUniqueLocalDirectory(parentHandle, requestedName) {
-  const baseName = safeLocalFileName(requestedName, '活动照片');
+  const baseName = safeLocalFileName(requestedName, tr('活动照片'));
   for (let suffix = 1; suffix <= 999; suffix += 1) {
     const candidate = suffix === 1 ? baseName : `${baseName} (${suffix})`;
     try {
@@ -456,14 +472,14 @@ async function createUniqueLocalDirectory(parentHandle, requestedName) {
       throw error;
     }
   }
-  throw new Error('无法创建活动照片文件夹，请选择其他下载位置。');
+  throw new Error(tr('无法创建活动照片文件夹，请选择其他下载位置。'));
 }
 
 async function writeResponseToLocalFile(directoryHandle, filename, response) {
   const fileHandle = await directoryHandle.getFileHandle(filename, { create: true });
   const writable = await fileHandle.createWritable();
   try {
-    if (!response.body) throw new Error('浏览器无法读取下载数据。');
+    if (!response.body) throw new Error(tr('浏览器无法读取下载数据。'));
     await response.body.pipeTo(writable);
   } catch (error) {
     try {
@@ -503,10 +519,10 @@ function triggerBrowserDownload(file) {
 
 async function downloadFilesToDefaultDirectory(preparedFiles, options = {}) {
   const confirmed = window.confirm(
-    '当前浏览器或访问方式不支持选择下载文件夹，只能将文件批量下载到浏览器的默认下载目录。\n\n'
-    + '浏览器可能会询问是否允许多个文件下载；请选择“允许”。是否继续？',
+    tr('当前浏览器或访问方式不支持选择下载文件夹，只能将文件批量下载到浏览器的默认下载目录。\n\n')
+    + tr('浏览器可能会询问是否允许多个文件下载；请选择“允许”。是否继续？'),
   );
-  if (!confirmed) throw new DOMException('用户取消批量下载', 'AbortError');
+  if (!confirmed) throw new DOMException(tr('用户取消批量下载'), 'AbortError');
 
   const result = {
     deliveryMode: 'default-directory',
@@ -569,7 +585,7 @@ async function downloadFilesToSelectedDirectory(files, options = {}) {
         await writeResponseToLocalFile(directory.handle, file.filename, response);
         result.succeeded += 1;
       } catch (error) {
-        result.failed.push({ filename: file.filename, message: error?.message || '下载失败' });
+        result.failed.push({ filename: file.filename, message: error?.message || tr('下载失败') });
       } finally {
         result.completed += 1;
         options.onProgress?.({ ...result, failed: [...result.failed] });
@@ -592,24 +608,23 @@ function casTags(cas) {
     ['A', Boolean(cas?.activity), 'Activity', 'activity'],
     ['S', Boolean(cas?.service), 'Service', 'service'],
   ];
-  return `<div class="cas-tags" aria-label="CAS 类型">${items.map(([letter, enabled, title, type]) =>
-    `<span class="cas-tag ${type} ${enabled ? 'on' : ''}" title="${title}${enabled ? ' 已启用' : ' 未启用'}">${letter}</span>`
+  return ui`<div class="cas-tags" aria-label="CAS 类型">${items.map(([letter, enabled, title, type]) =>
+    ui`<span class="cas-tag ${type} ${enabled ? 'on' : ''}" title="${title}${enabled ? tr(' 已启用') : tr(' 未启用')}">${letter}</span>`
   ).join('')}</div>`;
 }
 
 function authDialogTemplate() {
-  return `
+  return ui`
     <div class="auth-modal" id="authModal" aria-hidden="true" role="dialog" aria-label="账号">
       <div class="auth-backdrop" data-auth-close></div>
       <section id="authPanel" class="auth-panel">
         <div id="authHead" class="auth-head">
-          <h2>注册或登录</h2>
-          <p id="authHint">登录后可参与更多校园互动。</p>
+          <h2>登录 NetHub</h2>
+          <p id="authHint">登录后可参与讨论。</p>
         </div>
         <div id="authAccountState"></div>
         <form id="authLoginForm" class="auth-form">
-          <p>本网站使用 NetHub 账号登录，请前往账号管理界面</p>
-          <button class="button auth-submit" type="submit">登录或注册 NetHub 账号后继续</button>
+          <button class="button auth-submit" type="submit">登录或注册</button>
         </form>
         <form id="authPasswordForm" class="auth-form is-hidden">
           <p>密码由 NetHub Accounts 统一管理。</p>
@@ -662,7 +677,7 @@ function initAuthNav() {
   function renderUser(user) {
     currentUser = user;
     if (!user) {
-      authArea.innerHTML = `
+      authArea.innerHTML = ui`
         ${messageNavMarkup()}
         <button class="auth-avatar logged-out" type="button" data-open-auth aria-label="打开账号面板">登</button>
       `;
@@ -670,7 +685,7 @@ function initAuthNav() {
       return;
     }
 
-    authArea.innerHTML = `
+    authArea.innerHTML = ui`
       ${messageNavMarkup()}
       <button class="auth-avatar" type="button" data-open-auth aria-label="打开账号菜单">
         <span>${escapeHtml(userInitial(user))}</span>
@@ -687,9 +702,9 @@ function initAuthNav() {
     if (!currentUser) {
       authPanel.classList.remove('is-account-menu');
       authHead.classList.remove('is-hidden');
-      message.classList.remove('is-hidden');
+      message.classList.add('is-hidden');
       accountState.innerHTML = '';
-      hint.textContent = '登录后可参与更多校园互动。';
+      setUiText(hint, () => tr('登录后可参与讨论。'));
       loginForm.classList.remove('is-hidden');
       passwordForm.classList.add('is-hidden');
       usernameForm.classList.add('is-hidden');
@@ -702,7 +717,7 @@ function initAuthNav() {
     loginForm.classList.add('is-hidden');
     passwordForm.classList.toggle('is-hidden', !passwordFormOpen);
     usernameForm.classList.toggle('is-hidden', !usernameFormOpen);
-    accountState.innerHTML = `
+    accountState.innerHTML = ui`
       <div class="auth-profile-summary">
         <span class="auth-profile-avatar" data-initial="${escapeHtml(userInitial(currentUser))}">
           ${userAvatarImage(currentUser)}
@@ -714,7 +729,7 @@ function initAuthNav() {
       </div>
       <nav class="auth-account-menu" aria-label="账户菜单">
       ${currentUser.role === 'admin'
-        ? `<a class="auth-menu-item" href="/admin.html">
+        ? ui`<a class="auth-menu-item" href="/admin.html">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.6 2.9 8 7 10 4.1-2 7-5.4 7-10V6l-7-3Z"></path><path d="m9 12 2 2 4-4"></path></svg>
             <span>管理员后台</span><span class="auth-menu-arrow" aria-hidden="true">›</span>
           </a>`
@@ -734,10 +749,10 @@ function initAuthNav() {
       </nav>
       <div class="auth-account-actions">
         <button class="auth-password-toggle" type="button" data-toggle-username>
-          ${usernameFormOpen ? '收起修改昵称' : '修改昵称'}
+          ${usernameFormOpen ? tr('收起修改昵称') : tr('修改昵称')}
         </button>
         <button class="auth-password-toggle" type="button" data-toggle-password>
-          ${passwordFormOpen ? '收起修改密码' : '修改密码'}
+          ${passwordFormOpen ? tr('收起修改密码') : tr('修改密码')}
         </button>
       </div>
     `;
@@ -750,7 +765,7 @@ function initAuthNav() {
       } else {
         usernameForm.reset();
       }
-      message.textContent = '登录后可保存你的项目资料与校园互动状态。';
+      message.textContent = '';
       message.classList.remove('error');
       renderAccountState();
       updateAuthPanelPosition();
@@ -760,7 +775,7 @@ function initAuthNav() {
       passwordFormOpen = !passwordFormOpen;
       if (passwordFormOpen) usernameFormOpen = false;
       if (!passwordFormOpen) passwordForm.reset();
-      message.textContent = '登录后可保存你的项目资料与校园互动状态。';
+      message.textContent = '';
       message.classList.remove('error');
       renderAccountState();
       updateAuthPanelPosition();
@@ -784,7 +799,7 @@ function initAuthNav() {
 
   function setMode() {
     renderAccountState();
-    message.textContent = '登录后可保存你的项目资料与校园互动状态。';
+    message.textContent = '';
     message.classList.remove('error');
   }
 
@@ -827,7 +842,7 @@ function initAuthNav() {
     usernameForm.reset();
     passwordFormOpen = false;
     usernameFormOpen = false;
-    message.textContent = '登录后可保存你的项目资料与校园互动状态。';
+    message.textContent = '';
     message.classList.remove('error');
   }
 
@@ -851,7 +866,7 @@ function initAuthNav() {
 
   usernameForm.addEventListener('submit', async (event) => {
     event.preventDefault();
-    message.textContent = '正在修改昵称...';
+    setUiText(message, () => tr('正在修改昵称...'));
     message.classList.remove('error');
     const submit = usernameForm.querySelector('[type="submit"]');
     submit.disabled = true;
@@ -865,7 +880,7 @@ function initAuthNav() {
       renderUser(user);
       renderAccountState();
       usernameForm.reset();
-      message.textContent = '昵称已修改';
+      setUiText(message, () => tr('昵称已修改'));
       message.classList.remove('error');
     } catch (error) {
       message.textContent = error.message;
@@ -875,6 +890,11 @@ function initAuthNav() {
     }
   });
 
+  window.addEventListener('nethub-language-change', () => {
+    renderUser(currentUser);
+    renderAccountState();
+    refreshGlobalMessageBadge();
+  });
   renderUser(getStoredUser());
   refreshCurrentUser().then((user) => {
     renderUser(user);
@@ -899,10 +919,10 @@ function initAuthNav() {
 const PROJECT_LOGO_FALLBACK_MAX_LENGTH = 8;
 
 function projectLogoFallbackText(value) {
-  const compactName = String(value || '项目')
+  const compactName = String(value || tr('项目'))
     .trim()
     .replace(/[\s._·•—–-]+/g, '');
-  return Array.from(compactName || '项目')
+  return Array.from(compactName || tr('项目'))
     .slice(0, PROJECT_LOGO_FALLBACK_MAX_LENGTH)
     .join('')
     .toLocaleUpperCase('en-US');
@@ -922,9 +942,9 @@ function projectIconImage(project, options = {}) {
   const hasIcon = Boolean(iconSource && iconUrl !== '#');
   const fallbackText = projectLogoFallbackText(project.name);
   const frameClass = String(options.className || 'project-icon').trim() || 'project-icon';
-  return `
+  return ui`
     <div class="${frameClass} project-logo-frame ${projectLogoTextClass(fallbackText)}${hasIcon ? ' has-image' : ''}" data-project-logo data-logo-text="${escapeHtml(fallbackText)}">
-      ${hasIcon ? `<img src="${iconUrl}" alt="${escapeHtml(project.name)}" loading="lazy" data-project-icon>` : ''}
+      ${hasIcon ? ui`<img src="${iconUrl}" alt="${escapeHtml(project.name)}" loading="lazy" data-project-icon>` : ''}
     </div>
   `;
 }
@@ -945,14 +965,14 @@ function projectCard(project) {
   const projectId = encodeURIComponent(project.id);
   const description = escapeHtml(truncateText(project.description, 86));
 
-  return `
+  return ui`
     <a class="project-card" href="/detail.html?id=${projectId}">
       ${projectIconImage(project)}
       <h3>${escapeHtml(project.name)}</h3>
       <div class="meta">
-        <span class="badge">${escapeHtml(project.category)}</span>
+        <span class="badge">${categoryMarkup(project.category)}</span>
         <span>${escapeHtml(project.year)}</span>
-        <span>负责人：${escapeHtml(project.leader || '待确认')}</span>
+        <span>负责人：${escapeHtml(project.leader || tr('待确认'))}</span>
       </div>
       <p>${description}</p>
       ${casTags(project.cas)}

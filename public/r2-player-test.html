@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,6 +10,10 @@
       --ink: #eaf1ff;
       --muted: #91a0ba;
       --panel: #121a29;
+      --page-bg: #09101c;
+      --surface: var(--panel);
+      --border: var(--line);
+      --radius: 10px;
       --line: #29354a;
       --blue: #79b8ff;
       --cyan: #68e5d2;
@@ -39,7 +43,7 @@
     button { border: 0; border-radius: 8px; cursor: pointer; }
     .load-button { padding: 0 22px; color: #07111c; background: var(--cyan); font-weight: 800; }
     .load-button:hover { background: #8af1e1; }
-    .workbench { display: grid; grid-template-columns: minmax(0, 1fr) 330px; border: 1px solid var(--line); background: var(--panel); }
+    .workbench { overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr) 330px; border: 1px solid var(--line); background: var(--panel); }
     .screen { position: relative; display: grid; place-items: center; min-height: 540px; background: #020408; overflow: hidden; }
     video { display: block; width: 100%; max-height: 76vh; background: #000; }
     .signal {
@@ -80,6 +84,7 @@
       footer { display: block; }
     }
   </style>
+  <link rel="stylesheet" href="/css/surfaces.css?v=wiki1">
   <script src="/__nethub/client.js?v=1" defer></script>
 </head>
 <body>

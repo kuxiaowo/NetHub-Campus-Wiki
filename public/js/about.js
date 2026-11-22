@@ -15,6 +15,6 @@ async function loadAboutMembers() {
 
 loadAboutMembers().catch(() => {
   if (aboutMembers) {
-    aboutMembers.innerHTML = '<div class="empty">暂时无法加载成员信息，请稍后刷新，或前往 <a href="/projects.html?search=NetHub">CAS 项目库</a> 查看。</div>';
+    aboutMembers.innerHTML = ui`<div class="empty">暂时无法加载成员信息，请稍后刷新，或前往 <a href="/projects.html?search=NetHub">CAS 项目库</a> 查看。</div>`;
   }
 });

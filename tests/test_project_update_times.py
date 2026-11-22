@@ -39,6 +39,7 @@ const assert = require('assert/strict');
 const source = fs.readFileSync('public/js/detail.js', 'utf8');
 const api = fs.readFileSync('public/js/api.js', 'utf8');
 const context = {
+  tr: text => text,
   asArray: value => Array.isArray(value) ? value : [],
   cleanText: value => String(value || '').trim(),
   firstFilled: (...values) => values.find(value => value != null && String(value).trim()) || '',

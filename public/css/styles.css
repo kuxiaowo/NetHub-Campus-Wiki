@@ -3230,3 +3230,21 @@ a.message-activity-item:hover { background: #f8fbff; }
 [data-my-submissions] article img, [data-content-review] article img { width: min(100%, 240px); border-radius: 10px; margin: 8px; vertical-align: top; }
 [data-content-review] .button, [data-my-submissions] .button { margin: 6px 8px 6px 0; }
 [data-content-review] .button[aria-pressed="true"] { background: var(--accent, #2563eb); color: #fff; }
+
+/* Layout controls stay available with either version of the page styles. */
+:root:not([data-layout="modern"]) [data-layout-only="modern"],
+:root[data-layout="modern"] [data-layout-only="classic"] { display: none !important; }
+.site-preferences { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.site-preferences button { min-width: 36px; padding-inline: 9px; white-space: nowrap; min-height: 36px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text-main); font-size: 12px; font-weight: 650; cursor: pointer; }
+.site-preferences button:hover { background: var(--surface-soft); }
+.site-preferences [data-theme-toggle] { font-size: 18px; }
+.admin-topbar .site-preferences { margin-left: 0; }
+.navbar .site-preferences + .auth-area { margin-left: 0; }
+@media (max-width: 1100px) {
+  .navbar { flex-wrap: wrap; gap: 8px 12px; padding-block: 10px; }
+  .navbar > .site-brand { order: 0; }
+  .navbar > .site-preferences { order: 1; }
+  .navbar > .auth-area { order: 2; }
+  .navbar > .nav-links { order: 3; width: 100%; overflow-x: auto; }
+  .nav-links > a { flex-shrink: 0; white-space: nowrap; }
+}

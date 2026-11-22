@@ -305,6 +305,8 @@
   object-position: top center;
 }
 
+#build-with-us { scroll-margin-block-start: 11rem; }
+
 .about-feature-team {
   padding: 28px;
   background: linear-gradient(145deg, #e7f2ff, #a9cbed 48%, #3b70b4);

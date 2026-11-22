@@ -76,18 +76,18 @@ function formatDate(value) {
 
 function renderBreadcrumb(project) {
   const category = cleanText(project.category);
-  detailBreadcrumb.innerHTML = `
+  detailBreadcrumb.innerHTML = ui`
     <a href="/projects.html">项目库</a>
-    ${category ? `<a href="/projects.html?category=${encodeURIComponent(category)}">${escapeHtml(category)}</a>` : ''}
-    <span>${escapeHtml(project.name || '项目详情')}</span>
+    ${category ? ui`<a href="/projects.html?category=${encodeURIComponent(category)}">${escapeHtml(category)}</a>` : ''}
+    <span>${escapeHtml(project.name || tr('项目详情'))}</span>
   `;
 }
 
 function enabledCasTags(cas) {
   const tags = CAS_LABELS.filter(([key]) => Boolean(cas?.[key]));
-  if (!tags.length) return '<span class="detail-chip muted">未标注 CAS</span>';
+  if (!tags.length) return ui`<span class="detail-chip muted">未标注 CAS</span>`;
   return tags.map(([key, label]) => (
-    `<span class="detail-chip cas-${key}">${escapeHtml(label)}</span>`
+    ui`<span class="detail-chip cas-${key}">${escapeHtml(label)}</span>`
   )).join('');
 }
 
@@ -107,16 +107,16 @@ function renderHero(project) {
   const year = cleanText(project.year);
   const category = cleanText(project.category);
 
-  return `
+  return ui`
     <section class="card detail-hero">
       ${projectIconImage(project, { className: 'detail-hero-visual project-visual' })}
       <div class="detail-hero-copy">
-        <h1>${escapeHtml(project.name || '未命名项目')}</h1>
+        <h1>${escapeHtml(project.name || tr('未命名项目'))}</h1>
         <div class="detail-hero-meta">
-          ${category ? `<span class="detail-chip primary">${escapeHtml(category)}</span>` : ''}
-          ${year ? `<span class="detail-chip">${escapeHtml(year)}</span>` : ''}
+          ${category ? ui`<span class="detail-chip primary">${escapeHtml(category)}</span>` : ''}
+          ${year ? ui`<span class="detail-chip">${escapeHtml(year)}</span>` : ''}
         </div>
-        ${summary ? `<p>${escapeHtml(summary)}</p>` : ''}
+        ${summary ? ui`<p>${escapeHtml(summary)}</p>` : ''}
         <div class="detail-cas-tags">${enabledCasTags(project.cas)}</div>
       </div>
     </section>
@@ -124,11 +124,11 @@ function renderHero(project) {
 }
 
 function renderIntro(project) {
-  return `
+  return ui`
     <section class="card detail-intro">
       <div class="detail-section-copy">
         <h2><span></span>项目简介</h2>
-        <p>${escapeHtml(project.description || '暂无项目简介。')}</p>
+        <p>${escapeHtml(project.description || tr('暂无项目简介。'))}</p>
       </div>
     </section>
   `;
@@ -197,9 +197,9 @@ function normalizeUpdates(project) {
       return {
         index,
         id: cleanText(item.id),
-        author: firstFilled(boundMember.name, item.authorName, publisher.name, publisher.displayName, project.leader, '项目成员'),
+        author: firstFilled(boundMember.name, item.authorName, publisher.name, publisher.displayName, project.leader, tr('项目成员')),
         avatar: safeDetailUrl(firstFilled(boundMember.avatarUrl, publisher.avatar, item.avatar)),
-        role: firstFilled(boundMember.role, item.authorRole, publisher.role, item.role, item.isLeader ? '负责人' : ''),
+        role: firstFilled(boundMember.role, item.authorRole, publisher.role, item.role, item.isLeader ? 'leader' : ''),
         date: firstFilled(item.createdAt, item.date, item.time),
         content,
         images,
@@ -214,9 +214,9 @@ function normalizeUpdates(project) {
     return {
       index,
       id: '',
-      author: firstFilled(project.leader, '项目成员'),
+      author: firstFilled(project.leader, tr('项目成员')),
       avatar: null,
-      role: index === 0 && project.leader ? '负责人' : '成员',
+      role: index === 0 && project.leader ? 'leader' : 'member',
       date: '',
       content: cleanText(item),
       images: [],
@@ -241,12 +241,12 @@ function renderMediaImages(images, title) {
   const visible = images.slice(0, 9);
   const more = images.length - visible.length;
   const mode = visible.length === 1 ? 'single' : visible.length <= 4 ? 'few' : 'many';
-  return `
+  return ui`
     <div class="feed-media-grid ${mode}">
-      ${visible.map((url, index) => `
+      ${visible.map((url, index) => ui`
         <div class="feed-image image-frame">
           <img src="${escapeHtml(url)}" alt="${escapeHtml(title)} 动态图片 ${index + 1}" data-fallback loading="lazy" />
-          ${more > 0 && index === visible.length - 1 ? `<span class="feed-more">+${more}</span>` : ''}
+          ${more > 0 && index === visible.length - 1 ? ui`<span class="feed-more">+${more}</span>` : ''}
         </div>
       `).join('')}
     </div>
@@ -255,22 +255,22 @@ function renderMediaImages(images, title) {
 
 function renderVideos(videos, title) {
   if (!videos.length) return '';
-  return `<div class="feed-video-list">${videos.map((video) => {
+  return ui`<div class="feed-video-list">${videos.map((video) => {
     if (isVideoUrl(video.src)) {
-      return `
+      return ui`
         <div class="feed-video">
           <video controls preload="metadata" ${video.poster ? `poster="${escapeHtml(video.poster)}"` : ''}>
             <source src="${escapeHtml(video.src)}" />
           </video>
-          ${video.duration ? `<span>${escapeHtml(video.duration)}</span>` : ''}
+          ${video.duration ? ui`<span>${escapeHtml(video.duration)}</span>` : ''}
         </div>
       `;
     }
-    return `
+    return ui`
       <a class="feed-video-link image-frame" href="${escapeHtml(video.src)}" target="_blank" rel="noreferrer">
-        ${video.poster ? `<img src="${escapeHtml(video.poster)}" alt="${escapeHtml(video.title || title)} 视频封面" data-fallback loading="lazy" />` : ''}
+        ${video.poster ? ui`<img src="${escapeHtml(video.poster)}" alt="${escapeHtml(video.title || title)} 视频封面" data-fallback loading="lazy" />` : ''}
         <span class="play-mark">▶</span>
-        ${video.duration ? `<small>${escapeHtml(video.duration)}</small>` : ''}
+        ${video.duration ? ui`<small>${escapeHtml(video.duration)}</small>` : ''}
       </a>
     `;
   }).join('')}</div>`;
@@ -278,57 +278,53 @@ function renderVideos(videos, title) {
 
 function renderUpdateActions(item) {
   const actions = [
-    item.likes !== null ? ['赞', item.likes] : null,
-    item.comments !== null ? ['评论', item.comments] : null,
-    item.shares !== null ? ['分享', item.shares] : null,
+    item.likes !== null ? [tr('赞'), item.likes] : null,
+    item.comments !== null ? [tr('评论'), item.comments] : null,
+    item.shares !== null ? [tr('分享'), item.shares] : null,
   ].filter(Boolean);
   if (!actions.length) return '';
-  return `<div class="feed-actions">${actions.map(([label, value]) => `<span>${label} ${escapeHtml(value)}</span>`).join('')}</div>`;
-}
-
-function projectUpdateRoleLabel(role) {
-  return ({ admin: '管理员', leader: '负责人', member: '成员' })[cleanText(role).toLowerCase()] || cleanText(role);
+  return ui`<div class="feed-actions">${actions.map(([label, value]) => ui`<span>${label} ${escapeHtml(value)}</span>`).join('')}</div>`;
 }
 
 function renderFeed(project) {
   const updates = normalizeUpdates(project);
   const canCreateUpdate = Boolean(project.viewerPermissions?.canCreateUpdate);
-  return `
+  return ui`
     <section class="detail-panel feed-panel">
       <div class="detail-panel-head">
         <h2><span></span>CAS 动态</h2>
         <div class="detail-panel-actions">
-          ${updates.length ? '<small>最新动态</small>' : ''}
-          ${canCreateUpdate ? '<button class="button compact" type="button" data-open-project-update>提交动态</button>' : ''}
+          ${updates.length ? ui`<small>最新动态</small>` : ''}
+          ${canCreateUpdate ? ui`<button class="button compact" type="button" data-open-project-update>提交动态</button>` : ''}
         </div>
       </div>
-      ${updates.length ? `
+      ${updates.length ? ui`
         <div class="feed-list">
-          ${updates.map((item) => `
+          ${updates.map((item) => ui`
             <article class="feed-card">
               <header class="feed-card-head">
                 <span class="member-avatar feed-avatar" data-initial="${initials(item.author)}">
-                  ${item.avatar ? `<img src="${escapeHtml(item.avatar)}" alt="${escapeHtml(item.author)}" data-fallback loading="lazy" />` : ''}
+                  ${item.avatar ? ui`<img src="${escapeHtml(item.avatar)}" alt="${escapeHtml(item.author)}" data-fallback loading="lazy" />` : ''}
                 </span>
                 <div>
                   <strong>${escapeHtml(item.author)}</strong>
                   <div class="feed-meta">
-                    ${item.role ? `<span>${escapeHtml(projectUpdateRoleLabel(item.role))}</span>` : ''}
-                    <time>${item.date ? escapeHtml(formatDate(item.date)) : '发布时间未记录'}</time>
+                    ${item.role ? ui`<span>${memberRoleMarkup(item.role)}</span>` : ''}
+                    <time>${item.date ? escapeHtml(formatDate(item.date)) : tr('发布时间未记录')}</time>
                   </div>
                 </div>
-                ${item.canDelete && item.id ? `
+                ${item.canDelete && item.id ? ui`
                   <button class="feed-delete-button" type="button" data-delete-project-update="${escapeHtml(item.id)}">删除</button>
                 ` : ''}
               </header>
-              ${item.content ? `<p>${escapeHtml(item.content)}</p>` : ''}
-              ${renderMediaImages(item.images, project.name || '项目')}
-              ${renderVideos(item.videos, project.name || '项目')}
+              ${item.content ? ui`<p>${escapeHtml(item.content)}</p>` : ''}
+              ${renderMediaImages(item.images, project.name || tr('项目'))}
+              ${renderVideos(item.videos, project.name || tr('项目'))}
               ${renderUpdateActions(item)}
             </article>
           `).join('')}
         </div>
-      ` : '<div class="empty detail-empty">暂无项目动态。</div>'}
+      ` : ui`<div class="empty detail-empty">暂无项目动态。</div>`}
     </section>
   `;
 }
@@ -355,9 +351,9 @@ function bindDetailInteractions() {
 function renderProject(project) {
   currentProject = project;
   document.querySelector('#projectComments')?.classList.remove('is-hidden');
-  document.title = `${project.name || '项目详情'} - NetHub Campus Wiki`;
+  document.title = `${project.name || tr('项目详情')} - NetHub Campus Wiki`;
   renderBreadcrumb(project);
-  projectDetail.innerHTML = `
+  projectDetail.innerHTML = ui`
     ${renderHero(project)}
     ${renderIntro(project)}
     <div class="detail-main-grid">
@@ -376,7 +372,7 @@ function setProjectUpdateMessage(message, isError = false) {
 
 function resetProjectUpdateForm() {
   projectUpdateForm.reset();
-  projectUpdatePhotoSummary.textContent = '可一次多选，最多 9 张，单张不超过 5MB。';
+  setUiText(projectUpdatePhotoSummary, () => tr('可一次多选，最多 9 张，单张不超过 5MB。'));
   setProjectUpdateMessage('');
 }
 
@@ -399,20 +395,20 @@ function closeProjectUpdateModal() {
 
 function updateProjectPhotoSummary() {
   const count = projectUpdatePhotos.files.length;
-  projectUpdatePhotoSummary.textContent = count
-    ? `已选择 ${count} 张照片${count > 9 ? '，超过 9 张上限' : ''}`
-    : '可一次多选，最多 9 张，单张不超过 5MB。';
+  setUiText(projectUpdatePhotoSummary, () => count
+    ? ut`已选择 ${count} 张照片${count > 9 ? tr('，超过 9 张上限') : ''}`
+    : tr('可一次多选，最多 9 张，单张不超过 5MB。'));
 }
 
 async function deleteProjectUpdate(event) {
   const button = event.currentTarget;
   const updateId = cleanText(button.dataset.deleteProjectUpdate);
   if (!currentProject || !updateId) return;
-  if (!window.confirm('确定删除这条动态吗？动态照片也会从服务器永久删除。')) return;
+  if (!window.confirm(tr('确定删除这条动态吗？动态照片也会从服务器永久删除。'))) return;
 
   const oldText = button.textContent;
   button.disabled = true;
-  button.textContent = '删除中……';
+  setUiText(button, () => tr('删除中……'));
   try {
     const result = await request(
       `/projects/${encodeURIComponent(currentProject.id)}/updates/${encodeURIComponent(updateId)}`,
@@ -422,7 +418,7 @@ async function deleteProjectUpdate(event) {
       const latest = await request(`/projects/${encodeURIComponent(currentProject.id)}?track=false`);
       renderProject(latest.data);
     } else {
-      window.alert('动态已提交审核，通过后公开。可在个人中心查看状态或撤回。');
+      window.alert(tr('动态已提交审核，通过后公开。可在个人中心查看状态或撤回。'));
       renderProject(currentProject);
     }
   } catch (error) {
@@ -439,16 +435,16 @@ async function submitProjectUpdate(event) {
   const content = projectUpdateContent.value.trim();
   const photos = [...projectUpdatePhotos.files];
   if (!content && !photos.length) {
-    setProjectUpdateMessage('动态内容和照片不能同时为空。', true);
+    setProjectUpdateMessage(tr('动态内容和照片不能同时为空。'), true);
     return;
   }
   if (photos.length > 9) {
-    setProjectUpdateMessage('每条动态最多上传 9 张照片。', true);
+    setProjectUpdateMessage(tr('每条动态最多上传 9 张照片。'), true);
     return;
   }
   const oversizedPhoto = photos.find((photo) => photo.size > MAX_PROJECT_UPDATE_PHOTO_BYTES);
   if (oversizedPhoto) {
-    setProjectUpdateMessage(`照片“${oversizedPhoto.name}”超过 5MB。`, true);
+    setProjectUpdateMessage(ut`照片“${oversizedPhoto.name}”超过 5MB。`, true);
     return;
   }
 
@@ -458,7 +454,7 @@ async function submitProjectUpdate(event) {
   projectUpdateSubmitting = true;
   projectUpdateModal.classList.add('is-submitting');
   projectUpdateSubmit.disabled = true;
-  setProjectUpdateMessage('正在提交审核……');
+  setProjectUpdateMessage(tr('正在提交审核……'));
   try {
     const result = await request(`/projects/${encodeURIComponent(currentProject.id)}/updates`, {
       method: 'POST',
@@ -493,11 +489,11 @@ function bindProjectUpdateComposer() {
 
 function renderError(message) {
   document.querySelector('#projectComments')?.classList.add('is-hidden');
-  detailBreadcrumb.innerHTML = '<a href="/projects.html">项目库</a><span>无法加载</span>';
-  projectDetail.innerHTML = `
+  detailBreadcrumb.innerHTML = ui`<a href="/projects.html">项目库</a><span>无法加载</span>`;
+  projectDetail.innerHTML = ui`
     <section class="card detail-state">
       <h1>项目暂时无法显示</h1>
-      <p>${escapeHtml(message || '请稍后重试。')}</p>
+      <p>${escapeHtml(message || tr('请稍后重试。'))}</p>
       <a class="button secondary" href="/projects.html">返回项目库</a>
     </section>
   `;
@@ -505,7 +501,7 @@ function renderError(message) {
 
 async function loadDetail() {
   if (!id) {
-    renderError('缺少项目 ID。');
+    renderError(tr('缺少项目 ID。'));
     return;
   }
 

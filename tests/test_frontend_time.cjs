@@ -21,6 +21,7 @@ if (process.argv.includes('--worker')) {
   vm.createContext(context);
   vm.runInContext(functionsBetween('api.js', 'const SITE_TIME_ZONE', 'async function request('), context);
   vm.runInContext(functionsBetween('messages.js', 'function messageTime(', 'function activityTitle('), context);
+  vm.runInContext(functionsBetween('index.js', 'function shortDate(', 'function projectUpdateMediaUrl('), context);
   const get = expression => vm.runInContext(expression, context);
 
   assert.equal(get("parseSiteTimestamp('2026-09-29 03:20:54').toISOString()"), '2026-09-29T03:20:54.000Z');
@@ -41,6 +42,12 @@ if (process.argv.includes('--worker')) {
     assert.equal(get("formatSiteTimestamp(testValue, { year: 'numeric' })"), '');
   }
   assert.equal(get("formatProjectUpdateDate('')"), '');
+  assert.equal(get("shortDate('2026-10-09 20:30:00')"), '10-10');
+  context.NetHubI18n = { language: 'en' };
+  assert.equal(get("shortDate('2026-10-09 20:30:00')"), '10-10');
+  context.NetHubI18n.language = 'zh';
+  assert.equal(get("shortDate('2026-10-09 20:30:00')"), '10-10');
+  assert.equal(get("shortDate('invalid')"), '');
   process.stdout.write(JSON.stringify({
     full: get("fullMessageTime('2026-09-28 20:20:00')"),
     today: get("messageTime('2026-09-28 20:20:00')"),

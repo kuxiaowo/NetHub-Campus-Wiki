@@ -21,7 +21,7 @@
   }
 
   function sortOptions(category) {
-    return category === 'photos' ? photoSortOptions : resourceSortOptions;
+    return (category === 'photos' ? photoSortOptions : resourceSortOptions).map(option => ({ ...option, label: tr(option.label) }));
   }
 
   function sortCombinedResources(items, sort) {
@@ -42,14 +42,14 @@
   function thumbnailMarkup(source) {
     const image = source ? safeExternalUrl(source) : '#';
     return image && image !== '#'
-      ? `<img src="${escapeHtml(image)}" alt="" loading="lazy" decoding="async">`
+      ? ui`<img src="${escapeHtml(image)}" alt="" loading="lazy" decoding="async">`
       : '<span class="resource-thumb-placeholder" aria-hidden="true"></span>';
   }
 
   const playMarker = '<span class="media-play-marker" aria-hidden="true">▶</span>';
 
   function cardContent(title, year, image, isVideo = false) {
-    return `
+    return ui`
       <span class="resource-thumb">${thumbnailMarkup(image)}${isVideo ? playMarker : ''}</span>
       <span class="resource-body">
         <h2>${escapeHtml(title)}</h2>
@@ -58,9 +58,9 @@
     `;
   }
 
-  function managementAction(attribute, id, label = '编辑') {
+  function managementAction(attribute, id, label = tr('编辑')) {
     if (!attribute) return '';
-    return `
+    return ui`
       <span class="resource-card-admin-actions">
         <button class="button compact" type="button" ${attribute}="${escapeHtml(id)}">${escapeHtml(label)}</button>
       </span>
@@ -74,13 +74,13 @@
     const href = options.href || defaultHref;
     const content = cardContent(resource.title, resource.year, resource.image);
     if (!options.managed) {
-      return `
+      return ui`
         <a class="resource-card resource-summary-card" href="${escapeHtml(href)}" aria-label="查看 ${escapeHtml(resource.title)}（${escapeHtml(resource.year)}）">
           ${content}
         </a>
       `;
     }
-    return `
+    return ui`
       <article class="resource-card resource-summary-card managed-resource-card">
         <a class="resource-card-main" href="${escapeHtml(href)}" ${options.newTab ? 'target="_blank" rel="noopener noreferrer"' : ''} aria-label="预览 ${escapeHtml(resource.title)}（${escapeHtml(resource.year)}）">
           ${content}
@@ -94,15 +94,15 @@
     const image = options.image || activity.coverThumbSrc || activity.coverSrc || '';
     const content = cardContent(activity.activity, activity.year, image, activity.coverType === 'video');
     const dataAttribute = options.dataAttribute || 'data-resource-activity-id';
-    if (!/^[a-z0-9-]+$/i.test(dataAttribute)) throw new Error('非法的活动卡片属性');
+    if (!/^[a-z0-9-]+$/i.test(dataAttribute)) throw new Error(tr('非法的活动卡片属性'));
     if (!options.managed) {
-      return `
+      return ui`
         <button class="resource-card resource-summary-card photo-activity-card" type="button" ${dataAttribute}="${escapeHtml(activity.id)}" aria-label="查看 ${escapeHtml(activity.activity)}（${escapeHtml(activity.year)}）">
           ${content}
         </button>
       `;
     }
-    return `
+    return ui`
       <article class="resource-card resource-summary-card photo-activity-card managed-resource-card">
         <button class="resource-card-main" type="button" ${dataAttribute}="${escapeHtml(activity.id)}" aria-label="查看 ${escapeHtml(activity.activity)}（${escapeHtml(activity.year)}）">
           ${content}
@@ -114,11 +114,11 @@
 
   function photoItem(item, options = {}) {
     const dataAttribute = options.dataAttribute || 'data-photo-index';
-    if (!/^[a-z0-9-]+$/i.test(dataAttribute)) throw new Error('非法的照片属性');
+    if (!/^[a-z0-9-]+$/i.test(dataAttribute)) throw new Error(tr('非法的照片属性'));
     const isVideo = item.type === 'video';
     const image = isVideo ? item.thumbSrc : (item.thumbSrc || item.src);
-    return `
-      <button class="photo-item${isVideo ? ' is-video' : ''}" type="button" ${dataAttribute}="${escapeHtml(item.index)}" aria-label="查看${isVideo ? '视频' : '照片'} ${escapeHtml(item.title)}">
+    return ui`
+      <button class="photo-item${isVideo ? ' is-video' : ''}" type="button" ${dataAttribute}="${escapeHtml(item.index)}" aria-label="查看${isVideo ? tr('视频') : tr('照片')} ${escapeHtml(item.title)}">
         ${thumbnailMarkup(image)}
         ${isVideo ? playMarker : ''}
       </button>
@@ -135,7 +135,7 @@
 
   function mediaCountText(value) {
     const counts = mediaCounts(value);
-    return `${counts.photoCount} 张照片 · ${counts.videoCount} 个视频`;
+    return ut`${counts.photoCount} 张照片 · ${counts.videoCount} 个视频`;
   }
 
   function activityTotalText(activities) {
@@ -171,7 +171,7 @@
     }
     const stage = image.closest('.photo-modal-stage');
     const video = stage.querySelector('video');
-    video.setAttribute('aria-label', item.title || '活动视频');
+    video.setAttribute('aria-label', item.title || tr('活动视频'));
     video.onerror = () => { stage.querySelector('.media-playback-error').hidden = false; };
     if (item.thumbSrc) video.poster = safeExternalUrl(item.thumbSrc);
     video.src = safeExternalUrl(item.src);

@@ -10,25 +10,30 @@
   <meta property="og:image" content="/og.png" />
   <meta name="twitter:card" content="summary_large_image" />
   <title>消息中心 - NetHub Campus Wiki</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/nethub-favicon-32.png?v=4" />
-  <link rel="stylesheet" href="/css/styles.css?v=message-nav2" />
+  <link rel="icon" data-layout-icon href="/assets/nethub-favicon-32.png?v=classic" />
+  <link rel="stylesheet" href="/css/styles.css?v=layouts-1" />
   <link rel="stylesheet" href="/css/moderation.css?v=reports-20260929">
   <script src="/__nethub/client.js?v=1" defer></script>
+  <link rel="stylesheet" data-modern-styles media="not all" href="/css/ui-refresh.css?v=ivory-charcoal" />
+  <link rel="stylesheet" data-modern-styles media="not all" href="/css/surfaces.css?v=wiki1" />
+  <script src="/js/translations.js?v=layouts-1"></script>
+  <script src="/js/translations-static.js?v=ui-bilingual-1"></script>
+  <script src="/js/i18n.js?v=layouts-1"></script>
 </head>
 <body class="messages-page">
   <header class="site-header">
     <nav class="navbar container">
       <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
-        <img class="site-logo" src="/assets/nethub-icon.png?v=3" alt="" />
+        <img class="site-logo" data-nethub-logo="/assets/nethub-icon.png?v=3" src="/assets/nethub-icon.png?v=3" alt="" />
         <span class="brand-copy"><strong>NetHub</strong><small>Campus Wiki</small></span>
       </a>
       <div class="nav-links" aria-label="主导航">
         <a href="/index.html">首页</a>
-        <a href="/projects.html">CAS 项目库</a>
-        <a href="/resources.html">资源中心</a>
-        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到<span class="nav-new-badge">new</span></a>
-        <a href="/links.html">友情链接</a>
-        <a href="/about.html">关于我们</a>
+        <a href="/projects.html"><span data-layout-only="classic">CAS 项目库</span><span data-layout-only="modern">项目</span></a>
+        <a href="/resources.html"><span data-layout-only="classic">资源中心</span><span data-layout-only="modern">资源</span></a>
+        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到<span class="nav-new-badge" data-layout-only="classic">new</span></a>
+        <a href="/links.html"><span data-layout-only="classic">友情链接</span><span data-layout-only="modern">友链</span></a>
+        <a href="/about.html"><span data-layout-only="classic">关于我们</span><span data-layout-only="modern">关于</span></a>
       </div>
     </nav>
   </header>
@@ -126,9 +131,10 @@
     </section>
   </main>
 
+  <script>NetHubI18n.initialize();</script>
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=timezone-20260929"></script>
-  <script src="/js/moderation-ui.js?v=reports-20260929"></script>
-  <script src="/js/messages.js?v=scroll-position-20260929"></script>
+  <script src="/js/api.js?v=ui-bilingual-1"></script>
+  <script src="/js/moderation-ui.js?v=ui-bilingual-1"></script>
+  <script src="/js/messages.js?v=ui-bilingual-1"></script>
 </body>
 </html>

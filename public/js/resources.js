@@ -53,7 +53,7 @@ function activeResourceFilterCount() {
 function setResourceFilterPanelOpen(isOpen) {
   resourceAdvancedFilters.hidden = !isOpen;
   resourceFilterToggle.setAttribute('aria-expanded', String(isOpen));
-  resourceFilterToggle.setAttribute('aria-label', isOpen ? '收起详细筛选' : '显示详细筛选');
+  resourceFilterToggle.setAttribute('aria-label', isOpen ? tr('收起详细筛选') : tr('显示详细筛选'));
   resourceFilterToggle.classList.toggle('is-open', isOpen);
 }
 
@@ -99,12 +99,12 @@ function setYearbookMode(enabled) {
 }
 
 function renderYearOptions(years) {
-  resourceYear.innerHTML = '<option value="">全部年份</option>' +
-    years.map((year) => `<option value="${escapeHtml(year)}">${escapeHtml(year)}</option>`).join('');
+  resourceYear.innerHTML = ui`<option value="">全部年份</option>` +
+    years.map((year) => ui`<option value="${escapeHtml(year)}">${escapeHtml(year)}</option>`).join('');
 }
 
 function renderSortOptions(options) {
-  resourceSort.innerHTML = options.map((option) => `
+  resourceSort.innerHTML = options.map((option) => ui`
     <option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>
   `).join('');
 }
@@ -169,7 +169,7 @@ function trackPhotoActivityDownload(activityId) {
 function updateCurrentActivityDownloads(activity) {
   if (!activity || !currentActivity || currentActivity.id !== activity.id) return;
   currentActivity = { ...currentActivity, ...activity };
-  photoMeta.textContent = `${currentActivity.year} · ${ResourceUI.mediaCountText(currentActivity)} · 热度 ${currentActivity.hot} · 下载 ${currentActivity.downloads || 0}`;
+  setUiText(photoMeta, () => ut`${currentActivity.year} · ${ResourceUI.mediaCountText(currentActivity)} · 热度 ${currentActivity.hot} · 下载 ${currentActivity.downloads || 0}`);
 }
 
 function updateCurrentYearbookDownloads(resource) {
@@ -188,10 +188,10 @@ function renderCombinedResources(resources, activities) {
     ...activities.map((item) => ({ kind: 'photoActivity', data: item })),
   ], resourceSort.value);
 
-  resourceCount.textContent = `共 ${combined.length} 个资源`;
+  setUiText(resourceCount, () => ut`共 ${combined.length} 个资源`);
   resourceGrid.innerHTML = combined.length
     ? combined.map((item) => item.kind === 'resource' ? resourceCard(item.data) : activityResourceCard(item.data)).join('')
-    : '<div class="empty">没有找到匹配的资源，换个筛选条件试试。</div>';
+    : ui`<div class="empty">没有找到匹配的资源，换个筛选条件试试。</div>`;
 
   resourceGrid.querySelectorAll('[data-resource-activity-id]').forEach((button) => {
     button.addEventListener('click', () => openActivityFromResourceCard(activities, Number(button.dataset.resourceActivityId)));
@@ -222,10 +222,10 @@ async function loadResourceMeta() {
   }
 
   resourceCategoryList.innerHTML = [
-    `<button class="category-button ${selectedResourceCategory ? '' : 'active'}" type="button" data-resource-category="">全部资源</button>`,
-    ...meta.categories.map((category) => `
+    ui`<button class="category-button ${selectedResourceCategory ? '' : 'active'}" type="button" data-resource-category="">全部资源</button>`,
+    ...meta.categories.map((category) => ui`
       <button class="category-button ${selectedResourceCategory === category.value ? 'active' : ''}" type="button" data-resource-category="${escapeHtml(category.value)}">
-        ${escapeHtml(category.label)}
+        ${categoryMarkup(category.label)}
       </button>
     `),
   ].join('');
@@ -254,7 +254,7 @@ async function loadResourceMeta() {
 }
 
 async function loadResources() {
-  resourceGrid.innerHTML = '<div class="empty">正在加载资源...</div>';
+  resourceGrid.innerHTML = ui`<div class="empty">正在加载资源...</div>`;
 
   if (!selectedResourceCategory) {
     const [resourceResult, photoResult] = await Promise.all([
@@ -267,10 +267,10 @@ async function loadResources() {
 
   const params = resourceParams();
   const result = await request(`/resources?${params.toString()}`);
-  resourceCount.textContent = `共 ${result.data.length} 个资源`;
+  setUiText(resourceCount, () => ut`共 ${result.data.length} 个资源`);
   resourceGrid.innerHTML = result.data.length
     ? result.data.map(resourceCard).join('')
-    : '<div class="empty">没有找到匹配的资源，换个筛选条件试试。</div>';
+    : ui`<div class="empty">没有找到匹配的资源，换个筛选条件试试。</div>`;
 }
 
 function photoButton(item) {
@@ -288,15 +288,15 @@ function renderPhotos(activities) {
   if (selectedActivityId === null) {
     photoGrid.classList.remove('photo-groups');
     photoGrid.classList.add('photo-activity-cards');
-    photoTitle.textContent = '全部活动';
-    photoMeta.textContent = `${activities.length} 个活动 · ${ResourceUI.activityTotalText(activities)}`;
+    setUiText(photoTitle, () => tr('全部活动'));
+    setUiText(photoMeta, () => ut`${activities.length} 个活动 · ${ResourceUI.activityTotalText(activities)}`);
     downloadActivity.classList.add('is-hidden');
     activePhotoItems = [];
     currentActivity = null;
 
     photoGrid.innerHTML = activities.length
       ? activities.map(photoActivityCard).join('')
-      : '<div class="empty">没有找到匹配的活动。</div>';
+      : ui`<div class="empty">没有找到匹配的活动。</div>`;
 
     photoGrid.querySelectorAll('[data-activity-card-id]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -313,8 +313,8 @@ function renderPhotos(activities) {
   const current = activities.find((activity) => activity.id === selectedActivityId);
 
   if (!current) {
-    photoTitle.textContent = '活动照片';
-    photoMeta.textContent = '没有找到匹配的活动';
+    setUiText(photoTitle, () => tr('活动照片'));
+    setUiText(photoMeta, () => tr('没有找到匹配的活动'));
     photoGrid.innerHTML = '';
     activePhotoItems = [];
     currentActivity = null;
@@ -323,12 +323,12 @@ function renderPhotos(activities) {
 
   currentActivity = current;
   photoTitle.textContent = current.activity;
-  photoMeta.textContent = `${current.year} · ${ResourceUI.mediaCountText(current)} · 热度 ${current.hot} · 下载 ${current.downloads || 0}`;
+  setUiText(photoMeta, () => ut`${current.year} · ${ResourceUI.mediaCountText(current)} · 热度 ${current.hot} · 下载 ${current.downloads || 0}`);
   downloadActivity.disabled = true;
   activePhotoItems = [];
-  photoGrid.innerHTML = '<div class="empty">正在加载照片和视频...</div>';
+  photoGrid.innerHTML = ui`<div class="empty">正在加载照片和视频...</div>`;
   loadActivityPhotos(current).catch((error) => {
-    photoGrid.innerHTML = `<div class="empty error">${escapeHtml(error.message)}</div>`;
+    photoGrid.innerHTML = ui`<div class="empty error">${escapeHtml(error.message)}</div>`;
   });
 }
 
@@ -356,12 +356,12 @@ function renderActivityPhotoPage(activity) {
     downloadMetricId: activity.id,
   }));
   downloadActivity.disabled = activePhotoItems.length === 0;
-  photoMeta.textContent = `${activity.year} · ${ResourceUI.mediaCountText(activePhotoItems)} · 热度 ${activity.hot} · 下载 ${activity.downloads || 0}`;
+  setUiText(photoMeta, () => ut`${activity.year} · ${ResourceUI.mediaCountText(activePhotoItems)} · 热度 ${activity.hot} · 下载 ${activity.downloads || 0}`);
   photoGrid.innerHTML = activePhotoItems.length
     ? activePhotoItems.map(photoButton).join('')
-    : '<div class="empty">这个活动还没有照片或视频。</div>';
+    : ui`<div class="empty">这个活动还没有照片或视频。</div>`;
   if (activity.photosHaveMore) {
-    photoGrid.insertAdjacentHTML('beforeend', '<button class="button secondary" type="button" data-load-more-photos>加载更多</button>');
+    photoGrid.insertAdjacentHTML('beforeend', ui`<button class="button secondary" type="button" data-load-more-photos>加载更多</button>`);
   }
   photoGrid.querySelectorAll('[data-photo-index]').forEach((button) => {
     button.addEventListener('click', () => openPhotoModal(Number(button.dataset.photoIndex)));
@@ -369,13 +369,13 @@ function renderActivityPhotoPage(activity) {
   photoGrid.querySelector('[data-load-more-photos]')?.addEventListener('click', async (event) => {
     const button = event.currentTarget;
     button.disabled = true;
-    button.textContent = '正在加载...';
+    setUiText(button, () => tr('正在加载...'));
     try {
       await loadNextActivityPhotoPage(activity);
       renderActivityPhotoPage(activity);
     } catch (error) {
       button.disabled = false;
-      button.textContent = error.message || '加载失败，请重试';
+      setUiText(button, () => error.message || tr('加载失败，请重试'));
     }
   });
 }
@@ -390,7 +390,7 @@ async function loadNextActivityPhotoPage(activity) {
 }
 
 async function loadPhotoActivities() {
-  photoGrid.innerHTML = '<div class="empty">正在加载照片和视频...</div>';
+  photoGrid.innerHTML = ui`<div class="empty">正在加载照片和视频...</div>`;
 
   const params = photoActivityParams();
   const result = await request(`/photo-activities?${params.toString()}`);
@@ -402,8 +402,8 @@ async function openYearbook(resourceId) {
   currentYearbook = null;
   currentYearbookPage = 0;
   yearbookTitle.textContent = 'Yearbook';
-  yearbookMeta.textContent = '正在加载 Yearbook...';
-  yearbookPages.innerHTML = '<div class="empty">正在加载 Yearbook...</div>';
+  setUiText(yearbookMeta, () => tr('正在加载 Yearbook...'));
+  yearbookPages.innerHTML = ui`<div class="empty">正在加载 Yearbook...</div>`;
   setYearbookDownload(null);
   updateYearbookControls();
 
@@ -417,8 +417,8 @@ async function openYearbook(resourceId) {
     renderYearbook();
     await mountCommentSection(yearbookComments, 'resource', currentYearbook.resource.id);
   } catch (error) {
-    yearbookMeta.textContent = 'Yearbook 加载失败';
-    yearbookPages.innerHTML = `<div class="empty error">${escapeHtml(error.message)}</div>`;
+    setUiText(yearbookMeta, () => tr('Yearbook 加载失败'));
+    yearbookPages.innerHTML = ui`<div class="empty error">${escapeHtml(error.message)}</div>`;
   }
 }
 
@@ -443,7 +443,7 @@ function renderYearbook() {
   const visiblePages = pages.slice(currentYearbookPage, currentYearbookPage + 2);
 
   yearbookTitle.textContent = resource.title;
-  yearbookMeta.textContent = `${resource.year} · ${pages.length} 页 · 第 ${currentYearbookPage + 1}-${Math.min(currentYearbookPage + visiblePages.length, pages.length)} 页 · 热度 ${resource.hot} · 下载 ${resource.downloads}`;
+  setUiText(yearbookMeta, () => ut`${resource.year} · ${pages.length} 页 · 第 ${currentYearbookPage + 1}-${Math.min(currentYearbookPage + visiblePages.length, pages.length)} 页 · 热度 ${resource.hot} · 下载 ${resource.downloads}`);
   setYearbookDownload(pdfUrl);
   activePhotoItems = pages.map((page, index) => ({
     ...page,
@@ -453,7 +453,7 @@ function renderYearbook() {
     downloadMetric: 'resource',
     downloadMetricId: resource.id,
   }));
-  yearbookPages.innerHTML = visiblePages.map((page) => `
+  yearbookPages.innerHTML = visiblePages.map((page) => ui`
     <figure class="yearbook-page">
       <button class="yearbook-page-button" type="button" data-yearbook-page-index="${escapeHtml(page.index - 1)}" aria-label="查看 ${escapeHtml(page.title)}">
         <img src="${safeExternalUrl(page.thumbSrc || page.src)}" alt="${escapeHtml(resource.title)} ${escapeHtml(page.title)}" loading="eager">
@@ -462,7 +462,7 @@ function renderYearbook() {
     </figure>
   `).join('');
   if (visiblePages.length === 1) {
-    yearbookPages.insertAdjacentHTML('beforeend', '<div class="yearbook-page-placeholder">本组只有一页</div>');
+    yearbookPages.insertAdjacentHTML('beforeend', ui`<div class="yearbook-page-placeholder">本组只有一页</div>`);
   }
   yearbookPages.querySelectorAll('[data-yearbook-page-index]').forEach((button) => {
     button.addEventListener('click', () => openPhotoModal(Number(button.dataset.yearbookPageIndex)));
@@ -520,7 +520,7 @@ function closePhotoModal() {
 function downloadBlob(url, filename) {
   return fetch(url, { credentials: 'include' })
     .then((response) => {
-      if (!response.ok) throw new Error(`下载失败：${response.status}`);
+      if (!response.ok) throw new Error(ut`下载失败：${response.status}`);
       return response.blob();
     })
     .then((blob) => {
@@ -565,7 +565,7 @@ async function downloadCurrentActivityPhotos() {
   if (!currentActivity) return;
   if (!requireAuthForDownload()) return;
   if (!activePhotoItems.length) {
-    window.alert('当前活动没有可下载的内容。');
+    window.alert(tr('当前活动没有可下载的内容。'));
     return;
   }
 
@@ -574,7 +574,7 @@ async function downloadCurrentActivityPhotos() {
   downloadActivity.disabled = true;
   try {
     while (activity.photosHaveMore) {
-      downloadActivity.textContent = `正在读取清单 ${activity.loadedImages.length}...`;
+      setUiText(downloadActivity, () => ut`正在读取清单 ${activity.loadedImages.length}...`);
       await loadNextActivityPhotoPage(activity);
     }
     renderActivityPhotoPage(activity);
@@ -587,9 +587,9 @@ async function downloadCurrentActivityPhotos() {
         folderName: `${activity.year}-${activity.activity}`,
         concurrency: 3,
         onProgress(progress) {
-          const action = progress.deliveryMode === 'default-directory' ? '提交下载' : '下载中';
+          const action = progress.deliveryMode === 'default-directory' ? tr('提交下载') : tr('下载中');
           downloadActivity.textContent = `${action} ${progress.completed}/${progress.total}`;
-          photoMeta.textContent = `${action} ${progress.completed}/${progress.total} 个文件${progress.failed.length ? ` · 失败 ${progress.failed.length}` : ''}`;
+          setUiText(photoMeta, () => ut`${action} ${progress.completed}/${progress.total} 个文件${progress.failed.length ? ut` · 失败 ${progress.failed.length}` : ''}`);
         },
       },
     );
@@ -598,14 +598,14 @@ async function downloadCurrentActivityPhotos() {
       updateCurrentActivityDownloads(updated);
     }
     if (result.deliveryMode === 'default-directory') {
-      window.alert(`已向浏览器提交 ${result.succeeded} 个文件，请在默认下载目录中查看。若下载数量不完整，请检查浏览器是否已允许多个文件下载。`);
+      window.alert(ut`已向浏览器提交 ${result.succeeded} 个文件，请在默认下载目录中查看。若下载数量不完整，请检查浏览器是否已允许多个文件下载。`);
     } else if (result.failed.length) {
-      window.alert(`已保存 ${result.succeeded}/${result.total} 个文件到“${result.folderName}”，${result.failed.length} 个文件下载失败。`);
+      window.alert(ut`已保存 ${result.succeeded}/${result.total} 个文件到“${result.folderName}”，${result.failed.length} 个文件下载失败。`);
     } else {
-      window.alert(`已将 ${result.succeeded} 个文件保存到“${result.folderName}”。`);
+      window.alert(ut`已将 ${result.succeeded} 个文件保存到“${result.folderName}”。`);
     }
   } catch (error) {
-    if (error?.name !== 'AbortError') window.alert(error?.message || '下载内容失败。');
+    if (error?.name !== 'AbortError') window.alert(error?.message || tr('下载内容失败。'));
   } finally {
     downloadActivity.disabled = false;
     downloadActivity.textContent = originalLabel;
@@ -710,6 +710,11 @@ loadResourceMeta()
     if (yearbookId) await openYearbook(Number(yearbookId));
   })
   .catch((error) => {
-    resourceGrid.innerHTML = `<div class="empty error">${escapeHtml(error.message)}。请确认后端和数据库已启动。</div>`;
+    resourceGrid.innerHTML = ui`<div class="empty error">${escapeHtml(error.message)}。请确认后端和数据库已启动。</div>`;
     photoGrid.innerHTML = '';
   });
+
+window.addEventListener('nethub-language-change', () => {
+  updateFilterScope();
+  setResourceFilterPanelOpen(!resourceAdvancedFilters.hidden);
+});
