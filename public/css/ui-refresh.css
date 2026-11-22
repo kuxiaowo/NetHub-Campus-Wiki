@@ -106,10 +106,7 @@ button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
   --border: rgb(151 205 203 / 21%);
   --focus-ring: 0 0 0 3px var(--primary);
   border-color: var(--border);
-  background: linear-gradient(105deg, #182139, #142a36 54%, #123936);
-}
-:root[data-theme="dark"] .site-footer {
-  background: linear-gradient(105deg, #11192c, #11222d 54%, #102d2c);
+  background: #142d34;
 }
 :root[data-theme="dark"] .site-footer-copy { color: var(--text-secondary); }
 :root[data-theme="dark"] .site-header .site-preferences button {
