@@ -81,8 +81,10 @@
 }
 
 .home-notifications {
-  min-height: 238px;
-  padding: 24px;
+  min-width: 0;
+  margin-block: 20px;
+  padding-inline-start: clamp(20px, 2.5vw, 32px);
+  border-inline-start: 1px solid var(--border);
 }
 
 .home-notifications-head {
@@ -163,12 +165,8 @@
 }
 
 .home-notification-empty {
-  min-height: 144px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--surface-soft);
-  color: var(--muted);
+  padding-block: 4px;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
@@ -553,6 +551,13 @@
     grid-template-columns: 1fr;
   }
 
+  .home-notifications {
+    margin-block: 0;
+    padding: 16px 0 4px;
+    border-inline-start: 0;
+    border-block-start: 1px solid var(--border);
+  }
+
   .home-intro {
     min-height: 210px;
     padding: 28px;
@@ -606,15 +611,6 @@
 
   .home-intro-actions .button {
     flex: 1;
-  }
-
-  .home-notifications {
-    min-height: 0;
-    padding: 22px;
-  }
-
-  .home-notification-empty {
-    min-height: 86px;
   }
 
   .home-todo-copy {

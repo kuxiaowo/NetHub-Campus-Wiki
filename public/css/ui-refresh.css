@@ -75,8 +75,6 @@ button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 .home-intro-actions .button:hover { background: #2444b0; border-color: #2444b0; }
 .home-intro-actions .button.secondary { background: var(--surface); color: var(--text-main); border-color: var(--border); }
 .home-intro-actions .button.secondary:hover { background: var(--surface-soft); border-color: var(--primary); }
-.home-notifications { min-height: 190px; padding: 20px; }
-.home-notification-empty { min-height: 90px; }
 .home-notification-list li > a { padding: 7px 0; background: transparent; border-bottom: 1px solid var(--border); border-radius: 0; }
 .home-notification-list li:last-child > a { border-bottom: 0; }
 .home-notification-list li > a:hover { background: transparent; color: var(--primary); }
@@ -134,7 +132,6 @@ span[data-ui-text]::before, span[data-ui-text]::after { content: none !important
   .home-main { gap: 24px; padding-top: 20px; }
   .home-top-grid { grid-template-columns: 1fr; gap: 16px; }
   .home-intro { min-height: 160px; padding: 12px 0; }
-  .home-notifications { min-height: auto; }
   .home-popular-grid { grid-template-columns: 1fr; }
   .home-popular-card { display: grid; grid-template-columns: 112px minmax(0, 1fr); }
   .home-popular-media { height: 100%; min-height: 126px; aspect-ratio: auto; }
