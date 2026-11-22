@@ -88,11 +88,7 @@ button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 .home-popular-meta em { color: var(--text-secondary); background: none; padding: 0; }
 .home-popular-hot { color: var(--text-secondary); }
 .home-popular-media { background: var(--surface-soft); }
-.home-todo-entry { min-height: auto; padding: 18px 22px; display: flex; align-items: center; justify-content: space-between; gap: 20px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-soft); }
-.home-todo-copy { display: block; padding: 0; }
-.home-todo-copy::after { display: none; }
-.home-todo-copy h2 { color: var(--text-main); font-size: 18px; margin: 0 0 2px; line-height: 1.3; }
-.home-todo-copy p { color: var(--text-secondary); font-size: 13px; margin: 0; }
+
 .home-contact-entry { background: none; border: 0; padding: 0; }
 .home-contact-entry p, .home-contact-entry a { color: var(--text-secondary); font-size: 13px; }
 .site-footer { background: var(--surface); border-top: 1px solid var(--border); }
@@ -143,8 +139,7 @@ span[data-ui-text]::before, span[data-ui-text]::after { content: none !important
   .home-popular-card { display: grid; grid-template-columns: 112px minmax(0, 1fr); }
   .home-popular-media { height: 100%; min-height: 126px; aspect-ratio: auto; }
   .home-popular-body { min-width: 0; }
-  .home-todo-entry { padding: 18px; }
-  .home-todo-entry .button { flex-shrink: 0; }
+
   .card { padding: 20px; }
   .home-popular-section { padding: 0; }
   .project-search-card { padding: 6px; }

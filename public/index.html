@@ -12,9 +12,9 @@
   <title>首页 - NetHub Campus Wiki</title>
   <link rel="icon" data-layout-icon href="/assets/nethub-favicon-32.png?v=classic" />
   <link rel="stylesheet" href="/css/styles.css?v=layouts-1" />
-  <link rel="stylesheet" href="/css/home.css?v=home-todolist2" />
+  <link rel="stylesheet" href="/css/home.css?v=todo-card3" />
   <script src="/__nethub/client.js?v=1" defer></script>
-  <link rel="stylesheet" data-modern-styles media="not all" href="/css/ui-refresh.css?v=2" />
+  <link rel="stylesheet" data-modern-styles media="not all" href="/css/ui-refresh.css?v=todo-card3" />
   <script src="/js/translations.js?v=layouts-1"></script>
   <script src="/js/translations-static.js?v=ui-bilingual-1"></script>
   <script src="/js/i18n.js?v=layouts-1"></script>
@@ -64,10 +64,10 @@
       </section>
     </div>
 
-    <section class="home-todo-entry" data-layout-only="classic" aria-labelledby="classicTodoTitle">
+    <section class="home-todo-entry" aria-labelledby="homeTodoTitle">
       <div class="home-todo-copy">
         <p class="home-todo-label"><span aria-hidden="true"></span>NetHub 工具 · 已上线</p>
-        <h2 id="classicTodoTitle">把 DDL 放进日历，<br />把今天留给行动。</h2>
+        <h2 id="homeTodoTitle">把 DDL 放进日历，<br />把今天留给行动。</h2>
         <p>用周视图整理课程任务与每日安排，清楚看到截止时间，也更容易决定下一步先做什么。</p>
         <div class="home-todo-actions">
           <a class="button" href="https://todolist.nethub.wiki" target="_blank" rel="noreferrer">打开 TodoList <span aria-hidden="true">↗</span></a>
@@ -103,11 +103,6 @@
       <div id="popularResourceList" class="home-popular-grid" aria-live="polite">
         <div class="empty">正在加载...</div>
       </div>
-    </section>
-
-    <section class="home-todo-entry" data-layout-only="modern" aria-labelledby="homeTodoTitle">
-      <div class="home-todo-copy"><h2 id="homeTodoTitle">TodoList</h2><p>课程、任务与截止日期。</p></div>
-      <a class="button secondary" href="https://todolist.nethub.wiki" target="_blank" rel="noreferrer">打开日历 <span aria-hidden="true">↗</span></a>
     </section>
 
     <section class="home-contact-entry">

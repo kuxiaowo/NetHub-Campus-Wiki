@@ -296,11 +296,11 @@ class FrontendServerTest(unittest.TestCase):
 
         _, home_page, _ = self.fetch("/index.html")
         self.assertIn(b'href="https://todolist.nethub.wiki"', home_page)
-        self.assertIn(b'class="home-todo-entry"', home_page)
-        classic = home_page.index(b'class="home-todo-entry" data-layout-only="classic"')
-        modern = home_page.index(b'class="home-todo-entry" data-layout-only="modern"')
-        self.assertLess(classic, home_page.index(b'id="popularProjectList"'))
-        self.assertGreater(modern, home_page.index(b'id="popularResourceList"'))
+        self.assertEqual(home_page.count(b'class="home-todo-entry"'), 1)
+        promo = home_page.index(b'<section class="home-todo-entry" aria-labelledby="homeTodoTitle">')
+        self.assertLess(promo, home_page.index(b'id="popularProjectList"'))
+        promo_end = home_page.index(b'</section>', promo)
+        self.assertIn(b'/assets/about/todolist.webp', home_page[promo:promo_end])
         self.assertIn(b'class="about-feature-image-link" href="https://todolist.nethub.wiki"', about_page)
 
     def test_friend_links_page_uses_previews_and_safe_external_links(self) -> None:
