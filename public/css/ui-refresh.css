@@ -2,7 +2,7 @@
 :root {
   --page-bg: #f7f8fa;
   --surface: #fff;
-  --site-bar-bg: #fff;
+  --site-bar-bg: #f5f1e8;
   --surface-soft: #f2f4f7;
   --primary: #3157d5;
   --primary-dark: #2444b0;
@@ -17,7 +17,7 @@
 :root[data-theme="dark"] {
   --page-bg: #11151c;
   --surface: #1b222d;
-  --site-bar-bg: #000;
+  --site-bar-bg: #212222;
   --surface-soft: #232d3b;
   --primary: #a9c7ff;
   --primary-dark: #c5d9ff;
