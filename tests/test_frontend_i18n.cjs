@@ -134,6 +134,10 @@ for (const name of htmlFiles) {
   assert.ok(html.indexOf('/js/translations-static.js') < html.indexOf('/js/i18n.js'), name);
   assert.ok(html.indexOf('NetHubI18n.initialize()') < html.indexOf('/js/api.js'), name);
   assert.ok(html.includes('data-layout-icon'), name);
-  assert.ok(html.includes('data-modern-styles media="not all"'), name);
+  const surfaceSheet = html.match(/<link[^>]*href="\/css\/surfaces\.css[^"]*"[^>]*>/)?.[0];
+  assert.ok(surfaceSheet?.includes('data-modern-styles media="not all"'), name);
+  assert.ok(html.indexOf(surfaceSheet) < html.indexOf('/js/i18n.js'), name);
 }
+const monitor = fs.readFileSync(path.join(__dirname, '../public/r2-player-test.html'), 'utf8');
+assert.ok(monitor.includes('href="/css/surfaces.css'), 'Standalone video monitor uses the shared surfaces');
 console.log('Frontend localization tests passed (content boundaries, markup, preferences, and page wiring).');

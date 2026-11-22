@@ -1,0 +1,107 @@
+:root {
+  --paper-blue: 105 144 237;
+  --paper-teal: 90 190 177;
+  --paper-ink: 63 103 165;
+  --card-shadow-rgb: 21 54 101;
+  --card-shadow: 0 3px 8px rgb(var(--card-shadow-rgb) / 10%), 0 12px 30px rgb(var(--card-shadow-rgb) / 13%);
+  --card-fill:
+    radial-gradient(ellipse 10rem 6rem at 102% -1rem, transparent 97%, rgb(var(--paper-ink) / 10%) 98%, transparent 99%),
+    radial-gradient(ellipse 19rem 11rem at 100% 0, rgb(var(--paper-teal) / 11%), transparent 80%),
+    linear-gradient(125deg, rgb(var(--paper-blue) / 4%), transparent 42%);
+}
+:root body {
+  position: relative;
+  isolation: isolate;
+  background-color: var(--page-bg);
+  background-image:
+    radial-gradient(ellipse 64% 32rem at 3% 1rem, rgb(var(--paper-blue) / 24%), transparent 84%),
+    radial-gradient(ellipse 56% 27rem at 91% 4rem, rgb(var(--paper-teal) / 24%), transparent 85%),
+    radial-gradient(ellipse 48% 32rem at 100% 65%, rgb(var(--paper-blue) / 12%), transparent 90%);
+}
+:root[data-theme="dark"] {
+  --card-shadow-rgb: 0 0 0;
+  --paper-blue: 62 95 166;
+  --paper-teal: 36 127 132;
+  --paper-ink: 127 173 215;
+}
+:root[data-theme="light"] { --text-secondary: #536071; }
+body::before,
+body::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+body::before {
+  bottom: auto;
+  height: 35rem;
+  background: repeating-radial-gradient(ellipse 52rem 26rem at 87% -14rem,
+    transparent 0 72px, rgb(var(--paper-ink) / 28%) 73px, transparent 74px 80px);
+  mask-image: radial-gradient(ellipse 25% 43% at 42% 29%, #000 18%, transparent 100%);
+}
+body::after {
+  background: radial-gradient(circle, rgb(var(--paper-ink) / 32%) 0.9px, transparent 1.2px) 0 0 / 14px 14px;
+  mask-image:
+    radial-gradient(ellipse 16rem 12rem at 99% 12rem, #000 12%, transparent 100%),
+    radial-gradient(ellipse 11rem 24rem at 0% 45rem, #000 8%, transparent 100%),
+    radial-gradient(ellipse 14rem 23rem at 100% 78%, #000, transparent 100%);
+}
+@media (max-width: 760px) {
+  body::before {
+    mask-image: radial-gradient(ellipse 64% 36% at 104% 40%, #000, transparent 100%);
+  }
+  body::after {
+    mask-image: radial-gradient(ellipse 9rem 12rem at 104% 20rem, #000 10%, transparent 100%);
+  }
+}
+@media print, (forced-colors: active) {
+  :root body { background-image: none; }
+  body::before, body::after { display: none; }
+}
+
+/* The same surface is used for static panels and for cards rendered from API data. */
+:root :is(
+  .card:where(:not(.home-popular-section)), .detail-panel, .messages-app, .workbench,
+  .mod-card, .admin-project-member-card, .admin-project-update-card,
+  .profile-project-list a, .message-project-card, .link-card,
+  .home-todo-entry, .project-card, .project-row, .resource-card, .home-popular-card,
+  .announcement-list-card, .friend-link-card, .feed-card, .member-card, .photo-item,
+  .about-hero-card, .about-feature, .about-more-grid article, .about-contact-card
+) {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background-color: var(--surface);
+  background-image: var(--card-fill);
+  box-shadow: var(--card-shadow);
+}
+
+/* Keep forms and containers still while individual content cards lift. */
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  :root {
+    --card-lift: translateY(-4px) scale(1.01);
+    --card-hover-shadow: 0 6px 12px rgb(var(--card-shadow-rgb) / 15%), 0 20px 40px rgb(var(--card-shadow-rgb) / 23%);
+    --card-transition: transform .22s ease-out, box-shadow .22s ease-out, border-color .22s ease-out;
+  }
+}
+:is(
+  .home-todo-entry, .home-popular-card, .project-card, .project-row, .resource-card,
+  .photo-item, .announcement-list-card, .friend-link-card, .feed-card, .member-card,
+  .profile-project-list a, .message-project-card, .link-card,
+  .about-hero-card, .about-feature, .about-more-grid article, .about-contact-card
+) {
+  transition: var(--card-transition, none);
+
+  &:hover {
+    transform: var(--card-lift, none);
+    box-shadow: var(--card-hover-shadow, var(--card-shadow));
+  }
+}
+@media print, (forced-colors: active) {
+  :root {
+    --card-fill: none;
+    --card-shadow: none;
+    --card-hover-shadow: none;
+    --card-lift: none;
+  }
+}

@@ -45,8 +45,6 @@ button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 .button.secondary { color: var(--text-main); background: var(--surface); border-color: var(--border); }
 .button.secondary:hover { background: var(--surface-soft); border-color: var(--primary); }
 :root[data-theme="dark"] .button:not(.secondary) { color: #14213d; }
-.card, .project-card, .project-row, .resource-card, .home-popular-card, .announcement-list-card, .friend-link-card, .member-card { border: 1px solid var(--border); box-shadow: var(--shadow-soft); background: var(--surface); border-radius: var(--radius); }
-.project-card:hover, .project-row:hover, .resource-card:hover, .home-popular-card:hover, .announcement-list-card:hover { transform: translateY(-2px); border-color: var(--primary); box-shadow: var(--shadow); }
 .card { padding: 24px; }
 .section-title h1 { font-size: clamp(26px, 3vw, 34px); line-height: 1.2; }
 .section-title h2, .home-notifications-head h2 { color: var(--text-main); font-size: 20px; font-weight: 700; }
@@ -63,58 +61,13 @@ button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 .badge { padding: 3px 8px; border-radius: 5px; font-weight: 600; }
 .content-panel { min-width: 0; }
 .project-list, .resource-grid { gap: 16px; }
-/* The paper texture sits behind both the intro and the notices. */
-.home-content {
-  --home-blue: 105 144 237;
-  --home-teal: 90 190 177;
-  --home-ink: 63 103 165;
-  position: relative;
-  isolation: isolate;
-  background-color: var(--page-bg);
-  background-image:
-    radial-gradient(ellipse 64% 32rem at 3% 1rem, rgb(var(--home-blue) / 24%), transparent 84%),
-    radial-gradient(ellipse 56% 27rem at 91% 4rem, rgb(var(--home-teal) / 24%), transparent 85%),
-    radial-gradient(ellipse 48% 32rem at 100% 65%, rgb(var(--home-blue) / 12%), transparent 90%);
-}
-:root[data-theme="dark"] .home-content {
-  --home-blue: 62 95 166;
-  --home-teal: 36 127 132;
-  --home-ink: 127 173 215;
-}
-:root[data-theme="light"] .home-top-grid { --text-secondary: #536071; }
-.home-content::before,
-.home-content::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-}
-.home-content::before {
-  bottom: auto;
-  height: 35rem;
-  background: repeating-radial-gradient(ellipse 52rem 26rem at 87% -14rem,
-    transparent 0 72px, rgb(var(--home-ink) / 28%) 73px, transparent 74px 80px);
-  mask-image: radial-gradient(ellipse 25% 43% at 42% 29%, #000 18%, transparent 100%);
-}
-.home-content::after {
-  background: radial-gradient(circle, rgb(var(--home-ink) / 32%) 0.9px, transparent 1.2px) 0 0 / 14px 14px;
-  mask-image:
-    radial-gradient(ellipse 16rem 12rem at 99% 12rem, #000 12%, transparent 100%),
-    radial-gradient(ellipse 11rem 24rem at 0% 45rem, #000 8%, transparent 100%);
-}
-@media (max-width: 760px) {
-  .home-content::before {
-    mask-image: radial-gradient(ellipse 64% 36% at 104% 40%, #000, transparent 100%);
-  }
-  .home-content::after {
-    mask-image: radial-gradient(ellipse 9rem 12rem at 104% 20rem, #000 10%, transparent 100%);
-  }
-}
-@media print, (forced-colors: active) {
-  .home-content { background-image: none; }
-  .home-content::before, .home-content::after { display: none; }
-}
+.admin-shell { background: transparent; }
+.messages-app :is(.chat-panel, .message-activity-view, .conversation-sidebar) { background: transparent; }
+.message-center-nav { background: var(--surface-soft); }
+.chat-head, .message-composer, .icon-button { background: var(--surface); }
+.message-project-card { padding: 8px 10px; color: var(--text-main); }
+.message-activity-item.unread, .composer-project-share { background: var(--primary-soft); }
+.message-activity-copy p { color: var(--text-main); }
 .home-main { padding: 32px 0 48px; gap: 24px; }
 .home-top-grid { grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); gap: 24px; }
 .home-intro { min-height: 190px; padding: 20px 0; background: none; box-shadow: none; flex-direction: column; justify-content: center; align-items: flex-start; gap: 20px; }
@@ -146,10 +99,15 @@ button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 .friend-links-hero h1 { font-size: 34px; }
 .friend-link-card { padding: 28px; }
 .friend-link-copy p { color: var(--text-secondary); }
-.about-hero-card, .about-contact-card, .about-more-grid article { background: var(--surface); color: var(--text-main); border: 1px solid var(--border); box-shadow: var(--shadow-soft); border-radius: var(--radius); }
 .about-hero-card h1, .about-feature h3, .about-section-head h2, .about-contact h2, .about-final h2, .about-more h2 { color: var(--text-main); }
 .about-hero-summary, .about-feature p, .about-section-head p, .about-final p, .about-more p { color: var(--text-secondary); }
-.about-final { background: var(--surface-soft); }
+.about-feature { min-height: auto; padding: clamp(20px, 4vw, 48px); gap: clamp(20px, 4vw, 64px); }
+.about-feature + .about-feature { margin-top: 24px; }
+.about-more-grid { gap: 16px; border: 0; background: none; box-shadow: none; }
+.about-more-grid h3, .about-more-head h2 { color: var(--text-main); }
+.about-more-grid p, .about-feature-copy > p:not(.about-feature-index) { color: var(--text-secondary); }
+.about-feature-copy .about-product-link { background: var(--surface-soft); border-color: var(--border); }
+.about-feature-copy .about-product-link small { color: var(--text-secondary); }
 .about-hero-logo { width: 44px; height: 44px; }
 .announcement-content, .comment-content { color: var(--text-main); }
 :root[data-theme="dark"] .project-icon img { background: #fff; }
