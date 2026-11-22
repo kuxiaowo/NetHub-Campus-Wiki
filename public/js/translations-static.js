@@ -40,7 +40,7 @@ window.NETHUB_TRANSLATIONS = Object.assign(window.NETHUB_TRANSLATIONS || {}, {
   "就试着把它做出来。": "Let's bring it to life.",
   "我们为校园项目提供力所能及的技术支持。": "We help campus projects with technical support.",
   "聊聊你的想法": "Share your idea",
-  "NetHub 四位小组成员的合照": "The four members of the NetHub team",
+  "同学们围在 NetHub 展台的笔记本电脑旁，左侧的白板记录着现场反馈": "Students gather around a laptop at the NetHub stand, with visitor feedback on the whiteboard to the left",
   "我们可以帮什么": "How we can help",
   "把想法变成网页": "Turn ideas into websites",
   "网站搭建": "Website development",
