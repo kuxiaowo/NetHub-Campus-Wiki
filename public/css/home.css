@@ -47,10 +47,6 @@
   line-height: 1.12;
 }
 
-.home-intro h1 span {
-  color: #dcecff;
-}
-
 .home-intro-actions {
   flex: 0 0 auto;
   display: flex;

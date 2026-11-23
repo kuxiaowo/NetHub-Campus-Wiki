@@ -282,7 +282,7 @@ class FrontendServerTest(unittest.TestCase):
         self.assertNotIn(b'href="https://www.nethub.wiki"', about_page)
         self.assertIn(b'src="/assets/about/mood-meter-redacted.png"', about_page)
         self.assertNotIn(b'/assets/nethub-icon.png', about_page)
-        self.assertEqual(about_page.count(b'data-nethub-logo="/assets/about/nethub-icon.webp"'), 4)
+        self.assertEqual(about_page.count(b'data-nethub-logo src="/assets/brand/nethub-mark.svg"'), 4)
 
         status, mood_meter, content_type = self.fetch("/assets/about/mood-meter-redacted.png")
         self.assertEqual(status, 200)

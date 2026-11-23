@@ -7,6 +7,7 @@ const vm = require('node:vm');
 // opaque, while authored labels and accessibility strings can change language.
 function runtime(initial = {}) {
   const saved = new Map(Object.entries(initial));
+  const listeners = {};
   const document = {
     documentElement: { dataset: {}, style: {} },
     querySelectorAll: () => [],
@@ -15,7 +16,7 @@ function runtime(initial = {}) {
     document,
     localStorage: { getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value) },
     matchMedia: () => ({ matches: true, addEventListener() {} }),
-    addEventListener() {}, dispatchEvent() {}, CustomEvent: class {},
+    addEventListener(name, fn) { listeners[name] = fn; }, dispatchEvent() {}, CustomEvent: class {},
     console, Intl,
   };
   context.window = context;
@@ -23,31 +24,30 @@ function runtime(initial = {}) {
   for (const name of ['translations.js', 'translations-static.js', 'i18n.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../public/js', name), 'utf8'), context);
   }
-  return { context, saved, run: expression => vm.runInContext(expression, context) };
+  return { context, listeners, saved, run: expression => vm.runInContext(expression, context) };
 }
 
 const zh = runtime();
 assert.equal(zh.run('NetHubI18n.language'), 'zh');
 assert.equal(zh.context.document.documentElement.lang, 'zh-CN');
-assert.equal(zh.context.document.documentElement.dataset.layout, 'classic');
-assert.equal(zh.context.document.documentElement.dataset.theme, 'light');
-const sheet = {};
-const toggle = {};
-zh.context.document.querySelectorAll = selector => (
-  selector === '[data-modern-styles]' ? [sheet] : selector === '[data-layout-toggle]' ? [toggle] : []
-);
-zh.run('NetHubI18n.setLayout("modern")');
-assert.equal(zh.saved.get('nethub-layout'), 'modern');
 assert.equal(zh.context.document.documentElement.dataset.theme, 'dark');
-assert.equal(sheet.media, 'all');
-assert.equal(toggle.textContent, '切回旧版');
-zh.run('NetHubI18n.setLanguage("en")');
-assert.equal(toggle.textContent, 'Use classic UI');
-zh.run('NetHubI18n.setLayout("classic")');
-assert.equal(sheet.media, 'not all');
-assert.equal(toggle.textContent, 'Use modern UI');
+assert.equal(runtime({ 'nethub-layout': 'classic' }).context.document.documentElement.dataset.theme, 'dark');
+const switchLabel = {};
+const themeSwitch = {
+  dataset: {},
+  querySelector: () => switchLabel,
+  setAttribute(name, value) { this[name] = value; },
+};
+zh.context.document.querySelectorAll = selector => selector === '[data-theme-toggle]' ? [themeSwitch] : [];
 zh.run('NetHubI18n.setLanguage("zh")');
-assert.equal(runtime({ 'nethub-layout': 'modern' }).context.document.documentElement.dataset.layout, 'modern');
+assert.equal(themeSwitch['aria-checked'], 'true');
+assert.equal(switchLabel.textContent, '深色');
+zh.run('NetHubI18n.setLanguage("en")');
+assert.equal(switchLabel.textContent, 'Dark');
+zh.listeners.storage({ key: 'nethub-theme', newValue: 'light' });
+assert.equal(themeSwitch['aria-checked'], 'false');
+assert.equal(switchLabel.textContent, 'Light');
+zh.run('NetHubI18n.setLanguage("zh")');
 assert.equal(zh.run('tr("保存")'), '保存');
 
 const en = runtime({ 'nethub-language': 'en', 'nethub-theme': 'light' });
@@ -133,10 +133,13 @@ for (const name of htmlFiles) {
   assert.ok(html.indexOf('/js/translations.js') < html.indexOf('/js/translations-static.js'), name);
   assert.ok(html.indexOf('/js/translations-static.js') < html.indexOf('/js/i18n.js'), name);
   assert.ok(html.indexOf('NetHubI18n.initialize()') < html.indexOf('/js/api.js'), name);
-  assert.ok(html.includes('data-layout-icon'), name);
-  const surfaceSheet = html.match(/<link[^>]*href="\/css\/surfaces\.css[^"]*"[^>]*>/)?.[0];
-  assert.ok(surfaceSheet?.includes('data-modern-styles media="not all"'), name);
-  assert.ok(html.indexOf(surfaceSheet) < html.indexOf('/js/i18n.js'), name);
+  assert.ok(html.includes('href="/assets/brand/favicon.svg"'), name);
+  assert.doesNotMatch(html, /data-layout-|data-modern-styles/, name);
+  for (const file of ['ui-refresh.css', 'surfaces.css']) {
+    const sheet = (html.match(/<link\b[^>]*>/g) || []).find(link => link.includes(`href="/css/${file}?`));
+    assert.ok(sheet && sheet.includes('rel="stylesheet"') && !sheet.includes('media='), name);
+    assert.ok(html.indexOf(sheet) < html.indexOf('<script blocking="render" src="/js/i18n.js'), name);
+  }
 }
 const monitor = fs.readFileSync(path.join(__dirname, '../public/r2-player-test.html'), 'utf8');
 assert.ok(monitor.includes('href="/css/surfaces.css'), 'Standalone video monitor uses the shared surfaces');
