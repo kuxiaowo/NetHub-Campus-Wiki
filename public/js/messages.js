@@ -173,7 +173,9 @@ async function loadActivity(kind, { append = false } = {}) {
 }
 
 async function setMessageView(view, { updateHistory = true } = {}) {
-  const normalized = ['messages', 'replies', 'likes', 'system'].includes(view) ? view : 'messages';
+  const requested = ['messages', 'replies', 'likes', 'system'].includes(view) ? view : 'messages';
+  const available = requested === 'messages' ? communityFeatures.messages : communityFeatures.comments;
+  const normalized = available ? requested : 'system';
   messageState.view = normalized;
   messageEls.viewButtons.forEach((button) => {
     const active = button.dataset.messageView === normalized;
@@ -441,7 +443,7 @@ async function sendCurrentMessage() {
 }
 
 async function connectMessageStream() {
-  if (!messageState.user) return;
+  if (!messageState.user || !communityFeatures.messages) return;
   try {
     const result = await request('/messages/stream-ticket', { method: 'POST' });
     const base = new URL(apiBaseUrl(), window.location.href);
@@ -467,7 +469,7 @@ async function connectMessageStream() {
     socket.addEventListener('close', () => {
       window.clearInterval(messageState.socketPing);
       messageState.socketPing = null;
-      window.setTimeout(connectMessageStream, 3000);
+      if (communityFeatures.messages) window.setTimeout(connectMessageStream, 3000);
     });
   } catch {
     // 短轮询仍会保持消息可用。
@@ -571,22 +573,23 @@ function bindMessageEvents() {
 }
 
 async function initMessages() {
+  await communityFeaturesReady;
   messageState.user = await refreshCurrentUser();
   if (!messageState.user) {
     messageEls.app.classList.add('is-hidden');
     messageEls.gate.classList.remove('is-hidden');
     return;
   }
-  messageEls.app.classList.remove('is-hidden');
   bindMessageEvents();
-  await loadConversations();
+  if (communityFeatures.messages) await loadConversations();
 
   const pageQuery = new URLSearchParams(window.location.search);
   const targetUserId = pageQuery.get('targetUserId');
   const sharedProjectId = pageQuery.get('projectId');
   const initialView = targetUserId || sharedProjectId ? 'messages' : (pageQuery.get('view') || 'messages');
   await setMessageView(initialView, { updateHistory: false });
-  if (targetUserId && Number(targetUserId) !== Number(messageState.user.id)) {
+  messageEls.app.classList.remove('is-hidden');
+  if (communityFeatures.messages && targetUserId && Number(targetUserId) !== Number(messageState.user.id)) {
     try {
       const profile = await request(`/users/${encodeURIComponent(targetUserId)}`);
       await openUserConversation(profile.data);
@@ -605,8 +608,8 @@ async function initMessages() {
   }
   connectMessageStream();
   messageState.pollTimer = window.setInterval(async () => {
-    await loadConversations().catch(() => null);
-    if (messageState.view === 'messages' && messageState.active) {
+    if (communityFeatures.messages) await loadConversations().catch(() => null);
+    if (communityFeatures.messages && messageState.view === 'messages' && messageState.active) {
       await loadMessages(messageState.active).catch(() => null);
     }
     await loadUnreadCounts().catch(() => null);
@@ -616,6 +619,23 @@ async function initMessages() {
 window.addEventListener('campusWikiAuthChange', (event) => {
   const signedIn = Boolean(event.detail?.user);
   if (signedIn !== Boolean(messageState.user)) window.location.reload();
+});
+
+window.addEventListener('community-features-change', async ({ detail: previous }) => {
+  if (!messageState.user || messageEls.app.classList.contains('is-hidden')) return;
+  if (!communityFeatures.messages) {
+    messageState.socket?.close();
+    messageState.active = null;
+    messageState.conversations = [];
+    messageState.messages = [];
+    messageEls.messageList.replaceChildren();
+    renderConversationList();
+    messageEls.app.classList.remove('show-chat');
+  } else if (!previous.messages) {
+    await loadConversations().catch(() => null);
+    connectMessageStream();
+  }
+  await setMessageView(messageState.view, { updateHistory: false });
 });
 
 initMessages().catch((error) => {

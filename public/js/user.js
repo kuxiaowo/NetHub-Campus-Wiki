@@ -33,8 +33,8 @@ function renderPublicProfile(profile, currentUser) {
               ${relationship.following ? tr('已关注') : tr('关注')}
             </button>
             ${messagingBlocked
-              ? ui`<span class="blocked-message-tip">黑名单关系下无法私信</span>`
-              : ui`<a class="button secondary" href="/messages.html?targetUserId=${encodeURIComponent(profile.id)}">发私信</a>`}
+              ? ui`<span class="blocked-message-tip" data-requires-messages>黑名单关系下无法私信</span>`
+              : ui`<a class="button secondary" data-requires-messages href="/messages.html?targetUserId=${encodeURIComponent(profile.id)}">发私信</a>`}
             <button class="text-button danger" type="button" data-profile-action="block">
               ${relationship.blocked ? tr('解除拉黑') : tr('拉黑')}
             </button>
@@ -68,7 +68,7 @@ async function reloadProfile(currentUser) {
 async function initUserProfile() {
   const currentUser = await refreshCurrentUser();
   if (!currentUser) {
-    userStateEl.innerHTML = ui`<h1>登录后查看用户主页</h1><p>用户关系和私信入口只对登录用户开放。</p><a class="button" href="/index.html">返回首页登录</a>`;
+    userStateEl.innerHTML = ui`<h1>登录后查看用户主页</h1><a class="button" href="/index.html">返回首页登录</a>`;
     return;
   }
   if (!viewedUserId) {

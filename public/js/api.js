@@ -98,6 +98,33 @@ async function request(path, options = {}) {
   return response.json();
 }
 
+let communityFeatures = { comments: false, messages: false };
+let pendingFeatures;
+function applyCommunityFeatures(next) {
+  const previous = communityFeatures;
+  communityFeatures = { comments: next.comments === true, messages: next.messages === true };
+  for (const [name, enabled] of Object.entries(communityFeatures)) {
+    document.documentElement.toggleAttribute(`data-${name}-enabled`, enabled);
+  }
+  if (previous.comments !== communityFeatures.comments || previous.messages !== communityFeatures.messages) {
+    window.dispatchEvent(new CustomEvent('community-features-change', { detail: previous }));
+  }
+}
+function refreshCommunityFeatures() {
+  if (!pendingFeatures) {
+    pendingFeatures = request('/community-features').catch(() => ({}))
+      .then(applyCommunityFeatures).finally(() => { pendingFeatures = null; });
+  }
+  return pendingFeatures;
+}
+const communityFeaturesReady = refreshCommunityFeatures();
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshCommunityFeatures(); });
+window.setInterval(() => {
+  if (!document.hidden && document.querySelector('.comments-section, .messages-shell, #profileForm, #userProfile')) {
+    refreshCommunityFeatures();
+  }
+}, 15000);
+
 let turnstileScriptPromise;
 let turnstileSiteKeyPromise;
 

@@ -482,6 +482,8 @@ site = ReviewSite(connect, "wiki")
 
 @router.get("/content-submissions")
 def my_submissions(user=Depends(get_current_user), page: int = Query(1, ge=1)):
+    from backend.community_features import community_features
+    include_comments = community_features()["comments"]
     with site.db() as conn:
         rows = conn.execute(
             """
@@ -493,10 +495,10 @@ def my_submissions(user=Depends(get_current_user), page: int = Query(1, ge=1)):
                WHEN j.state='review' THEN 'review' ELSE 'pending' END,
           c.created_at,COALESCE(j.updated_at,c.created_at),COALESCE(j.final_note,'')
         FROM comments c LEFT JOIN _moderation_jobs j ON j.comment_id=c.id
-        WHERE c.user_id=?
+        WHERE c.user_id=? AND ?
         ORDER BY created_at DESC,id DESC LIMIT 20 OFFSET ?
         """,
-            (user["id"], user["id"], (page - 1) * 20),
+            (user["id"], user["id"], include_comments, (page - 1) * 20),
         ).fetchall()
         data = []
         for row in rows:

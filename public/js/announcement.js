@@ -36,7 +36,7 @@ async function loadAnnouncementDetail() {
       <div class="announcement-detail-meta">
         <time>发布于 ${escapeHtml(announcementDetailDate(announcement.publishedAt))}</time>
         <span>浏览 ${escapeHtml(announcement.viewCount)}</span>
-        <span>留言 ${escapeHtml(announcement.commentCount)}</span>
+        <span data-requires-comments>留言 ${escapeHtml(announcement.commentCount)}</span>
       </div>
     </header>
     <div class="announcement-content">${announcementParagraphs(announcement.content)}</div>

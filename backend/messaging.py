@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import asyncio
 from sqlite3 import IntegrityError
 import json
 import secrets
@@ -14,6 +15,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from backend.auth import get_current_user, public_user_identity, mark_turnstile_session_verified, turnstile_session_is_fresh
 from backend.config import settings
+from backend.community_features import community_features, require_messages
 from backend.database import get_db_connection
 from backend.project_assets import project_icon_url
 from backend.turnstile import verify_turnstile
@@ -46,6 +48,8 @@ class ConnectionManager:
             self.connections.pop(user_id, None)
 
     async def send(self, user_id: int, payload: dict[str, Any]) -> None:
+        if self.connections.get(user_id) and not (await run_in_threadpool(community_features))["messages"]:
+            return
         stale: list[WebSocket] = []
         for websocket in list(self.connections.get(user_id, set())):
             try:
@@ -191,7 +195,7 @@ def _conversation_user_ids(cursor: Any, conversation_id: int) -> list[int]:
     return [row["user_id"] for row in cursor.fetchall()]
 
 
-@router.post("/conversations")
+@router.post("/conversations", dependencies=[Depends(require_messages)])
 def open_conversation(
     payload: dict[str, Any],
     user: dict[str, Any] = Depends(get_current_user),
@@ -288,7 +292,7 @@ def open_conversation(
     }
 
 
-@router.get("/conversations")
+@router.get("/conversations", dependencies=[Depends(require_messages)])
 def list_conversations(
     user: dict[str, Any] = Depends(get_current_user),
 ):
@@ -380,7 +384,7 @@ def list_conversations(
     }
 
 
-@router.get("/conversations/{conversation_id}/messages")
+@router.get("/conversations/{conversation_id}/messages", dependencies=[Depends(require_messages)])
 def list_messages(
     conversation_id: int,
     before: int | None = Query(default=None, ge=1),
@@ -444,7 +448,7 @@ def list_messages(
     }
 
 
-@router.post("/conversations/{conversation_id}/messages")
+@router.post("/conversations/{conversation_id}/messages", dependencies=[Depends(require_messages)])
 async def send_message(
     request: Request,
     conversation_id: int,
@@ -789,7 +793,7 @@ async def send_message(
     return {"data": message}
 
 
-@router.post("/conversations/{conversation_id}/read")
+@router.post("/conversations/{conversation_id}/read", dependencies=[Depends(require_messages)])
 async def mark_conversation_read(
     conversation_id: int,
     payload: dict[str, Any],
@@ -841,7 +845,7 @@ async def mark_conversation_read(
     return {"ok": True, "lastReadMessageId": max_id}
 
 
-@router.delete("/conversations/{conversation_id}")
+@router.delete("/conversations/{conversation_id}", dependencies=[Depends(require_messages)])
 def hide_conversation(
     conversation_id: int,
     user: dict[str, Any] = Depends(get_current_user),
@@ -861,7 +865,7 @@ def hide_conversation(
     return {"ok": True}
 
 
-@router.post("/messages/{message_id}/recall")
+@router.post("/messages/{message_id}/recall", dependencies=[Depends(require_messages)])
 async def recall_message(message_id: int, user: dict[str, Any] = Depends(get_current_user)):
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
@@ -891,7 +895,7 @@ async def recall_message(message_id: int, user: dict[str, Any] = Depends(get_cur
     return {"ok": True}
 
 
-@router.post("/messages/{message_id}/reports")
+@router.post("/messages/{message_id}/reports", dependencies=[Depends(require_messages)])
 def report_message(
     message_id: int,
     payload: dict[str, Any],
@@ -1210,8 +1214,12 @@ async def admin_delete_reported_message(
     return {"ok": True, "messageId": report["message_id"]}
 
 
-@router.get("/messages/unread-count")
+@router.get("/messages/unread-count", dependencies=[Depends(require_messages)])
 def unread_count(user: dict[str, Any] = Depends(get_current_user)):
+    return {"unread": unread_message_count(user["id"])}
+
+
+def unread_message_count(user_id: int) -> int:
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
@@ -1227,13 +1235,13 @@ def unread_count(user: dict[str, Any] = Depends(get_current_user)):
                 FROM conversation_members cm
                 WHERE cm.user_id = %s AND cm.hidden_at IS NULL
                 """,
-                (user["id"],),
+                (user_id,),
             )
             row = cursor.fetchone()
-    return {"unread": int(row.get("unread") or 0)}
+    return int(row.get("unread") or 0)
 
 
-@router.post("/messages/stream-ticket")
+@router.post("/messages/stream-ticket", dependencies=[Depends(require_messages)])
 def create_stream_ticket(user: dict[str, Any] = Depends(get_current_user)):
     now = time.time()
     for ticket, (_, expires_at) in list(_stream_tickets.items()):
@@ -1252,9 +1260,20 @@ async def message_stream(websocket: WebSocket):
         await websocket.close(code=4401)
         return
     user_id = ticket_data[0]
+    if not (await run_in_threadpool(community_features))["messages"]:
+        await websocket.close(code=4403)
+        return
     await manager.connect(user_id, websocket)
     try:
         while True:
-            await websocket.receive_text()
+            try:
+                await asyncio.wait_for(websocket.receive_text(), timeout=15)
+            except asyncio.TimeoutError:
+                pass
+            if not (await run_in_threadpool(community_features))["messages"]:
+                await websocket.close(code=4403)
+                break
     except WebSocketDisconnect:
+        pass
+    finally:
         manager.disconnect(user_id, websocket)

@@ -60,7 +60,11 @@
     const status = document.querySelector('[data-community-status]');
     status.replaceChildren(element('p', () => ut`邮箱：${user.emailVerified ? tr('已验证') : tr('未验证，请到账号中心验证')}`));
     if (user.isMuted) status.append(element('p', ut`本站禁言：${user.muteReason}；${user.mutedUntil ? '至 ' + new Date(user.mutedUntil*1000).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}) : tr('永久')}`));
-    const link = element('a',tr('管理邮箱、邀请及微信申诉')); link.href = (user.accountUrl || 'https://auth.nethub.wiki/account').replace(/\/account$/, '/account/community'); status.append(link);
+    const link = element('a', () => tr('前往账户中心'));
+    const accountsBase = window.CAMPUS_WIKI_CONFIG?.accountsBaseUrl;
+    const accountPage = accountsBase ? accountsBase.replace(/\/$/, '') + '/account' : (user.accountUrl || 'https://auth.nethub.wiki/account');
+    link.href = accountPage + '#email';
+    status.append(link);
     let page = 1;
     async function load() {
       const result = await request(`/content-submissions?page=${page}`);

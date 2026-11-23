@@ -102,6 +102,7 @@ class Settings:
         "OIDC_ISSUER", "https://auth.nethub.wiki"
     ).strip().rstrip("/")
     oidc_client_id: str = os.getenv("OIDC_CLIENT_ID", "campus-wiki").strip()
+    community_features_url: str = os.getenv("COMMUNITY_FEATURES_URL", "").strip()
     oidc_client_secret: str = os.getenv("OIDC_CLIENT_SECRET", "").strip()
     oidc_redirect_uri: str = os.getenv(
         "OIDC_REDIRECT_URI", "http://127.0.0.1:3100/api/auth/callback"
