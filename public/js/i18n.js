@@ -7,7 +7,6 @@
     set(key, value) { try { localStorage.setItem(key, value); } catch { /* Private browsing still works. */ } },
   };
   let language = storage.get('nethub-language', 'zh') === 'en' ? 'en' : 'zh';
-  let layout = storage.get('nethub-layout', 'classic') === 'modern' ? 'modern' : 'classic';
   let theme = storage.get('nethub-theme', 'system');
   if (!['light', 'dark', 'system'].includes(theme)) theme = 'system';
   const darkMedia = global.matchMedia?.('(prefers-color-scheme: dark)');
@@ -29,40 +28,21 @@
     return strings.reduce((result, part, index) => result + translate(part) + (index < values.length ? String(values[index] ?? '') : ''), '');
   }
   function applyTheme() {
-    const dark = layout === 'modern' && (theme === 'dark' || (theme === 'system' && darkMedia?.matches));
+    const dark = theme === 'dark' || (theme === 'system' && darkMedia?.matches);
     const resolved = dark ? 'dark' : 'light';
     document.documentElement.dataset.theme = resolved;
     document.documentElement.style.colorScheme = resolved;
     document.querySelectorAll('img[data-nethub-logo]').forEach((image) => {
-      image.src = layout === 'classic'
-        ? image.dataset.nethubLogo
-        : `/assets/brand/nethub-mark${dark ? '-light' : ''}.svg`;
+      image.src = `/assets/brand/nethub-mark${dark ? '-light' : ''}.svg`;
     });
     document.querySelectorAll('[data-theme-toggle]').forEach((button) => {
       const label = translate(resolved === 'dark' ? '切换浅色主题' : '切换深色主题');
-      button.textContent = resolved === 'dark' ? '☀' : '☾';
-      button.setAttribute('aria-label', label);
+      button.querySelector('.theme-switch-label').textContent = translate(dark ? '深色' : '浅色');
+      button.setAttribute('aria-label', translate('深色模式'));
+      button.setAttribute('aria-checked', String(dark));
       button.title = label;
       button.dataset.preference = theme;
     });
-  }
-  function applyLayout() {
-    document.documentElement.dataset.layout = layout;
-    document.querySelectorAll('[data-modern-styles]').forEach((sheet) => {
-      sheet.media = layout === 'modern' ? 'all' : 'not all';
-    });
-    document.querySelectorAll('[data-layout-icon]').forEach((icon) => {
-      icon.href = layout === 'modern' ? '/assets/brand/favicon.svg' : '/assets/nethub-favicon-32.png?v=classic';
-    });
-    document.querySelectorAll('[data-layout-toggle]').forEach((button) => {
-      button.textContent = translate(layout === 'classic' ? '切换新版' : '切回旧版');
-    });
-    applyTheme();
-  }
-  function setLayout(next) {
-    layout = next === 'modern' ? 'modern' : 'classic';
-    storage.set('nethub-layout', layout);
-    applyLayout();
   }
   function updateMarked(root = document) {
     root.querySelectorAll('[data-ui-text]').forEach((element) => {
@@ -189,7 +169,7 @@
       button.textContent = language === 'en' ? '中文' : 'EN';
       button.setAttribute('aria-label', language === 'en' ? '切换到中文' : 'Switch to English');
     });
-    applyLayout();
+    applyTheme();
     global.dispatchEvent(new CustomEvent('nethub-language-change', { detail: { language } }));
   }
   function initialize() {
@@ -200,11 +180,16 @@
     if (toolbar) {
       const controls = document.createElement('div');
       controls.className = 'site-preferences';
-      controls.innerHTML = '<button type="button" data-layout-toggle></button><button type="button" data-language-toggle>EN</button><button type="button" data-theme-toggle data-layout-only="modern"></button>';
+      controls.innerHTML = `
+        <button type="button" data-language-toggle>EN</button>
+        <button class="theme-switch" type="button" role="switch" data-theme-toggle>
+          <span class="theme-switch-label" aria-hidden="true"></span>
+          <svg class="theme-switch-thumb" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <g class="theme-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></g>
+            <path class="theme-moon" d="M20 15.2A8.4 8.4 0 0 1 8.8 4a8.5 8.5 0 1 0 11.2 11.2Z"/>
+          </svg>
+        </button>`;
       toolbar.append(controls);
-      controls.querySelector('[data-layout-toggle]').addEventListener('click', () => {
-        setLayout(layout === 'classic' ? 'modern' : 'classic');
-      });
       controls.querySelector('[data-language-toggle]').addEventListener('click', () => setLanguage(language === 'en' ? 'zh' : 'en'));
       controls.querySelector('[data-theme-toggle]').addEventListener('click', () => {
         theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
@@ -215,17 +200,13 @@
     setLanguage(language);
   }
   document.documentElement.lang = language === 'en' ? 'en' : 'zh-CN';
-  applyLayout();
+  applyTheme();
   darkMedia?.addEventListener?.('change', applyTheme);
   global.addEventListener('storage', (event) => {
     if (event.key === 'nethub-language') setLanguage(event.newValue);
-    if (event.key === 'nethub-layout') {
-      layout = event.newValue === 'modern' ? 'modern' : 'classic';
-      applyLayout();
-    }
     if (event.key === 'nethub-theme') { theme = ['light', 'dark'].includes(event.newValue) ? event.newValue : 'system'; applyTheme(); }
   });
-  global.NetHubI18n = Object.freeze({ translate, html: htmlTemplate, text: textTemplate, setText, setLanguage, setLayout, initialize, get language() { return language; } });
+  global.NetHubI18n = Object.freeze({ translate, html: htmlTemplate, text: textTemplate, setText, setLanguage, initialize, get language() { return language; } });
   global.ui = htmlTemplate;
   global.tr = translate;
   global.ut = textTemplate;

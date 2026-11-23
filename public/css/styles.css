@@ -92,21 +92,6 @@ a { color: inherit; text-decoration: none; }
 }
 .nav-links a.active,
 .nav-links a:hover { color: var(--primary); background: var(--primary-soft); }
-.nav-links .teacher-nav-link {
-  position: relative;
-  padding-right: 18px;
-}
-.nav-new-badge {
-  position: absolute;
-  top: 2px;
-  right: 3px;
-  color: #dc2626;
-  font-size: 9px;
-  font-weight: 900;
-  line-height: 1;
-  letter-spacing: 0;
-  text-transform: lowercase;
-}
 .auth-area { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .auth-avatar {
   width: 40px;
@@ -3231,9 +3216,6 @@ a.message-activity-item:hover { background: #f8fbff; }
 [data-content-review] .button, [data-my-submissions] .button { margin: 6px 8px 6px 0; }
 [data-content-review] .button[aria-pressed="true"] { background: var(--accent, #2563eb); color: #fff; }
 
-/* Layout controls stay available with either version of the page styles. */
-:root:not([data-layout="modern"]) [data-layout-only="modern"],
-:root[data-layout="modern"] [data-layout-only="classic"] { display: none !important; }
 .site-preferences { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 .site-preferences button { min-width: 36px; padding-inline: 9px; white-space: nowrap; min-height: 36px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text-main); font-size: 12px; font-weight: 650; cursor: pointer; }
 .site-preferences button:hover { background: var(--surface-soft); }

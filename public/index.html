@@ -10,21 +10,21 @@
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="description" content="发现 NetHub Campus Wiki 中的校园 CAS 项目、共享资源、活动影像与 TodoList 时间管理工具。" />
   <title>首页 - NetHub Campus Wiki</title>
-  <link rel="icon" data-layout-icon href="/assets/nethub-favicon-32.png?v=classic" />
-  <link rel="stylesheet" href="/css/styles.css?v=layouts-1" />
-  <link rel="stylesheet" href="/css/home.css?v=home-notices4" />
+  <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg" />
+  <link rel="stylesheet" href="/css/styles.css?v=single-ui" />
+  <link rel="stylesheet" href="/css/home.css?v=single-ui" />
   <script src="/__nethub/client.js?v=1" defer></script>
-  <link rel="stylesheet" data-modern-styles media="not all" href="/css/ui-refresh.css?v=ivory-charcoal" />
-  <link rel="stylesheet" data-modern-styles media="not all" href="/css/surfaces.css?v=wiki1" />
-  <script src="/js/translations.js?v=layouts-1"></script>
+  <link rel="stylesheet" href="/css/ui-refresh.css?v=single-ui" />
+  <link rel="stylesheet" href="/css/surfaces.css?v=profile-shadows" />
+  <script src="/js/translations.js?v=single-ui"></script>
   <script src="/js/translations-static.js?v=ui-bilingual-1"></script>
-  <script src="/js/i18n.js?v=layouts-1"></script>
+  <script blocking="render" src="/js/i18n.js?v=single-ui"></script>
 </head>
 <body class="home-content">
   <header class="site-header">
     <nav class="navbar container">
       <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
-        <img class="site-logo" data-nethub-logo="/assets/nethub-icon.png?v=3" src="/assets/nethub-icon.png?v=3" alt="" />
+        <img class="site-logo" data-nethub-logo src="/assets/brand/nethub-mark.svg" alt="" />
         <span class="brand-copy">
           <strong>NetHub</strong>
           <small>Campus Wiki</small>
@@ -32,11 +32,11 @@
       </a>
       <div class="nav-links" aria-label="主导航">
         <a class="active" href="/index.html" aria-current="page">首页</a>
-        <a href="/projects.html"><span data-layout-only="classic">CAS 项目库</span><span data-layout-only="modern">项目</span></a>
-        <a href="/resources.html"><span data-layout-only="classic">资源中心</span><span data-layout-only="modern">资源</span></a>
-        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到<span class="nav-new-badge" data-layout-only="classic">new</span></a>
-        <a href="/links.html"><span data-layout-only="classic">友情链接</span><span data-layout-only="modern">友链</span></a>
-        <a href="/about.html"><span data-layout-only="classic">关于我们</span><span data-layout-only="modern">关于</span></a>
+        <a href="/projects.html">项目</a>
+        <a href="/resources.html">资源</a>
+        <a class="teacher-nav-link" href="/resources.html?category=teacher">老师驾到</a>
+        <a href="/links.html">友链</a>
+        <a href="/about.html">关于</a>
       </div>
     </nav>
   </header>
@@ -45,8 +45,8 @@
     <div class="home-top-grid">
       <section class="home-intro" aria-labelledby="homeTitle">
         <div>
-          <p class="home-intro-label"><span data-layout-only="classic">NetHub </span>Campus Wiki</p>
-          <h1 id="homeTitle"><span data-layout-only="classic">校园项目与资料，<br />一处查找。</span><span data-layout-only="modern">校园项目与资料</span></h1>
+          <p class="home-intro-label">Campus Wiki</p>
+          <h1 id="homeTitle">校园项目与资料</h1>
         </div>
         <div class="home-intro-actions" aria-label="主要入口">
           <a class="button" href="/projects.html">CAS 项目</a>
@@ -84,7 +84,6 @@
       <div class="section-title with-control">
         <div>
           <h2 id="popularProjectsTitle">热门项目</h2>
-          <span data-layout-only="classic">按项目浏览热度排序</span>
         </div>
         <a class="home-section-link" href="/projects.html?sort=popular">全部项目 <span aria-hidden="true">→</span></a>
       </div>
@@ -97,7 +96,6 @@
       <div class="section-title with-control">
         <div>
           <h2 id="popularResourcesTitle">热门资源</h2>
-          <span data-layout-only="classic">按资源浏览热度排序</span>
         </div>
         <a class="home-section-link" href="/resources.html?sort=hot">全部资源 <span aria-hidden="true">→</span></a>
       </div>
@@ -115,7 +113,7 @@
   <footer class="site-footer">
     <div class="container site-footer-inner">
       <a class="brand site-brand" href="/index.html" aria-label="NetHub Campus Wiki 首页">
-        <img class="site-logo" data-nethub-logo="/assets/nethub-icon.png?v=3" src="/assets/nethub-icon.png?v=3" alt="" />
+        <img class="site-logo" data-nethub-logo src="/assets/brand/nethub-mark.svg" alt="" />
         <span class="brand-copy">
           <strong>NetHub</strong>
           <small>Campus Wiki</small>
