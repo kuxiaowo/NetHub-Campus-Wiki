@@ -179,6 +179,8 @@
   }
 
   async function loadComments(state, { append = false } = {}) {
+    await communityFeaturesReady;
+    if (!communityFeatures.comments) return;
     const query = new URLSearchParams({
       targetType: state.targetType,
       targetId: String(state.targetId),

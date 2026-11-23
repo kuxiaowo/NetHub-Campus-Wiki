@@ -58,7 +58,7 @@ async function initProfile() {
         body: JSON.stringify({
           displayName: String(data.get('displayName') || '').trim(),
           bio: String(data.get('bio') || '').trim(),
-          messagingPermission: String(data.get('messagingPermission') || 'everyone'),
+          ...(communityFeatures.messages ? { messagingPermission: data.get('messagingPermission') } : {}),
         }),
       });
       saveProfileUser(profileUser);

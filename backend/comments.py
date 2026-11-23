@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from backend.community_features import community_features, require_comments
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, Request
 from nethub_moderation.site import enqueue, report_excerpt
@@ -166,7 +167,7 @@ def _select_fields(viewer_id: int | None) -> tuple[str, list[Any]]:
     )
 
 
-@router.get("/comments")
+@router.get("/comments", dependencies=[Depends(require_comments)])
 def list_comments(
     target_type: str = Query(alias="targetType"),
     target_id: int = Query(alias="targetId", ge=1),
@@ -275,7 +276,7 @@ def list_comments(
     }
 
 
-@router.get("/comments/{comment_id}/context")
+@router.get("/comments/{comment_id}/context", dependencies=[Depends(require_comments)])
 def get_comment_context(
     comment_id: int,
     viewer: dict[str, Any] | None = Depends(get_optional_current_user),
@@ -342,7 +343,7 @@ def get_comment_context(
     return {"data": data, "focusCommentId": comment_id}
 
 
-@router.get("/comment-notifications")
+@router.get("/comment-notifications", dependencies=[Depends(require_comments)])
 def list_comment_notifications(
     kind: str = Query(pattern="^(reply|like)$"),
     page: int = Query(default=1, ge=1),
@@ -452,7 +453,7 @@ def list_comment_notifications(
     }
 
 
-@router.post("/comment-notifications/read")
+@router.post("/comment-notifications/read", dependencies=[Depends(require_comments)])
 def read_comment_notifications(
     payload: dict[str, Any],
     user: dict[str, Any] = Depends(get_current_user),
@@ -482,38 +483,20 @@ def read_comment_notifications(
 
 @router.get("/message-center/unread-count")
 def message_center_unread_count(user: dict[str, Any] = Depends(get_current_user)):
-    with get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT
-                  (
-                    SELECT COALESCE(SUM((
-                      SELECT COUNT(*)
-                      FROM messages m
-                      WHERE m.conversation_id = cm.conversation_id
-                        AND m.sender_id <> cm.user_id
-                        AND m.recalled_at IS NULL
-                        AND m.id > COALESCE(cm.last_read_message_id, 0)
-                    )), 0)
-                    FROM conversation_members cm
-                    WHERE cm.user_id = %s AND cm.hidden_at IS NULL
-                  ) AS messages,
-                  (
-                    SELECT COUNT(*) FROM comment_notifications n
-                    WHERE n.recipient_id = %s AND n.kind = 'reply' AND n.read_at IS NULL
-                  ) AS replies,
-                  (
-                    SELECT COUNT(*) FROM comment_notifications n
-                    WHERE n.recipient_id = %s AND n.kind = 'like' AND n.read_at IS NULL
-                  ) AS likes
-                """,
-                (user["id"], user["id"], user["id"]),
-            )
-            row = cursor.fetchone()
-    messages = int(row.get("messages") or 0)
-    replies = int(row.get("replies") or 0)
-    likes = int(row.get("likes") or 0)
+    from backend.messaging import unread_message_count
+    features = community_features()
+    messages = unread_message_count(user["id"]) if features["messages"] else 0
+    activity = {}
+    if features["comments"]:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT kind, COUNT(*) AS total FROM comment_notifications "
+                    "WHERE recipient_id=%s AND read_at IS NULL GROUP BY kind",
+                    (user["id"],),
+                )
+                activity = {row["kind"]: int(row["total"]) for row in cursor.fetchall()}
+    replies, likes = activity.get("reply", 0), activity.get("like", 0)
     from backend.moderation import site
     system = site.unread(user["id"]) if settings.database_backend == "sqlite" else 0
     return {
@@ -525,7 +508,7 @@ def message_center_unread_count(user: dict[str, Any] = Depends(get_current_user)
     }
 
 
-@router.post("/comments")
+@router.post("/comments", dependencies=[Depends(require_comments)])
 def create_comment(
     request: Request,
     payload: dict[str, Any],
@@ -730,7 +713,7 @@ def create_comment(
     return {"data": {"id": comment_id, "moderationStatus": "published" if user["role"] == "admin" else "pending"}}
 
 
-@router.delete("/comments/{comment_id}")
+@router.delete("/comments/{comment_id}", dependencies=[Depends(require_comments)])
 def delete_comment(comment_id: int, payload: dict[str, Any] = Body(default={}), user: dict[str, Any] = Depends(get_current_user)):
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
@@ -758,7 +741,7 @@ def delete_comment(comment_id: int, payload: dict[str, Any] = Body(default={}), 
     return {"ok": True}
 
 
-@router.post("/comments/{comment_id}/like")
+@router.post("/comments/{comment_id}/like", dependencies=[Depends(require_comments)])
 def like_comment(comment_id: int, user: dict[str, Any] = Depends(get_current_user)):
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
@@ -821,7 +804,7 @@ def like_comment(comment_id: int, user: dict[str, Any] = Depends(get_current_use
     return {"ok": True}
 
 
-@router.delete("/comments/{comment_id}/like")
+@router.delete("/comments/{comment_id}/like", dependencies=[Depends(require_comments)])
 def unlike_comment(comment_id: int, user: dict[str, Any] = Depends(get_current_user)):
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
@@ -832,7 +815,7 @@ def unlike_comment(comment_id: int, user: dict[str, Any] = Depends(get_current_u
     return {"ok": True}
 
 
-@router.post("/comments/{comment_id}/reports")
+@router.post("/comments/{comment_id}/reports", dependencies=[Depends(require_comments)])
 def report_comment(
     comment_id: int,
     payload: dict[str, Any],

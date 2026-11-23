@@ -251,7 +251,7 @@ window.NETHUB_TRANSLATIONS = Object.assign(window.NETHUB_TRANSLATIONS || {}, {
   "登录后管理个人资料": "Sign in to manage your profile",
   "个人中心": "My profile",
   "查看公开主页": "View public profile",
-  "账号状态与邀请": "Account status & invitations",
+  "账号状态": "Account status",
   "我的提交": "My submissions",
   "内容审核通过后公开。查看进度或撤回待审内容。": "Content is published after review. Track or withdraw pending submissions.",
   "个人资料": "Profile",

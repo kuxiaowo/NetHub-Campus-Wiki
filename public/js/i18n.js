@@ -12,6 +12,7 @@
   const darkMedia = global.matchMedia?.('(prefers-color-scheme: dark)');
   const chinese = /[\u3400-\u9fff]/;
   const liveText = new Map();
+  let previousScrollY = 0;
   const skip = 'script, style, textarea, pre, code, svg, [contenteditable], [data-user-content]';
 
   function translate(source) {
@@ -155,7 +156,39 @@
     liveText.set(element, { render, value });
     element.textContent = value;
   }
+  function setupScrollingHeader(header) {
+    const root = document.documentElement;
+    let height = 0;
+    let hidden = 0;
+    function setHidden(pixels) {
+      const next = Math.max(0, Math.min(height, pixels));
+      if (next === hidden) return;
+      hidden = next;
+      root.style.setProperty('--header-scroll-offset', -hidden + 'px');
+    }
+    const setHeaderHeight = () => {
+      const fractionHidden = height ? hidden / height : 0;
+      height = Math.ceil(header.getBoundingClientRect().height);
+      root.style.setProperty('--site-header-height', height + 'px');
+      setHidden(Math.min(global.scrollY, fractionHidden * height));
+    };
+    setHeaderHeight();
+    new ResizeObserver(setHeaderHeight).observe(header);
+    previousScrollY = global.scrollY;
+    global.addEventListener('scroll', () => {
+      const y = Math.max(0, Math.min(global.scrollY, root.scrollHeight - global.innerHeight));
+      setHidden(Math.min(y, hidden + (y - previousScrollY)));
+      previousScrollY = y;
+    }, { passive: true });
+  }
   function setLanguage(next) {
+    // Track the visible content before translated labels wrap onto different lines.
+    const y = global.scrollY;
+    const x = global.scrollX;
+    const atBottom = y > 0 && y + global.innerHeight >= document.documentElement.scrollHeight - 1;
+    const readingElement = y > 0 && document.elementFromPoint(global.innerWidth / 2, global.innerHeight / 3)
+      ?.closest('main :is(p, li, h1, h2, h3, article, tr, section), footer');
+    const previousTop = readingElement ? readingElement.getBoundingClientRect().top : 0;
     language = next === 'en' ? 'en' : 'zh';
     storage.set('nethub-language', language);
     document.documentElement.lang = language === 'en' ? 'en' : 'zh-CN';
@@ -171,6 +204,13 @@
     });
     applyTheme();
     global.dispatchEvent(new CustomEvent('nethub-language-change', { detail: { language } }));
+    if (y > 0) {
+      let top = y;
+      if (atBottom) top = document.documentElement.scrollHeight;
+      else if (readingElement?.isConnected) top = global.scrollY + readingElement.getBoundingClientRect().top - previousTop;
+      global.scrollTo({ left: x, top, behavior: 'instant' });
+      previousScrollY = global.scrollY;
+    }
   }
   function initialize() {
     const title = document.querySelector('title');
@@ -190,6 +230,7 @@
           </svg>
         </button>`;
       toolbar.append(controls);
+      setupScrollingHeader(toolbar.closest('header'));
       controls.querySelector('[data-language-toggle]').addEventListener('click', () => setLanguage(language === 'en' ? 'zh' : 'en'));
       controls.querySelector('[data-theme-toggle]').addEventListener('click', () => {
         theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';

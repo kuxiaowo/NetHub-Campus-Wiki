@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.auth import get_current_user, public_user_identity
 from backend.database import get_db_connection
+from backend.community_features import community_features
 
 router = APIRouter(prefix="/api", tags=["announcements"])
 ANNOUNCEMENT_STATUSES = {"published", "archived"}
@@ -94,6 +95,7 @@ def list_announcements(
         params.extend([keyword, keyword, keyword])
     where_sql = " AND ".join(where)
     offset = (page - 1) * page_size
+    comments_enabled = community_features()["comments"]
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(f"SELECT COUNT(*) AS total FROM announcements a WHERE {where_sql}", params)
@@ -103,7 +105,7 @@ def list_announcements(
                 SELECT a.*,
                   (
                     SELECT COUNT(*) FROM comments c
-                    WHERE c.target_type = 'announcement'
+                    WHERE %s AND c.target_type = 'announcement'
                       AND c.target_id = a.id
                       AND c.status = 'visible'
                   ) AS comment_count
@@ -112,7 +114,7 @@ def list_announcements(
                 ORDER BY a.is_pinned DESC, a.published_at DESC, a.id DESC
                 LIMIT %s OFFSET %s
                 """,
-                [*params, page_size, offset],
+                [comments_enabled, *params, page_size, offset],
             )
             rows = cursor.fetchall()
     return {
@@ -129,6 +131,7 @@ def announcement_detail(
     announcement_id: int,
     track: bool = Query(default=True),
 ):
+    comments_enabled = community_features()["comments"]
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             if track:
@@ -151,7 +154,7 @@ def announcement_detail(
                   u.deleted_at AS author_deleted_at,
                   (
                     SELECT COUNT(*) FROM comments c
-                    WHERE c.target_type = 'announcement'
+                    WHERE %s AND c.target_type = 'announcement'
                       AND c.target_id = a.id
                       AND c.status = 'visible'
                   ) AS comment_count
@@ -162,7 +165,7 @@ def announcement_detail(
                   AND a.published_at <= CURRENT_TIMESTAMP
                 LIMIT 1
                 """,
-                (announcement_id,),
+                (comments_enabled, announcement_id),
             )
             row = cursor.fetchone()
     if row is None:

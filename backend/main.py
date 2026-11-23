@@ -30,6 +30,7 @@ if __package__ in {None, ""}:
 from backend.admin import router as admin_router
 from backend.announcements import router as announcements_router
 from backend.comments import router as comments_router
+from backend.community_features import router as community_features_router
 from backend.moderation import router as moderation_router
 from backend.messaging import router as messaging_router
 from backend.project_updates import router as project_updates_router
@@ -145,6 +146,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+app.include_router(community_features_router)
 app.include_router(admin_router)
 app.include_router(project_updates_router)
 app.include_router(social_router)

@@ -8,3 +8,7 @@ def central_account_service(monkeypatch):
         "nethub_status.read_account_status",
         lambda *args: {"active": True, "emailVerified": True},
     )
+    monkeypatch.setattr(
+        "backend.community_features.fetch_features",
+        lambda: {"comments": True, "messages": True},
+    )

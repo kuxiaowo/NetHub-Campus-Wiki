@@ -227,6 +227,8 @@ def update_profile(payload: dict[str, Any], user: dict[str, Any] = Depends(get_c
             updates.append("bio = %s")
             params.append(bio)
     if "messagingPermission" in payload:
+        from backend.community_features import require_messages
+        require_messages()
         permission = str(payload["messagingPermission"])
         if permission not in MESSAGING_PERMISSIONS:
             raise HTTPException(status_code=422, detail="私信权限设置无效")

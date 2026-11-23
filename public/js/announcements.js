@@ -25,7 +25,7 @@ async function loadAllAnnouncements() {
         </div>
         <h2>${escapeHtml(announcement.title)}</h2>
         <p>${escapeHtml(announcement.summary)}</p>
-        <footer><span>浏览 ${escapeHtml(announcement.viewCount)}</span><span>留言 ${escapeHtml(announcement.commentCount)}</span><strong>查看公告 →</strong></footer>
+        <footer><span>浏览 ${escapeHtml(announcement.viewCount)}</span><span data-requires-comments>留言 ${escapeHtml(announcement.commentCount)}</span><strong>查看公告 →</strong></footer>
       </a>
     `).join('') : ui`<div class="empty">没有找到匹配的公告。</div>`;
     const totalPages = Math.max(1, Math.ceil(result.total / result.pageSize));

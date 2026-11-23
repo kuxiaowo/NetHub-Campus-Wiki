@@ -10,13 +10,13 @@
   <meta name="twitter:card" content="summary_large_image" />
   <title>个人中心 - NetHub Campus Wiki</title>
   <link rel="icon" type="image/svg+xml" href="/assets/brand/favicon.svg" />
-  <link rel="stylesheet" href="/css/styles.css?v=single-ui" />
+  <link rel="stylesheet" href="/css/styles.css?v=account-menu-contrast" />
   <script src="/__nethub/client.js?v=1" defer></script>
-  <link rel="stylesheet" href="/css/ui-refresh.css?v=single-ui" />
+  <link rel="stylesheet" href="/css/ui-refresh.css?v=community-features" />
   <link rel="stylesheet" href="/css/surfaces.css?v=profile-shadows" />
   <script src="/js/translations.js?v=single-ui"></script>
-  <script src="/js/translations-static.js?v=ui-bilingual-1"></script>
-  <script blocking="render" src="/js/i18n.js?v=single-ui"></script>
+  <script src="/js/translations-static.js?v=account-sections"></script>
+  <script blocking="render" src="/js/i18n.js?v=scroll-distance"></script>
 </head>
 <body>
   <header class="site-header">
@@ -49,7 +49,7 @@
         <a id="publicProfileLink" class="button secondary" href="#">查看公开主页</a>
       </aside>
       <div class="profile-content">
-        <section class="card"><h2>账号状态与邀请</h2><div data-community-status></div></section>
+        <section class="card"><h2>账号状态</h2><div data-community-status></div></section>
         <section class="card"><h2>我的提交</h2><p>内容审核通过后公开。查看进度或撤回待审内容。</p><div data-my-submissions></div></section>
         <section class="card">
           <div class="section-title"><div><h2>个人资料</h2><span>公开展示给其他校园用户</span></div></div>
@@ -60,7 +60,7 @@
               <small>头像在 Accounts 更新后同步。</small>
             </div>
             <label>个人简介<textarea class="input" name="bio" maxlength="300" rows="5"></textarea></label>
-            <label>谁可以给我发私信
+            <label data-requires-messages>谁可以给我发私信
               <select class="input" name="messagingPermission">
                 <option value="everyone">所有用户（未建立联系者每日限发一条）</option>
                 <option value="following">仅我关注的人</option>
@@ -80,8 +80,8 @@
 
   <script>NetHubI18n.initialize();</script>
   <script src="/js/config.js"></script>
-  <script src="/js/api.js?v=ui-bilingual-1"></script>
-  <script src="/js/profile.js?v=ui-bilingual-1"></script>
-  <script src="/js/content-governance.js?v=ui-bilingual-1"></script>
+  <script src="/js/api.js?v=community-features"></script>
+  <script src="/js/profile.js?v=community-features"></script>
+  <script src="/js/content-governance.js?v=account-sections"></script>
 </body>
 </html>
